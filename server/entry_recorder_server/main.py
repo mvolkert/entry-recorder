@@ -1,10 +1,11 @@
 import os
+import shutil
 from pathlib import Path
 from typing import Optional, List
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Security, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import APIKeyHeader
 
@@ -16,7 +17,12 @@ from .database import (
     delete_recording,
     set_recording_protected,
     get_storage_stats,
-    cleanup_recordings
+    cleanup_recordings,
+    insert_device,
+    update_device,
+    get_devices,
+    get_device_by_id,
+    delete_device
 )
 from .models import (
     StartRecordingRequest,
@@ -24,9 +30,13 @@ from .models import (
     RecordingResponse,
     ServerStatusResponse,
     CleanupResult,
-    EventType
+    EventType,
+    DeviceCreate,
+    DeviceUpdate,
+    DeviceResponse
 )
 from .recorder import recorder
+from .live import stream_mjpeg, stream_mjpeg_snapshot, MJPEG_CONTENT_TYPE
 
 app = FastAPI(
     title="Entry Recorder Server",
@@ -106,10 +116,14 @@ async def start_recording(
     )
 
     if not started:
-        raise HTTPException(
-            status_code=400,
-            detail="Could not start recording. Provide valid RTSP or Snapshot URL."
-        )
+        if req.rtsp_url and not req.snapshot_url and not shutil.which(settings.FFMPEG_PATH):
+            detail = (
+                "Could not start recording: ffmpeg is not installed or not on the server's PATH. "
+                "Install ffmpeg, or add a Snapshot URL to this camera as a fallback."
+            )
+        else:
+            detail = "Could not start recording. Provide a valid RTSP or Snapshot URL."
+        raise HTTPException(status_code=400, detail=detail)
 
     return {"status": "started", "device_id": req.device_id}
 
@@ -234,6 +248,106 @@ async def run_cleanup(_key: Optional[str] = Depends(verify_api_key)):
         max_storage_bytes=settings.MAX_STORAGE_MB * 1024 * 1024
     )
     return CleanupResult(**result)
+
+def _to_device_response(d: dict) -> DeviceResponse:
+    return DeviceResponse(
+        id=d["id"],
+        name=d["name"],
+        rtsp_url=d.get("rtsp_url"),
+        snapshot_url=d.get("snapshot_url"),
+        username=d.get("username"),
+        password=d.get("password"),
+        live_mode=d.get("live_mode") or "rtsp",
+        live_url=f"/api/live/{d['id']}/mjpeg"
+    )
+
+@app.get("/api/devices", response_model=List[DeviceResponse])
+async def list_devices(_key: Optional[str] = Depends(verify_api_key)):
+    return [_to_device_response(d) for d in get_devices()]
+
+@app.post("/api/devices", response_model=DeviceResponse)
+async def create_device(
+    req: DeviceCreate,
+    _key: Optional[str] = Depends(verify_api_key)
+):
+    if not req.rtsp_url and not req.snapshot_url:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide at least an RTSP or a Snapshot URL."
+        )
+    device_id = insert_device(
+        name=req.name,
+        rtsp_url=req.rtsp_url,
+        snapshot_url=req.snapshot_url,
+        username=req.username,
+        password=req.password,
+        live_mode=req.live_mode
+    )
+    device = get_device_by_id(device_id)
+    return _to_device_response(device)
+
+@app.put("/api/devices/{device_id}", response_model=DeviceResponse)
+async def edit_device(
+    device_id: int,
+    req: DeviceUpdate,
+    _key: Optional[str] = Depends(verify_api_key)
+):
+    if not req.rtsp_url and not req.snapshot_url:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide at least an RTSP or a Snapshot URL."
+        )
+    updated = update_device(
+        device_id=device_id,
+        name=req.name,
+        rtsp_url=req.rtsp_url,
+        snapshot_url=req.snapshot_url,
+        username=req.username,
+        password=req.password,
+        live_mode=req.live_mode
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Device not found")
+    device = get_device_by_id(device_id)
+    return _to_device_response(device)
+
+@app.delete("/api/devices/{device_id}")
+async def remove_device(
+    device_id: int,
+    _key: Optional[str] = Depends(verify_api_key)
+):
+    deleted = delete_device(device_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return {"status": "deleted", "id": device_id}
+
+@app.get("/api/live/{device_id}/mjpeg")
+async def live_mjpeg(device_id: int):
+    device = get_device_by_id(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    live_mode = device.get("live_mode") or "rtsp"
+    try:
+        if live_mode == "snapshot":
+            if not device.get("snapshot_url"):
+                raise HTTPException(status_code=400, detail="No Snapshot URL configured for this camera")
+            return StreamingResponse(
+                stream_mjpeg_snapshot(
+                    device["snapshot_url"],
+                    username=device.get("username"),
+                    password=device.get("password")
+                ),
+                media_type=MJPEG_CONTENT_TYPE
+            )
+        if not device.get("rtsp_url"):
+            raise HTTPException(status_code=400, detail="No RTSP URL configured for this camera")
+        return StreamingResponse(
+            stream_mjpeg(device["rtsp_url"]),
+            media_type=MJPEG_CONTENT_TYPE
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 def run_server():
     uvicorn.run(

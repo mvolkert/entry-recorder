@@ -30,6 +30,21 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_recordings_timestamp ON recordings(timestamp);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_recordings_device_id ON recordings(device_id);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_recordings_event_type ON recordings(event_type);")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS devices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                rtsp_url TEXT,
+                snapshot_url TEXT,
+                username TEXT,
+                password TEXT,
+                live_mode TEXT NOT NULL DEFAULT 'rtsp'
+            );
+        """)
+        # Migrate older databases that may be missing the live_mode column
+        existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(devices)").fetchall()}
+        if "live_mode" not in existing_columns:
+            conn.execute("ALTER TABLE devices ADD COLUMN live_mode TEXT NOT NULL DEFAULT 'rtsp'")
         conn.commit()
 
 def insert_recording(
@@ -192,3 +207,59 @@ def cleanup_recordings(retention_days: int, max_storage_bytes: int) -> Dict[str,
         "freed_bytes": freed_bytes,
         "remaining_recordings_count": remaining
     }
+
+def insert_device(
+    name: str,
+    rtsp_url: Optional[str] = None,
+    snapshot_url: Optional[str] = None,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    live_mode: str = "rtsp"
+) -> int:
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO devices (name, rtsp_url, snapshot_url, username, password, live_mode)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (name, rtsp_url, snapshot_url, username, password, live_mode))
+        conn.commit()
+        return cursor.lastrowid
+
+def update_device(
+    device_id: int,
+    name: str,
+    rtsp_url: Optional[str] = None,
+    snapshot_url: Optional[str] = None,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    live_mode: str = "rtsp"
+) -> bool:
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE devices
+            SET name = ?, rtsp_url = ?, snapshot_url = ?, username = ?, password = ?, live_mode = ?
+            WHERE id = ?
+        """, (name, rtsp_url, snapshot_url, username, password, live_mode, device_id))
+        conn.commit()
+        return cursor.rowcount > 0
+
+def get_devices() -> List[Dict[str, Any]]:
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM devices ORDER BY id ASC")
+        return [dict(row) for row in cursor.fetchall()]
+
+def get_device_by_id(device_id: int) -> Optional[Dict[str, Any]]:
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM devices WHERE id = ?", (device_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+def delete_device(device_id: int) -> bool:
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM devices WHERE id = ?", (device_id,))
+        conn.commit()
+        return cursor.rowcount > 0

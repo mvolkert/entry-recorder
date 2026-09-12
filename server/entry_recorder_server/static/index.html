@@ -441,6 +441,85 @@
             padding: 3rem 1rem;
             color: var(--text-muted);
         }
+
+        /* Live Cameras */
+        .live-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .live-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 0.75rem;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .live-card-header {
+            padding: 0.75rem 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .live-name {
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .live-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background-color: var(--accent-green);
+            border-radius: 50%;
+        }
+
+        .live-video-container {
+            width: 100%;
+            height: 220px;
+            background-color: #020617;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .live-img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .live-card-footer {
+            border-top: 1px solid var(--card-border);
+            padding: 0.75rem 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .rec-toggle-btn {
+            border: none;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            background-color: var(--accent-red);
+            color: white;
+            font-size: 1rem;
+        }
+
+        .rec-toggle-btn.recording {
+            background-color: #7f1d1d;
+        }
     </style>
 </head>
 <body>
@@ -485,6 +564,17 @@
                 <div class="section-title">🔴 Ongoing Recordings</div>
             </div>
             <div class="active-list" id="active-recordings-list"></div>
+        </div>
+
+        <!-- Live Cameras Section -->
+        <div>
+            <div class="section-header">
+                <div class="section-title">📡 Live Cameras</div>
+                <button class="btn btn-outline" onclick="openAddDeviceModal()">➕ Add Camera</button>
+            </div>
+            <div class="live-grid" id="live-cameras-grid">
+                <div class="empty-state">Loading cameras...</div>
+            </div>
         </div>
 
         <!-- Recordings Archive Section -->
@@ -574,8 +664,102 @@
         </div>
     </div>
 
+    <!-- Add Camera Device Modal -->
+    <div id="add-device-modal" class="modal-backdrop">
+        <div class="modal-dialog" style="max-width: 500px;">
+            <div class="modal-header">
+                <div style="font-weight: 600;">Add Live Camera</div>
+                <button class="icon-btn" onclick="closeAddDeviceModal()">✕</button>
+            </div>
+            <form onsubmit="submitAddDevice(event)">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Device Name</label>
+                        <input type="text" id="dev-name" class="form-control" placeholder="Front Door 2N Verso" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Live View Source</label>
+                        <select id="dev-live-mode" class="form-control">
+                            <option value="rtsp">RTSP Stream</option>
+                            <option value="snapshot">Snapshot URL</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>RTSP Stream URL (optional if Snapshot is used)</label>
+                        <input type="text" id="dev-rtsp" class="form-control" placeholder="rtsp://admin:pass@192.168.1.100:554/live.sdp">
+                    </div>
+                    <div class="form-group">
+                        <label>Snapshot URL (optional if RTSP is used)</label>
+                        <input type="text" id="dev-snapshot" class="form-control" placeholder="http://192.168.1.100/api/camera/snapshot">
+                    </div>
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="dev-username" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="dev-password" class="form-control">
+                    </div>
+                </div>
+                <div class="modal-header" style="border-top: 1px solid var(--card-border); justify-content: flex-end; gap: 0.5rem;">
+                    <button type="button" class="btn btn-outline" onclick="closeAddDeviceModal()">Cancel</button>
+                    <button type="submit" class="btn">Add Camera</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Camera Device Modal -->
+    <div id="edit-device-modal" class="modal-backdrop">
+        <div class="modal-dialog" style="max-width: 500px;">
+            <div class="modal-header">
+                <div style="font-weight: 600;">Edit Live Camera</div>
+                <button class="icon-btn" onclick="closeEditDeviceModal()">✕</button>
+            </div>
+            <form onsubmit="submitEditDevice(event)">
+                <div class="modal-body">
+                    <input type="hidden" id="edit-dev-id">
+                    <div class="form-group">
+                        <label>Device Name</label>
+                        <input type="text" id="edit-dev-name" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Live View Source</label>
+                        <select id="edit-dev-live-mode" class="form-control">
+                            <option value="rtsp">RTSP Stream</option>
+                            <option value="snapshot">Snapshot URL</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>RTSP Stream URL (optional if Snapshot is used)</label>
+                        <input type="text" id="edit-dev-rtsp" class="form-control" placeholder="rtsp://admin:pass@192.168.1.100:554/live.sdp">
+                    </div>
+                    <div class="form-group">
+                        <label>Snapshot URL (optional if RTSP is used)</label>
+                        <input type="text" id="edit-dev-snapshot" class="form-control" placeholder="http://192.168.1.100/api/camera/snapshot">
+                    </div>
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="edit-dev-username" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="edit-dev-password" class="form-control">
+                    </div>
+                </div>
+                <div class="modal-header" style="border-top: 1px solid var(--card-border); justify-content: flex-end; gap: 0.5rem;">
+                    <button type="button" class="btn btn-outline" onclick="closeEditDeviceModal()">Cancel</button>
+                    <button type="submit" class="btn">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
         let allRecordings = [];
+        let allDevices = [];
+        let activeRecordingsByDevice = {};
+
 
         function formatBytes(bytes) {
             if (bytes === 0) return '0 B';
@@ -603,8 +787,10 @@
                 // Render active
                 const activeSec = document.getElementById('active-recordings-section');
                 const activeList = document.getElementById('active-recordings-list');
+                activeRecordingsByDevice = {};
                 if (status.active_recordings && status.active_recordings.length > 0) {
                     activeSec.style.display = 'block';
+                    status.active_recordings.forEach(rec => { activeRecordingsByDevice[rec.device_id] = rec; });
                     activeList.innerHTML = status.active_recordings.map(rec => `
                         <div class="active-card">
                             <div>
@@ -618,6 +804,8 @@
                     activeSec.style.display = 'none';
                     activeList.innerHTML = '';
                 }
+
+                renderLiveCameras();
 
                 // Load recordings
                 const recRes = await fetch('/api/recordings?limit=200');
@@ -756,8 +944,196 @@
             loadData();
         }
 
+        async function loadDevices() {
+            try {
+                const res = await fetch('/api/devices');
+                allDevices = await res.json();
+                renderLiveCameras();
+            } catch (err) {
+                console.error("Failed to load devices", err);
+            }
+        }
+
+        function renderLiveCameras() {
+            const grid = document.getElementById('live-cameras-grid');
+            if (allDevices.length === 0) {
+                grid.innerHTML = '<div class="empty-state">No cameras added yet. Click "Add Camera" to start a live view.</div>';
+                return;
+            }
+
+            grid.innerHTML = allDevices.map(dev => {
+                const isRecording = !!activeRecordingsByDevice[dev.id];
+                return `
+                <div class="live-card">
+                    <div class="live-card-header">
+                        <div class="live-name"><span class="live-indicator"></span> ${dev.name}</div>
+                        <div style="display: flex; gap: 0.25rem;">
+                            <button class="icon-btn" onclick="openEditDeviceModal(${dev.id})" title="Edit Camera">✏️</button>
+                            <button class="icon-btn danger" onclick="removeDevice(${dev.id})" title="Remove Camera">🗑️</button>
+                        </div>
+                    </div>
+                    <div class="live-video-container">
+                        <img class="live-img" id="live-img-${dev.id}" src="${dev.live_url}" alt="${dev.name} live view" onerror="this.style.opacity=0.3;">
+                    </div>
+                    <div class="live-card-footer">
+                        <span style="font-size:0.8rem; color: var(--text-muted);">${isRecording ? 'Recording…' : 'Live'}</span>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="rec-toggle-btn" style="background-color: var(--card-border);" onclick="toggleFullscreen(${dev.id})" title="Fullscreen">⛶</button>
+                            <button class="rec-toggle-btn ${isRecording ? 'recording' : ''}" onclick="toggleDeviceRecording(${dev.id})" title="${isRecording ? 'Stop Recording' : 'Start Recording'}">
+                                ${isRecording ? '⏹' : '⏺'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            }).join('');
+        }
+
+        function toggleFullscreen(deviceId) {
+            const img = document.getElementById(`live-img-${deviceId}`);
+            if (!img) return;
+            if (img.requestFullscreen) {
+                img.requestFullscreen();
+            } else if (img.webkitRequestFullscreen) {
+                img.webkitRequestFullscreen();
+            }
+        }
+
+        function openAddDeviceModal() {
+            document.getElementById('add-device-modal').classList.add('open');
+        }
+
+        function closeAddDeviceModal() {
+            document.getElementById('add-device-modal').classList.remove('open');
+        }
+
+        async function submitAddDevice(e) {
+            e.preventDefault();
+            const rtspUrl = document.getElementById('dev-rtsp').value || null;
+            const snapshotUrl = document.getElementById('dev-snapshot').value || null;
+            if (!rtspUrl && !snapshotUrl) {
+                alert('Please provide at least an RTSP or a Snapshot URL.');
+                return;
+            }
+            const payload = {
+                name: document.getElementById('dev-name').value,
+                rtsp_url: rtspUrl,
+                snapshot_url: snapshotUrl,
+                username: document.getElementById('dev-username').value || null,
+                password: document.getElementById('dev-password').value || null,
+                live_mode: document.getElementById('dev-live-mode').value
+            };
+
+            const res = await fetch('/api/devices', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (res.ok) {
+                closeAddDeviceModal();
+                e.target.reset();
+                loadDevices();
+            } else {
+                const err = await res.json();
+                alert('Failed to add camera: ' + (err.detail || 'Unknown error'));
+            }
+        }
+
+        function openEditDeviceModal(id) {
+            const dev = allDevices.find(d => d.id === id);
+            if (!dev) return;
+            document.getElementById('edit-dev-id').value = dev.id;
+            document.getElementById('edit-dev-name').value = dev.name;
+            document.getElementById('edit-dev-live-mode').value = dev.live_mode || 'rtsp';
+            document.getElementById('edit-dev-rtsp').value = dev.rtsp_url || '';
+            document.getElementById('edit-dev-snapshot').value = dev.snapshot_url || '';
+            document.getElementById('edit-dev-username').value = dev.username || '';
+            document.getElementById('edit-dev-password').value = dev.password || '';
+            document.getElementById('edit-device-modal').classList.add('open');
+        }
+
+        function closeEditDeviceModal() {
+            document.getElementById('edit-device-modal').classList.remove('open');
+        }
+
+        async function submitEditDevice(e) {
+            e.preventDefault();
+            const id = document.getElementById('edit-dev-id').value;
+            const rtspUrl = document.getElementById('edit-dev-rtsp').value || null;
+            const snapshotUrl = document.getElementById('edit-dev-snapshot').value || null;
+            if (!rtspUrl && !snapshotUrl) {
+                alert('Please provide at least an RTSP or a Snapshot URL.');
+                return;
+            }
+            const payload = {
+                name: document.getElementById('edit-dev-name').value,
+                rtsp_url: rtspUrl,
+                snapshot_url: snapshotUrl,
+                username: document.getElementById('edit-dev-username').value || null,
+                password: document.getElementById('edit-dev-password').value || null,
+                live_mode: document.getElementById('edit-dev-live-mode').value
+            };
+
+            const res = await fetch(`/api/devices/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (res.ok) {
+                closeEditDeviceModal();
+                loadDevices();
+            } else {
+                const err = await res.json();
+                alert('Failed to update camera: ' + (err.detail || 'Unknown error'));
+            }
+        }
+
+        async function removeDevice(id) {
+            if (!confirm('Remove this camera from the live view?')) return;
+            await fetch(`/api/devices/${id}`, { method: 'DELETE' });
+            loadDevices();
+        }
+
+        async function toggleDeviceRecording(deviceId) {
+            const dev = allDevices.find(d => d.id === deviceId);
+            if (!dev) return;
+
+            if (activeRecordingsByDevice[deviceId]) {
+                await stopRecording(deviceId);
+                return;
+            }
+
+            const payload = {
+                device_id: dev.id,
+                device_name: dev.name,
+                rtsp_url: dev.rtsp_url,
+                snapshot_url: dev.snapshot_url,
+                username: dev.username,
+                password: dev.password,
+                event_type: 'MANUAL',
+                duration_seconds: 3600
+            };
+
+            const res = await fetch('/api/recordings/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                alert('Failed to start recording: ' + (err.detail || 'Unknown error'));
+                return;
+            }
+
+            setTimeout(loadData, 500);
+        }
+
         // Auto load and poll
         loadData();
+        loadDevices();
         setInterval(loadData, 5000);
     </script>
 </body>

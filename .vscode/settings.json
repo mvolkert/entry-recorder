@@ -11,6 +11,8 @@
             "approve": true,
             "matchCommandLine": true
         },
-        "ForEach-Object": true
+        "ForEach-Object": true,
+        "Get-Command": true,
+        "gradle bundleRelease": true
     }
 }

@@ -32,6 +32,8 @@ data class DeviceEntity(
     val recordOnMotion: Boolean = true,
     val recordOnRing: Boolean = true,
     val recordOnNoise: Boolean = true,
+    // Motion is analyzed locally in-app from the video stream instead of relying on the device's own detection
+    val recordOnMotionOnDevice: Boolean = false,
     val motionPostRecordSeconds: Int = 20,
     val noisePostRecordSeconds: Int = 20,
     val ringRecordSeconds: Int = 60,

@@ -105,13 +105,8 @@ class StreamRecorder:
                     self._record_snapshots(job, snapshot_url, username, password, duration_seconds, note)
                 )
                 job.task = task
-            elif rtsp_url:
-                # ffmpeg not in PATH, fallback command
-                task = asyncio.create_task(
-                    self._record_ffmpeg(job, rtsp_url, duration_seconds, note)
-                )
-                job.task = task
             else:
+                # rtsp_url given but ffmpeg is not installed, and no snapshot_url to fall back to
                 return False
 
             self._active_jobs[device_id] = job
