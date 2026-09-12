@@ -237,7 +237,7 @@ async def run_cleanup(_key: Optional[str] = Depends(verify_api_key)):
 
 def run_server():
     uvicorn.run(
-        "entry_recorder_server.main:app",
+        app,
         host=settings.HOST,
         port=settings.PORT,
         reload=False

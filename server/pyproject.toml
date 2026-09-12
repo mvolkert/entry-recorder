@@ -28,3 +28,6 @@ entry-recorder-server = "entry_recorder_server.main:run_server"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["entry_recorder_server*"]
+
+[tool.setuptools.package-data]
+entry_recorder_server = ["static/*", "static/**/*"]

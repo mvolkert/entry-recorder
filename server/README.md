@@ -13,9 +13,20 @@ Centralized video recording server with Web UI for Entry Recorder intercoms (2N 
 - **REST API**: Seamless communication with the Entry Recorder Android App.
 - **Automatic Storage Retention**: Configurable retention period in days and maximum storage quota limit.
 
+## Downloads & Releases
+
+Pre-built binaries and packages are automatically built on GitHub Actions and available under [GitHub Releases / Actions Artifacts](../../releases):
+- **Windows Standalone**: `entry-recorder-server-windows-x64.zip` (single executable `.exe`, no Python installation required)
+- **Linux Standalone**: `entry-recorder-server-linux-x86_64.tar.gz` (standalone Linux binary)
+- **Docker Bundle**: `entry-recorder-server-docker-bundle.zip`
+- **Python Wheel**: `entry_recorder_server-*.whl`
+
 ## Installation & Running
 
-### Option 1: Standalone Python
+### Option 1: Standalone Binary (No Python required)
+Download and unpack the pre-built archive for your OS from GitHub Releases, then run `entry-recorder-server` (`.exe` on Windows).
+
+### Option 2: Standalone Python
 ```bash
 cd server
 pip install -r requirements.txt
@@ -27,7 +38,7 @@ python -m entry_recorder_server.main
 entry-recorder-server
 ```
 
-### Option 2: Docker / Docker Compose
+### Option 3: Docker / Docker Compose
 ```bash
 cd server
 docker compose up -d

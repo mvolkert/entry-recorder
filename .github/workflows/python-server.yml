@@ -1,0 +1,184 @@
+name: Build & Package Python Server
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "server/**"
+      - ".github/workflows/python-server.yml"
+    tags:
+      - "v*"
+      - "server-*"
+  pull_request:
+    paths:
+      - "server/**"
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: "Create/Update GitHub Release with assets"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-binaries:
+    name: Build Standalone Binary (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: entry-recorder-server-linux-x86_64
+            archive_name: entry-recorder-server-linux-x86_64.tar.gz
+            bin_name: entry-recorder-server
+          - os: windows-latest
+            artifact_name: entry-recorder-server-windows-x64
+            archive_name: entry-recorder-server-windows-x64.zip
+            bin_name: entry-recorder-server.exe
+
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: server/requirements.txt
+
+      - name: Install dependencies & PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build standalone executable with PyInstaller (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          pyinstaller --noconfirm --onefile --name entry-recorder-server \
+            --add-data "entry_recorder_server/static:entry_recorder_server/static" \
+            --hidden-import "uvicorn.logging" \
+            --hidden-import "uvicorn.loops" \
+            --hidden-import "uvicorn.loops.auto" \
+            --hidden-import "uvicorn.protocols" \
+            --hidden-import "uvicorn.protocols.http" \
+            --hidden-import "uvicorn.protocols.http.auto" \
+            --hidden-import "uvicorn.protocols.websockets" \
+            --hidden-import "uvicorn.protocols.websockets.auto" \
+            --hidden-import "uvicorn.lifespan" \
+            --hidden-import "uvicorn.lifespan.on" \
+            entry_recorder_server/main.py
+
+          mkdir dist_package
+          cp dist/entry-recorder-server dist_package/
+          cp README.md dist_package/
+          cp docker-compose.yml dist_package/ 2>/dev/null || true
+          tar -czvf "../${{ matrix.archive_name }}" -C dist_package .
+
+      - name: Build standalone executable with PyInstaller (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          pyinstaller --noconfirm --onefile --name entry-recorder-server `
+            --add-data "entry_recorder_server/static;entry_recorder_server/static" `
+            --hidden-import "uvicorn.logging" `
+            --hidden-import "uvicorn.loops" `
+            --hidden-import "uvicorn.loops.auto" `
+            --hidden-import "uvicorn.protocols" `
+            --hidden-import "uvicorn.protocols.http" `
+            --hidden-import "uvicorn.protocols.http.auto" `
+            --hidden-import "uvicorn.protocols.websockets" `
+            --hidden-import "uvicorn.protocols.websockets.auto" `
+            --hidden-import "uvicorn.lifespan" `
+            --hidden-import "uvicorn.lifespan.on" `
+            entry_recorder_server/main.py
+
+          New-Item -ItemType Directory -Force -Path dist_package
+          Copy-Item dist/entry-recorder-server.exe -Destination dist_package/
+          Copy-Item README.md -Destination dist_package/
+          Compress-Archive -Path dist_package/* -DestinationPath "../${{ matrix.archive_name }}" -Force
+
+      - name: Upload standalone artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.archive_name }}
+          retention-days: 30
+
+  build-package:
+    name: Build Python Wheel & Docker Bundle
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build Python Package (Wheel & sdist)
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+          mkdir -p ../dist_packages
+          cp dist/* ../dist_packages/
+
+      - name: Create Docker / Self-hosted Bundle
+        run: |
+          mkdir -p ../docker-bundle/server
+          cp -r entry_recorder_server Dockerfile docker-compose.yml pyproject.toml requirements.txt README.md ../docker-bundle/server/
+          cd ../docker-bundle
+          zip -r ../entry-recorder-server-docker-bundle.zip server/
+
+      - name: Upload Python packages & Docker bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: entry-recorder-server-packages
+          path: |
+            dist_packages/*
+            entry-recorder-server-docker-bundle.zip
+          retention-days: 30
+
+  publish-release:
+    name: Publish Release Assets
+    needs: [build-binaries, build-package]
+    if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release_assets
+
+      - name: Flatten assets directory
+        run: |
+          mkdir -p final_release_assets
+          find release_assets -type f -exec cp {} final_release_assets/ \;
+          ls -la final_release_assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: final_release_assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
