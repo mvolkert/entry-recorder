@@ -1,0 +1,10 @@
+{
+    "java.configuration.updateBuildConfiguration": "interactive",
+    "chat.tools.terminal.autoApprove": {
+        ".\\gradlew": true,
+        "/^gradle --version$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

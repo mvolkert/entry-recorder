@@ -10,7 +10,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url = java.net.URI("https://linphone.org/maven_repository") }
+        maven { url = java.net.URI("https://download.linphone.org/releases/maven_repository") }
     }
 }
 
