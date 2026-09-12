@@ -140,6 +140,18 @@ app/src/main/java/io/github/mvolkert/entryrecorder/
 
 Erfordert Android Studio (Hedgehog oder neuer) und JDK 17.
 
+Für signierte Release-Bundles die folgenden Properties in der globalen Gradle-Konfiguration
+(`%USERPROFILE%\.gradle\gradle.properties`) hinterlegen. Das verwendete Keystore-File
+und die Passwörter dürfen nicht ins Repository eingecheckt werden:
+
+```properties
+RELEASE_STORE_FILE=C:/Users/<user>/path/to/release.keystore
+RELEASE_STORE_PASSWORD=<keystore-password>
+RELEASE_KEY_ALIAS=<key-alias>
+RELEASE_KEY_PASSWORD=<key-password>
+```
+
 ```bash
 ./gradlew assembleDebug
+./gradlew bundleRelease
 ```
