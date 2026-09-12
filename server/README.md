@@ -45,3 +45,43 @@ docker compose up -d
 ```
 
 Open your browser at `http://localhost:8000` to access the Web UI.
+
+## 2N IP Verso Configuration
+
+The 2N intercom does **not** send webhooks to Entry Recorder Server. Do not configure a server callback URL in the 2N web interface. The Android app connects to the 2N API to receive events, then asks this server to start and stop recordings.
+
+Configure the following on the 2N IP Verso:
+
+- Create a dedicated user with access to the camera stream and the 2N HTTP API.
+- Enable RTSP and note the stream URL. Add it, together with the 2N credentials, to the device in the Android app or in the server Web UI.
+- Optionally enable HTTP snapshots and provide the snapshot URL as a recording fallback.
+- Allow the event API for the user. The Android app subscribes to `GET /api/event/subscribe` for `MotionDetected`, `KeyPressed`, `CallStateChanged`, and `NoiseDetected` events. On older firmware it falls back to `GET /api/motion/status` and `GET /api/noise/status`.
+
+In the Android app, select **Python Server** recording mode and configure the server base URL, for example `http://192.168.1.100:8000`. The app uses these server endpoints:
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/status` | Tests the configured server connection. |
+| `POST` | `/api/recordings/start` | Starts a recording when a 2N event occurs. |
+| `POST` | `/api/recordings/stop` | Stops the recording when the event ends or its duration expires. |
+
+When `API_KEY` is set in the server environment, enter the same value in the Android app. The app sends it in the `X-API-Key` request header. Ensure the Android device can reach the server on its configured port (default: `8000`) and the server can reach the 2N intercom's RTSP and HTTP interfaces.
+
+### Recording Request Example
+
+The Android app sends a JSON request like this to `POST /api/recordings/start`:
+
+```json
+{
+  "device_id": 1,
+  "device_name": "Front Door 2N Verso",
+  "rtsp_url": "rtsp://192.168.1.50:554/stream1",
+  "username": "entry-recorder",
+  "password": "replace-with-your-password",
+  "source_mode": "rtsp",
+  "event_type": "RING",
+  "duration_seconds": 60
+}
+```
+
+Send `{"device_id": 1}` to `POST /api/recordings/stop` to stop that device's active recording.
