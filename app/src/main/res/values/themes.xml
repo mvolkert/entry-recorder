@@ -5,10 +5,6 @@
     </style>
 
     <style name="Theme.EntryRecorder.LockScreen" parent="Theme.EntryRecorder">
-        <item name="android:windowShowWhenLocked">true</item>
-        <item name="android:windowTurnScreenOn">true</item>
-        <item name="android:windowKeepScreenOn">true</item>
-        <item name="android:showWhenLocked">true</item>
-        <item name="android:turnScreenOn">true</item>
+        <item name="android:windowBackground">@color/black</item>
     </style>
 </resources>
