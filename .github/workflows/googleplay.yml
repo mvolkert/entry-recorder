@@ -17,7 +17,9 @@ jobs:
         with:
           distribution: "temurin"
           java-version: "17"
-          cache: "gradle"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -31,11 +33,14 @@ jobs:
           echo "GRADLE_USER_HOME=${HOME}/.gradle" >> $GITHUB_ENV
           echo "${GRADLE_PROPERTIES}" > ~/.gradle/gradle.properties
 
-      - name: Make gradlew executable
-        run: chmod +x gradlew || true
-
       - name: Build Android App Bundle
-        run: ./gradlew bundleRelease
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x gradlew
+            ./gradlew bundleRelease
+          else
+            gradle bundleRelease
+          fi
 
       - name: Upload Android Release to Play Store
         uses: r0adkll/upload-google-play@v1
