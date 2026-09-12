@@ -33,6 +33,19 @@ jobs:
           echo "GRADLE_USER_HOME=${HOME}/.gradle" >> $GITHUB_ENV
           echo "${GRADLE_PROPERTIES}" > ~/.gradle/gradle.properties
 
+      - name: Validate Play service account
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        shell: bash
+        run: |
+          test -n "${GOOGLE_SERVICE_ACCOUNT_JSON}"
+          echo "${GOOGLE_SERVICE_ACCOUNT_JSON}" | jq -e '
+            .type == "service_account" and
+            (.project_id | type == "string") and
+            (.client_email | type == "string") and
+            (.private_key | type == "string")
+          ' > /dev/null
+
       - name: Build Android App Bundle
         run: |
           if [ -f "./gradlew" ]; then
@@ -49,3 +62,4 @@ jobs:
           packageName: io.github.mvolkert.entryrecorder
           releaseFiles: app/build/outputs/bundle/release/app-release.aab
           track: beta
+          status: completed
