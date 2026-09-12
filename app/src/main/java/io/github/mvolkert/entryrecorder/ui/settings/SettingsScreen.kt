@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,6 +32,7 @@ fun SettingsScreen(
 
     var editingDevice by remember { mutableStateOf<DeviceEntity?>(null) }
     var showAddDeviceDialog by remember { mutableStateOf(false) }
+    var isTestingServer by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -91,6 +93,120 @@ fun SettingsScreen(
                         onEdit = { editingDevice = device },
                         onDelete = { viewModel.deleteDevice(device) }
                     )
+                }
+            }
+
+            // Recording Engine & Destination Section
+            item {
+                Text(
+                    text = "Recording Mode & Destination",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 16.dp)
+                )
+            }
+
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text("Where should video recordings be recorded and stored?")
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilterChip(
+                                selected = state.appSettings.recordingMode == RecordingMode.APP_LOCAL,
+                                onClick = {
+                                    viewModel.updateSettings(
+                                        state.appSettings.copy(recordingMode = RecordingMode.APP_LOCAL)
+                                    )
+                                },
+                                label = { Text("📱 In-App (Default)") },
+                                leadingIcon = if (state.appSettings.recordingMode == RecordingMode.APP_LOCAL) {
+                                    { Icon(Icons.Default.Check, contentDescription = null) }
+                                } else null
+                            )
+
+                            FilterChip(
+                                selected = state.appSettings.recordingMode == RecordingMode.PYTHON_SERVER,
+                                onClick = {
+                                    viewModel.updateSettings(
+                                        state.appSettings.copy(recordingMode = RecordingMode.PYTHON_SERVER)
+                                    )
+                                },
+                                label = { Text("🐍 Python Server") },
+                                leadingIcon = if (state.appSettings.recordingMode == RecordingMode.PYTHON_SERVER) {
+                                    { Icon(Icons.Default.Check, contentDescription = null) }
+                                } else null
+                            )
+                        }
+
+                        if (state.appSettings.recordingMode == RecordingMode.PYTHON_SERVER) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Videos will be recorded on the centralized Python server backend with web interface. If the server is unreachable, recording automatically falls back to in-app storage.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            OutlinedTextField(
+                                value = state.appSettings.serverBaseUrl,
+                                onValueChange = {
+                                    viewModel.updateSettings(state.appSettings.copy(serverBaseUrl = it))
+                                },
+                                label = { Text("Python Server URL") },
+                                placeholder = { Text("http://192.168.1.100:8000") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+
+                            OutlinedTextField(
+                                value = state.appSettings.serverApiKey,
+                                onValueChange = {
+                                    viewModel.updateSettings(state.appSettings.copy(serverApiKey = it))
+                                },
+                                label = { Text("API Key (Optional)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+
+                            OutlinedButton(
+                                onClick = {
+                                    isTestingServer = true
+                                    viewModel.testServerConnection(
+                                        state.appSettings.serverBaseUrl,
+                                        state.appSettings.serverApiKey
+                                    ) { success, msg ->
+                                        isTestingServer = false
+                                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !isTestingServer
+                            ) {
+                                if (isTestingServer) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Testing connection...")
+                                } else {
+                                    Icon(Icons.Default.WifiTethering, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Test Server Connection")
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

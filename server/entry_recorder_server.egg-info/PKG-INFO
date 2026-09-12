@@ -1,0 +1,52 @@
+Metadata-Version: 2.4
+Name: entry-recorder-server
+Version: 1.0.0
+Summary: Video recording backend server for Entry Recorder intercoms
+Author: Entry Recorder Team
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi>=0.110.0
+Requires-Dist: uvicorn[standard]>=0.28.0
+Requires-Dist: pydantic>=2.6.0
+Requires-Dist: pydantic-settings>=2.2.0
+Requires-Dist: aiofiles>=23.2.1
+Requires-Dist: requests>=2.31.0
+Requires-Dist: pillow>=10.2.0
+Requires-Dist: python-multipart>=0.0.9
+
+# Entry Recorder Server & Web UI
+
+Centralized video recording server with Web UI for Entry Recorder intercoms (2N IP Verso and generic RTSP/ONVIF devices).
+
+## Features
+- **Centralized Video Recording**: Records RTSP H.264/AAC streams using FFmpeg or HTTP snapshot grabbing fallback.
+- **Web UI**: Modern, responsive dashboard accessible directly in any web browser (`http://<server-ip>:8000`).
+  - View live active recordings with stop controls.
+  - Video gallery with auto-generated thumbnails.
+  - In-browser HTML5 video player.
+  - Filter by intercom device name and event type (Doorbell Ring, Motion, Manual).
+  - Download MP4 files and protect recordings from auto-cleanup.
+- **REST API**: Seamless communication with the Entry Recorder Android App.
+- **Automatic Storage Retention**: Configurable retention period in days and maximum storage quota limit.
+
+## Installation & Running
+
+### Option 1: Standalone Python
+```bash
+cd server
+pip install -r requirements.txt
+pip install -e .
+
+# Start the server
+python -m entry_recorder_server.main
+# or
+entry-recorder-server
+```
+
+### Option 2: Docker / Docker Compose
+```bash
+cd server
+docker compose up -d
+```
+
+Open your browser at `http://localhost:8000` to access the Web UI.

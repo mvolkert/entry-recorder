@@ -8,6 +8,7 @@ import androidx.work.WorkManager
 import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
 import io.github.mvolkert.entryrecorder.worker.RetentionCleanupWorker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -27,6 +28,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private val app = application as EntryRecorderApp
     private val repository = app.repository
+    private val serverClient = ServerRecordingClient()
 
     val uiState: StateFlow<SettingsUiState> = combine(
         repository.allDevices,
@@ -56,6 +58,17 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun updateSettings(settings: AppSettingsEntity) {
         viewModelScope.launch {
             repository.updateSettings(settings)
+        }
+    }
+
+    fun testServerConnection(url: String, apiKey: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val result = serverClient.testConnection(url, apiKey.ifBlank { null })
+            if (result.isSuccess) {
+                onResult(true, "Connected to Python server successfully!")
+            } else {
+                onResult(false, result.exceptionOrNull()?.localizedMessage ?: "Connection failed")
+            }
         }
     }
 

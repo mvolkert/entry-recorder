@@ -9,6 +9,9 @@ Namespace: `io.github.mvolkert.entryrecorder`
 ## Funktionen
 
 - **Einstellbare lokale IP-Adresse & Ports**: Voll konfigurierbare Verbindung zur 2N IP Verso (HTTP, HTTPS, RTSP, Digest/Basic Auth).
+- **Einstellbare Videoaufzeichnung (Lokal oder Python Server)**:
+  - **App-Lokal (Standard)**: Direkte Aufzeichnung und Speicherung auf dem Android-Gerät.
+  - **Python Server Backend**: Zentrale Aufzeichnung auf einem separaten Python-Server inkl. **Web-Interface** zur Ansicht, Wiedergabe und Verwaltung im Browser. Automatische Ausfallsicherung (Fallback) auf lokale Aufzeichnung, falls der Server nicht erreichbar ist.
 - **Automatische Videoaufzeichnung**:
   - Aufzeichnung bei **Klingeln** (Doorbell Event / KeyPressed).
   - Aufzeichnung bei **Bewegungserkennung** (2N Motion Detection API / SSE).
@@ -56,6 +59,26 @@ Namespace: `io.github.mvolkert.entryrecorder`
 - **Modus 2 (PBX / Fritz!Box)**:
   - 2N an der Fritz!Box als IP-Türsprechstelle / IP-Telefon registrieren.
   - In der EntryRecorder-App unter SIP-Einstellungen die IP der Fritz!Box, SIP-Benutzer und Passwort eintragen.
+
+---
+
+## Python Server & Web UI (`server/`)
+
+Zusätzlich zur lokalen App-Aufzeichnung steht ein eigenständiges Python-Server-Paket mit integrierter **Web-Benutzeroberfläche** zur Verfügung:
+
+```bash
+cd server
+pip install -r requirements.txt
+python -m entry_recorder_server.main
+```
+Oder via Docker:
+```bash
+cd server
+docker compose up -d
+```
+
+- **Web-Dashboard**: Erreichbar unter `http://<server-ip>:8000` im Webbrowser (Live-Aufnahmestatus, Videogalerie mit HTML5-Player, Download, Retention Cleanup und manuelle Aufnahmetrigger).
+- **REST API**: `/api/status`, `/api/recordings/start`, `/api/recordings/stop`, `/api/recordings`.
 
 ---
 

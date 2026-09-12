@@ -5,6 +5,7 @@
         "/^gradle --version$/": {
             "approve": true,
             "matchCommandLine": true
-        }
+        },
+        "&": true
     }
 }

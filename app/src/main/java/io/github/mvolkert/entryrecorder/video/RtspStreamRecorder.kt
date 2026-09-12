@@ -3,15 +3,13 @@ package io.github.mvolkert.entryrecorder.video
 import android.content.Context
 import android.util.Log
 import androidx.annotation.OptIn
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
+import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
+import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
 import kotlinx.coroutines.*
 import java.io.File
 import java.io.FileOutputStream
@@ -24,11 +22,13 @@ import java.util.concurrent.ConcurrentHashMap
 @OptIn(UnstableApi::class)
 class RtspStreamRecorder(
     private val context: Context,
-    private val repository: IntercomRepository
+    private val repository: IntercomRepository,
+    private val serverClient: ServerRecordingClient = ServerRecordingClient()
 ) {
     private val tag = "RtspStreamRecorder"
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val activeRecordings = ConcurrentHashMap<Long, ActiveRecordingJob>()
+    private val activeServerRecordings = ConcurrentHashMap<Long, Boolean>()
 
     private data class ActiveRecordingJob(
         val deviceId: Long,
@@ -38,24 +38,57 @@ class RtspStreamRecorder(
         val job: Job
     )
 
-    fun isRecording(deviceId: Long): Boolean = activeRecordings.containsKey(deviceId)
+    fun isRecording(deviceId: Long): Boolean =
+        activeRecordings.containsKey(deviceId) || activeServerRecordings.containsKey(deviceId)
 
     /**
-     * Start recording an RTSP/Snapshot video sequence for a given device and trigger event
+     * Start recording an RTSP/Snapshot video sequence for a given device and trigger event.
+     * Evaluates whether to record via Python server or locally in-app (default).
      */
     @Synchronized
     fun startRecording(device: DeviceEntity, eventType: EventType, maxDurationSeconds: Int = 60) {
-        if (activeRecordings.containsKey(device.id)) {
+        if (isRecording(device.id)) {
             Log.d(tag, "Device ${device.id} is already recording")
             return
         }
 
+        scope.launch {
+            val settings = repository.getSettings()
+
+            if (settings.recordingMode == RecordingMode.PYTHON_SERVER) {
+                Log.i(tag, "Initiating server recording on ${settings.serverBaseUrl} for ${device.name}")
+                val result = serverClient.startRecording(
+                    serverUrl = settings.serverBaseUrl,
+                    apiKey = settings.serverApiKey.ifBlank { null },
+                    device = device,
+                    eventType = eventType,
+                    durationSeconds = maxDurationSeconds
+                )
+
+                if (result.isSuccess) {
+                    activeServerRecordings[device.id] = true
+                    launch {
+                        delay((maxDurationSeconds + 2) * 1000L)
+                        activeServerRecordings.remove(device.id)
+                    }
+                    return@launch
+                } else {
+                    Log.w(tag, "Server recording failed, falling back to local recording: ${result.exceptionOrNull()?.message}")
+                }
+            }
+
+            // Local recording (Default or Fallback)
+            startLocalRecording(device, eventType, maxDurationSeconds)
+        }
+    }
+
+    private fun startLocalRecording(device: DeviceEntity, eventType: EventType, maxDurationSeconds: Int) {
         val timestampStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val recordingsDir = File(context.filesDir, "recordings").apply { mkdirs() }
         val outputFile = File(recordingsDir, "REC_${device.id}_${eventType.name}_$timestampStr.mp4")
 
         val startTime = System.currentTimeMillis()
-        Log.i(tag, "Starting recording for ${device.name} [${eventType.name}] -> ${outputFile.name}")
+        Log.i(tag, "Starting local recording for ${device.name} [${eventType.name}] -> ${outputFile.name}")
 
         val job = scope.launch {
             try {
@@ -80,14 +113,26 @@ class RtspStreamRecorder(
     }
 
     /**
-     * Stops an ongoing recording and commits it to database
+     * Stops an ongoing recording and commits it to database or informs the server
      */
     @Synchronized
     fun stopRecording(deviceId: Long) {
         val active = activeRecordings.remove(deviceId)
         if (active != null) {
-            Log.i(tag, "Stopping active recording for device $deviceId")
+            Log.i(tag, "Stopping active local recording for device $deviceId")
             active.job.cancel()
+        }
+
+        if (activeServerRecordings.remove(deviceId) != null) {
+            Log.i(tag, "Stopping active server recording for device $deviceId")
+            scope.launch {
+                val settings = repository.getSettings()
+                serverClient.stopRecording(
+                    serverUrl = settings.serverBaseUrl,
+                    apiKey = settings.serverApiKey.ifBlank { null },
+                    deviceId = deviceId
+                )
+            }
         }
     }
 

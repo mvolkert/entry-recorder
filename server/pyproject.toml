@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "entry-recorder-server"
+version = "1.0.0"
+description = "Video recording backend server for Entry Recorder intercoms"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "Entry Recorder Team" }
+]
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.28.0",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "aiofiles>=23.2.1",
+    "requests>=2.31.0",
+    "pillow>=10.2.0",
+    "python-multipart>=0.0.9",
+]
+
+[project.scripts]
+entry-recorder-server = "entry_recorder_server.main:run_server"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["entry_recorder_server*"]

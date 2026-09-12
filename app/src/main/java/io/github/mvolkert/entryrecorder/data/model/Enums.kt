@@ -16,3 +16,8 @@ enum class EventType {
     RING,
     MANUAL
 }
+
+enum class RecordingMode {
+    APP_LOCAL,       // Recorded directly by the Android app on local device storage
+    PYTHON_SERVER    // Recorded centrally by external Python server
+}
