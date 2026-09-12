@@ -230,13 +230,15 @@ class TwoNIPVersoDevice(
         }
     }
 
-    override suspend fun stopMonitoring() = withContext(Dispatchers.IO) {
-        isMonitoring.set(false)
-        eventSource?.cancel()
-        eventSource = null
-        pollingJob?.cancel()
-        pollingJob = null
-        Log.i(tag, "2N monitoring stopped")
+    override suspend fun stopMonitoring() {
+        withContext(Dispatchers.IO) {
+            isMonitoring.set(false)
+            eventSource?.cancel()
+            eventSource = null
+            pollingJob?.cancel()
+            pollingJob = null
+            Log.i(tag, "2N monitoring stopped")
+        }
     }
 }
 

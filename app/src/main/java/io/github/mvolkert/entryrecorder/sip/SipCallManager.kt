@@ -103,8 +103,8 @@ class SipCallManager private constructor(private val context: Context) {
 
             newCore.addListener(coreListener)
             newCore.isMicEnabled = true
-            newCore.enableEchoCancellation(true)
-            newCore.enableEchoLimiter(true)
+            newCore.setEchoCancellationEnabled(true)
+            newCore.setEchoLimiterEnabled(true)
 
             // Setup audio device routing
             val audioDevice = newCore.audioDevices.firstOrNull { it.type == AudioDevice.Type.Speaker }
@@ -165,7 +165,7 @@ class SipCallManager private constructor(private val context: Context) {
                 proxyConfig.edit()
                 proxyConfig.identityAddress = factory.createAddress(identity)
                 proxyConfig.serverAddr = proxyServer
-                proxyConfig.enableRegister(true)
+                proxyConfig.setRegisterEnabled(true)
                 proxyConfig.done()
 
                 c.addProxyConfig(proxyConfig)
@@ -181,7 +181,7 @@ class SipCallManager private constructor(private val context: Context) {
         val call = currentCall
         if (call != null && call.state == Call.State.IncomingReceived) {
             val params = core?.createCallParams(call)
-            params?.enableVideo(false) // Audio intercom call
+            params?.setVideoEnabled(false) // Audio intercom call
             call.acceptWithParams(params)
             routeAudioToSpeaker(true)
             Log.i(tag, "Accepted incoming SIP call")
