@@ -112,6 +112,7 @@ async def start_recording(
         snapshot_url=req.snapshot_url,
         username=req.username,
         password=req.password,
+        source_mode=req.source_mode or "auto",
         note=req.note
     )
 
@@ -343,7 +344,11 @@ async def live_mjpeg(device_id: int):
         if not device.get("rtsp_url"):
             raise HTTPException(status_code=400, detail="No RTSP URL configured for this camera")
         return StreamingResponse(
-            stream_mjpeg(device["rtsp_url"]),
+            stream_mjpeg(
+                device["rtsp_url"],
+                username=device.get("username"),
+                password=device.get("password")
+            ),
             media_type=MJPEG_CONTENT_TYPE
         )
     except RuntimeError as e:

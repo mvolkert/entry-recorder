@@ -13,10 +13,11 @@ class StartRecordingRequest(BaseModel):
     device_name: str = Field(..., description="Display name of the intercom device")
     rtsp_url: Optional[str] = Field(None, description="Full RTSP stream URL with credentials if needed")
     snapshot_url: Optional[str] = Field(None, description="HTTP Snapshot URL as fallback")
-    username: Optional[str] = Field(None, description="Device HTTP username for basic auth snapshot grab")
-    password: Optional[str] = Field(None, description="Device HTTP password for basic auth snapshot grab")
+    username: Optional[str] = Field(None, description="Device HTTP username for basic/digest auth snapshot grab")
+    password: Optional[str] = Field(None, description="Device HTTP password for basic/digest auth snapshot grab")
+    source_mode: Optional[str] = Field("auto", description="Source mode: 'auto', 'rtsp', or 'snapshot'")
     event_type: EventType = Field(EventType.RING, description="Trigger event type (RING, MOTION, MANUAL)")
-    duration_seconds: int = Field(60, description="Max recording duration in seconds", ge=1, le=600)
+    duration_seconds: int = Field(60, description="Max recording duration in seconds", ge=1, le=86400)
     note: Optional[str] = Field(None, description="Optional custom label or note")
 
 class StopRecordingRequest(BaseModel):

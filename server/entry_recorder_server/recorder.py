@@ -6,12 +6,47 @@ import time
 from pathlib import Path
 from typing import Dict, Optional
 import requests
+from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 from PIL import Image
 import io
 
 from .config import settings
 from .database import insert_recording
 from .models import EventType, ActiveRecordingInfo
+
+def fetch_single_snapshot(
+    url: str,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    timeout: float = 3.0
+) -> Optional[bytes]:
+    """Fetches a JPEG frame from a snapshot URL with automatic Digest or Basic HTTP auth."""
+    if not username and not password:
+        try:
+            r = requests.get(url, timeout=timeout)
+            if r.status_code == 200 and r.content:
+                return r.content
+        except Exception:
+            return None
+        return None
+
+    # Try Digest auth first (standard on 2N IP Verso and modern intercoms)
+    try:
+        r = requests.get(url, auth=HTTPDigestAuth(username, password), timeout=timeout)
+        if r.status_code == 200 and r.content:
+            return r.content
+    except Exception:
+        pass
+
+    # Try Basic auth fallback
+    try:
+        r = requests.get(url, auth=HTTPBasicAuth(username, password), timeout=timeout)
+        if r.status_code == 200 and r.content:
+            return r.content
+    except Exception:
+        pass
+
+    return None
 
 class ActiveJob:
     def __init__(
@@ -22,6 +57,8 @@ class ActiveJob:
         max_duration_seconds: int,
         start_time_ms: int,
         output_file: Path,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
         process: Optional[asyncio.subprocess.Process] = None,
         task: Optional[asyncio.Task] = None
     ):
@@ -31,9 +68,12 @@ class ActiveJob:
         self.max_duration_seconds = max_duration_seconds
         self.start_time_ms = start_time_ms
         self.output_file = output_file
+        self.username = username
+        self.password = password
         self.process = process
         self.task = task
         self.stop_requested = asyncio.Event()
+        self.first_frame_bytes: Optional[bytes] = None
 
 class StreamRecorder:
     def __init__(self):
@@ -70,6 +110,7 @@ class StreamRecorder:
         snapshot_url: Optional[str] = None,
         username: Optional[str] = None,
         password: Optional[str] = None,
+        source_mode: Optional[str] = "auto",
         note: Optional[str] = None
     ) -> bool:
         async with self._lock:
@@ -87,27 +128,47 @@ class StreamRecorder:
                 event_type=event_type,
                 max_duration_seconds=duration_seconds,
                 start_time_ms=start_time_ms,
-                output_file=output_file
+                output_file=output_file,
+                username=username,
+                password=password
             )
 
             # Check if ffmpeg is available
-            ffmpeg_bin = shutil.which(settings.FFMPEG_PATH)
+            ffmpeg_bin = shutil.which(settings.FFMPEG_PATH) or os.path.isfile(settings.FFMPEG_PATH)
 
-            if rtsp_url and ffmpeg_bin:
-                # Use ffmpeg for direct RTSP stream recording
-                task = asyncio.create_task(
-                    self._record_ffmpeg(job, rtsp_url, duration_seconds, note)
-                )
-                job.task = task
-            elif snapshot_url:
-                # Fallback to MJPEG / Snapshot grabbing loop
+            use_snapshot = False
+            if source_mode == "snapshot":
+                if snapshot_url:
+                    use_snapshot = True
+                elif rtsp_url and ffmpeg_bin:
+                    use_snapshot = False
+                else:
+                    return False
+            elif source_mode == "rtsp":
+                if rtsp_url and ffmpeg_bin:
+                    use_snapshot = False
+                elif snapshot_url:
+                    use_snapshot = True
+                else:
+                    return False
+            else: # "auto"
+                if rtsp_url and ffmpeg_bin:
+                    use_snapshot = False
+                elif snapshot_url:
+                    use_snapshot = True
+                else:
+                    return False
+
+            if use_snapshot:
                 task = asyncio.create_task(
                     self._record_snapshots(job, snapshot_url, username, password, duration_seconds, note)
                 )
                 job.task = task
             else:
-                # rtsp_url given but ffmpeg is not installed, and no snapshot_url to fall back to
-                return False
+                task = asyncio.create_task(
+                    self._record_ffmpeg(job, rtsp_url, duration_seconds, note)
+                )
+                job.task = task
 
             self._active_jobs[device_id] = job
             return True
@@ -126,11 +187,18 @@ class StreamRecorder:
             return True
 
     async def _record_ffmpeg(self, job: ActiveJob, rtsp_url: str, duration_sec: int, note: Optional[str]):
+        # Inject credentials into RTSP URL if provided and not already in URL
+        final_rtsp_url = rtsp_url
+        if hasattr(job, "username") and job.username and hasattr(job, "password") and job.password:
+            if "@" not in rtsp_url and "://" in rtsp_url:
+                scheme, rest = rtsp_url.split("://", 1)
+                final_rtsp_url = f"{scheme}://{job.username}:{job.password}@{rest}"
+
         cmd = [
             settings.FFMPEG_PATH,
             "-y",
             "-rtsp_transport", "tcp",
-            "-i", rtsp_url,
+            "-i", final_rtsp_url,
             "-t", str(duration_sec),
             "-c:v", "copy",
             "-c:a", "aac",
@@ -138,10 +206,11 @@ class StreamRecorder:
             str(job.output_file)
         ]
         try:
+            print(f"[Recorder] Starting FFmpeg process for {job.device_name}: {' '.join(cmd)}")
             process = await asyncio.create_subprocess_exec(
                 *cmd,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
             job.process = process
 
@@ -161,6 +230,11 @@ class StreamRecorder:
                         process.kill()
                 except ProcessLookupError:
                     pass
+
+            stdout_data, stderr_data = await process.communicate() if process.returncode is not None else (b"", b"")
+            if process.returncode != 0 and process.returncode is not None:
+                err_msg = stderr_data.decode("utf-8", errors="replace") if stderr_data else ""
+                print(f"[Recorder] FFmpeg exited with code {process.returncode} for {job.device_name}:\n{err_msg[-1000:]}")
         except Exception as e:
             print(f"[Recorder] FFmpeg error: {e}")
         finally:
@@ -176,21 +250,68 @@ class StreamRecorder:
         note: Optional[str]
     ):
         deadline = time.time() + duration_sec
-        auth = (username, password) if username and password else None
-        
-        # Write frames to file
-        with open(job.output_file, "wb") as f:
-            while not job.stop_requested.is_set() and time.time() < deadline:
-                try:
-                    res = await asyncio.to_thread(
-                        lambda: requests.get(snapshot_url, auth=auth, timeout=2.5)
+        ffmpeg_bin = shutil.which(settings.FFMPEG_PATH) or os.path.isfile(settings.FFMPEG_PATH)
+
+        if ffmpeg_bin:
+            # Encode incoming snapshots directly to H.264 MP4 via FFmpeg image2pipe
+            cmd = [
+                settings.FFMPEG_PATH,
+                "-y",
+                "-f", "image2pipe",
+                "-vcodec", "mjpeg",
+                "-r", "5",
+                "-i", "pipe:0",
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                str(job.output_file)
+            ]
+            try:
+                print(f"[Recorder] Starting snapshot recording with FFmpeg for {job.device_name}")
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL
+                )
+                job.process = process
+
+                while not job.stop_requested.is_set() and time.time() < deadline:
+                    frame = await asyncio.to_thread(
+                        lambda: fetch_single_snapshot(snapshot_url, username, password, timeout=2.0)
                     )
-                    if res.status_code == 200:
-                        f.write(res.content)
-                except Exception:
-                    pass
-                await asyncio.sleep(0.2)  # ~5 FPS
-        
+                    if frame:
+                        if job.first_frame_bytes is None:
+                            job.first_frame_bytes = frame
+                        try:
+                            if process.stdin:
+                                process.stdin.write(frame)
+                                await process.stdin.drain()
+                        except (BrokenPipeError, ConnectionResetError):
+                            break
+                    await asyncio.sleep(0.2)  # ~5 FPS
+
+                if process.stdin and not process.stdin.is_closing():
+                    try:
+                        process.stdin.close()
+                    except Exception:
+                        pass
+                await process.wait()
+            except Exception as e:
+                print(f"[Recorder] FFmpeg snapshot recording error: {e}")
+        else:
+            # Fallback without FFmpeg: grab raw JPEG frames
+            with open(job.output_file, "wb") as f:
+                while not job.stop_requested.is_set() and time.time() < deadline:
+                    frame = await asyncio.to_thread(
+                        lambda: fetch_single_snapshot(snapshot_url, username, password, timeout=2.0)
+                    )
+                    if frame:
+                        if job.first_frame_bytes is None:
+                            job.first_frame_bytes = frame
+                        f.write(frame)
+                    await asyncio.sleep(0.2)
+
         await self._finalize_recording(job, note)
 
     async def _finalize_recording(self, job: ActiveJob, note: Optional[str]):
@@ -224,8 +345,16 @@ class StreamRecorder:
 
     async def _generate_thumbnail(self, job: ActiveJob) -> Optional[Path]:
         thumb_file = settings.thumbnails_dir / f"THUMB_{job.device_id}_{job.start_time_ms}.jpg"
-        ffmpeg_bin = shutil.which(settings.FFMPEG_PATH)
 
+        # If we captured the first frame in memory, save it directly
+        if job.first_frame_bytes:
+            try:
+                thumb_file.write_bytes(job.first_frame_bytes)
+                return thumb_file
+            except Exception:
+                pass
+
+        ffmpeg_bin = shutil.which(settings.FFMPEG_PATH) or os.path.isfile(settings.FFMPEG_PATH)
         if ffmpeg_bin and job.output_file.exists():
             cmd = [
                 settings.FFMPEG_PATH,

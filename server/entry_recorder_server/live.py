@@ -1,25 +1,34 @@
 import asyncio
+import os
 import shutil
 from typing import AsyncGenerator, Optional
 
-import requests
-
 from .config import settings
+from .recorder import fetch_single_snapshot
 
 MJPEG_BOUNDARY = "frame"
 MJPEG_CONTENT_TYPE = f"multipart/x-mixed-replace; boundary={MJPEG_BOUNDARY}"
 
 
-async def stream_mjpeg(rtsp_url: str) -> AsyncGenerator[bytes, None]:
+async def stream_mjpeg(
+    rtsp_url: str,
+    username: Optional[str] = None,
+    password: Optional[str] = None
+) -> AsyncGenerator[bytes, None]:
     """Re-encodes an RTSP stream to an MJPEG multipart HTTP stream via ffmpeg for live viewing in a browser."""
-    ffmpeg_bin = shutil.which(settings.FFMPEG_PATH)
+    ffmpeg_bin = shutil.which(settings.FFMPEG_PATH) or os.path.isfile(settings.FFMPEG_PATH)
     if not ffmpeg_bin:
         raise RuntimeError("ffmpeg is not available on the server PATH")
+
+    final_rtsp_url = rtsp_url
+    if username and password and "@" not in rtsp_url and "://" in rtsp_url:
+        scheme, rest = rtsp_url.split("://", 1)
+        final_rtsp_url = f"{scheme}://{username}:{password}@{rest}"
 
     cmd = [
         settings.FFMPEG_PATH,
         "-rtsp_transport", "tcp",
-        "-i", rtsp_url,
+        "-i", final_rtsp_url,
         "-f", "mpjpeg",
         "-boundary_tag", MJPEG_BOUNDARY,
         "-q:v", "5",
@@ -60,16 +69,14 @@ async def stream_mjpeg_snapshot(
     fps: float = 2.0
 ) -> AsyncGenerator[bytes, None]:
     """Polls an HTTP snapshot URL repeatedly and re-packages the JPEG frames as an MJPEG multipart HTTP stream."""
-    auth = (username, password) if username and password else None
     interval = 1.0 / fps if fps > 0 else 0.5
 
     while True:
         try:
-            res = await asyncio.to_thread(
-                lambda: requests.get(snapshot_url, auth=auth, timeout=3)
+            frame = await asyncio.to_thread(
+                lambda: fetch_single_snapshot(snapshot_url, username, password, timeout=3.0)
             )
-            if res.status_code == 200 and res.content:
-                frame = res.content
+            if frame:
                 yield (
                     b"--" + MJPEG_BOUNDARY.encode() + b"\r\n"
                     b"Content-Type: image/jpeg\r\n"

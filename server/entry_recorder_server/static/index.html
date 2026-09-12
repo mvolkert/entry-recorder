@@ -635,12 +635,28 @@
                         <input type="text" id="trig-device-name" class="form-control" value="Front Door 2N Verso" required>
                     </div>
                     <div class="form-group">
+                        <label>Source Mode</label>
+                        <select id="trig-source-mode" class="form-control">
+                            <option value="auto">Auto (Prefer RTSP)</option>
+                            <option value="snapshot">Snapshot URL</option>
+                            <option value="rtsp">RTSP Stream</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
                         <label>RTSP Stream URL</label>
                         <input type="text" id="trig-rtsp" class="form-control" placeholder="rtsp://admin:pass@192.168.1.100:554/live.sdp">
                     </div>
                     <div class="form-group">
-                        <label>Snapshot URL (Fallback if RTSP unavail)</label>
+                        <label>Snapshot URL</label>
                         <input type="text" id="trig-snapshot" class="form-control" placeholder="http://192.168.1.100/api/camera/snapshot">
+                    </div>
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="trig-username" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="trig-password" class="form-control">
                     </div>
                     <div class="form-group">
                         <label>Event Type</label>
@@ -653,7 +669,7 @@
                     </div>
                     <div class="form-group">
                         <label>Duration (Seconds)</label>
-                        <input type="number" id="trig-duration" class="form-control" value="30" min="5" max="300">
+                        <input type="number" id="trig-duration" class="form-control" value="30" min="5" max="3600">
                     </div>
                 </div>
                 <div class="modal-header" style="border-top: 1px solid var(--card-border); justify-content: flex-end; gap: 0.5rem;">
@@ -896,8 +912,11 @@
             const payload = {
                 device_id: parseInt(document.getElementById('trig-device-id').value),
                 device_name: document.getElementById('trig-device-name').value,
+                source_mode: document.getElementById('trig-source-mode').value,
                 rtsp_url: document.getElementById('trig-rtsp').value || null,
                 snapshot_url: document.getElementById('trig-snapshot').value || null,
+                username: document.getElementById('trig-username').value || null,
+                password: document.getElementById('trig-password').value || null,
                 event_type: document.getElementById('trig-event').value,
                 duration_seconds: parseInt(document.getElementById('trig-duration').value)
             };
@@ -912,8 +931,22 @@
                 closeTriggerModal();
                 loadData();
             } else {
-                const err = await res.json();
-                alert('Failed to start recording: ' + (err.detail || 'Unknown error'));
+                let errorMsg = 'Unknown error';
+                try {
+                    const err = await res.json();
+                    if (typeof err.detail === 'string') {
+                        errorMsg = err.detail;
+                    } else if (Array.isArray(err.detail)) {
+                        errorMsg = err.detail.map(d => `${d.loc ? d.loc.join('.') + ': ' : ''}${d.msg}`).join('\n');
+                    } else if (err.detail) {
+                        errorMsg = JSON.stringify(err.detail);
+                    } else if (err.message) {
+                        errorMsg = err.message;
+                    }
+                } catch (e) {
+                    errorMsg = await res.text();
+                }
+                alert('Failed to start recording:\n' + errorMsg);
             }
         }
 
@@ -1108,6 +1141,7 @@
             const payload = {
                 device_id: dev.id,
                 device_name: dev.name,
+                source_mode: dev.live_mode || 'auto',
                 rtsp_url: dev.rtsp_url,
                 snapshot_url: dev.snapshot_url,
                 username: dev.username,
@@ -1123,8 +1157,22 @@
             });
 
             if (!res.ok) {
-                const err = await res.json();
-                alert('Failed to start recording: ' + (err.detail || 'Unknown error'));
+                let errorMsg = 'Unknown error';
+                try {
+                    const err = await res.json();
+                    if (typeof err.detail === 'string') {
+                        errorMsg = err.detail;
+                    } else if (Array.isArray(err.detail)) {
+                        errorMsg = err.detail.map(d => `${d.loc ? d.loc.join('.') + ': ' : ''}${d.msg}`).join('\n');
+                    } else if (err.detail) {
+                        errorMsg = JSON.stringify(err.detail);
+                    } else if (err.message) {
+                        errorMsg = err.message;
+                    }
+                } catch (e) {
+                    errorMsg = await res.text();
+                }
+                alert('Failed to start recording:\n' + errorMsg);
                 return;
             }
 
