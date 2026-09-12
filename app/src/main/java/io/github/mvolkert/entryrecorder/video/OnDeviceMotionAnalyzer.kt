@@ -9,6 +9,7 @@ import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
 import kotlinx.coroutines.*
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlin.coroutines.coroutineContext
 
 /**
  * Detects motion purely by periodically grabbing snapshot frames from a device's
