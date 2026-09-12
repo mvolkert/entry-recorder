@@ -352,6 +352,20 @@ fun SettingsScreen(
                                 }
                             )
                         }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Wake Screen on Noise Detection")
+                            Switch(
+                                checked = state.appSettings.wakeOnNoise,
+                                onCheckedChange = {
+                                    viewModel.updateSettings(state.appSettings.copy(wakeOnNoise = it))
+                                }
+                            )
+                        }
                     }
                 }
             }

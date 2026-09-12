@@ -31,7 +31,9 @@ data class DeviceEntity(
     // Recording & Trigger Configuration
     val recordOnMotion: Boolean = true,
     val recordOnRing: Boolean = true,
+    val recordOnNoise: Boolean = true,
     val motionPostRecordSeconds: Int = 20,
+    val noisePostRecordSeconds: Int = 20,
     val ringRecordSeconds: Int = 60,
     val isEnabled: Boolean = true
 ) {

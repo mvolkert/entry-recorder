@@ -5,6 +5,8 @@ import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 sealed class IntercomEvent {
     data class MotionStarted(val device: DeviceEntity, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
     data class MotionEnded(val device: DeviceEntity, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
+    data class NoiseStarted(val device: DeviceEntity, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
+    data class NoiseEnded(val device: DeviceEntity, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
     data class DoorbellRung(val device: DeviceEntity, val callerNumber: String? = null, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
     data class CallState(val device: DeviceEntity, val state: String, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
     data class ConnectionState(val device: DeviceEntity, val isConnected: Boolean, val message: String? = null) : IntercomEvent()

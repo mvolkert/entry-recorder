@@ -15,9 +15,10 @@ Namespace: `io.github.mvolkert.entryrecorder`
 - **Automatische Videoaufzeichnung**:
   - Aufzeichnung bei **Klingeln** (Doorbell Event / KeyPressed).
   - Aufzeichnung bei **Bewegungserkennung** (2N Motion Detection API / SSE).
+  - Aufzeichnung bei **Geräuscherkennung** (2N Noise Detection API / SSE).
   - Manuelle Sofort-Aufzeichnung direkt in der Live-Ansicht.
 - **Sperrbildschirm-Live-Video & Weckfunktion**:
-  - Schaltet den Bildschirm bei Klingeln oder Bewegung sofort ein (`showWhenLocked` + `turnScreenOn`).
+  - Schaltet den Bildschirm bei Klingeln, Bewegung oder Geräuschen sofort ein (`showWhenLocked` + `turnScreenOn`).
   - Zeigt den Live-RTSP-Videostream ohne Entsperren direkt auf dem Display an.
 - **SIP Gegensprechen**:
   - SIP-Anruf direkt auf dem Alarm- / Sperrbildschirm annehmen.
@@ -25,7 +26,7 @@ Namespace: `io.github.mvolkert.entryrecorder`
   - **SIP-Server / PBX** (z.B. AVM Fritz!Box, Asterisk, FreePBX) mit Registrierung.
   - Mikrofon-Stummschaltung und Lautsprecher-Umschaltung während des Anrufs.
 - **Video-Archiv & Verwaltung**:
-  - Durchsuchbare und filterbare Galerie aller Aufnahmen (nach Klingel-Event, Bewegung oder Gerät).
+  - Durchsuchbare und filterbare Galerie aller Aufnahmen (nach Klingel-Event, Bewegung, Geräuschen oder Gerät).
   - Integrierter Videoplayer mit Zeitstrahl.
   - Schutzfunktion gegen automatisches Löschen wichtiger Videos.
   - Löschen einzelner oder mehrerer Aufnahmen.

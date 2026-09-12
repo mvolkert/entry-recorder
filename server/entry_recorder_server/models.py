@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 class EventType(str, Enum):
     RING = "RING"
     MOTION = "MOTION"
+    NOISE = "NOISE"
     MANUAL = "MANUAL"
 
 class StartRecordingRequest(BaseModel):

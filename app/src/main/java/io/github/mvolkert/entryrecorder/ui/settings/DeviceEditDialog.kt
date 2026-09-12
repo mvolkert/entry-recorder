@@ -52,6 +52,7 @@ fun DeviceEditDialog(
 
     var recordOnMotion by remember { mutableStateOf(initialDevice?.recordOnMotion ?: true) }
     var recordOnRing by remember { mutableStateOf(initialDevice?.recordOnRing ?: true) }
+    var recordOnNoise by remember { mutableStateOf(initialDevice?.recordOnNoise ?: true) }
 
     var isTestingConnection by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<String?>(null) }
@@ -207,6 +208,14 @@ fun DeviceEditDialog(
                         Text("Record on Motion Detected")
                         Switch(checked = recordOnMotion, onCheckedChange = { recordOnMotion = it })
                     }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Record on Noise Detected")
+                        Switch(checked = recordOnNoise, onCheckedChange = { recordOnNoise = it })
+                    }
 
                     // Test Connection Button
                     Button(
@@ -297,6 +306,7 @@ fun DeviceEditDialog(
                                 sipPassword = if (sipPassword.isNotBlank()) sipPassword.trim() else null,
                                 recordOnMotion = recordOnMotion,
                                 recordOnRing = recordOnRing,
+                                recordOnNoise = recordOnNoise,
                                 isEnabled = true
                             )
                             onSave(updated)

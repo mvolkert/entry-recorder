@@ -16,6 +16,7 @@ data class AppSettingsEntity(
     val autoCleanupEnabled: Boolean = true,
     val wakeOnMotion: Boolean = true,
     val wakeOnRing: Boolean = true,
+    val wakeOnNoise: Boolean = true,
     val vibrateOnRing: Boolean = true,
     val soundOnRing: Boolean = true
 )

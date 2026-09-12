@@ -14,6 +14,7 @@ enum class SipMode {
 enum class EventType {
     MOTION,
     RING,
+    NOISE,
     MANUAL
 }
 

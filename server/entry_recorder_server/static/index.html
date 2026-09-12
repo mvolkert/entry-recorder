@@ -292,6 +292,7 @@
 
         .badge-RING { background-color: var(--accent-red); color: white; }
         .badge-MOTION { background-color: var(--accent-amber); color: #0f172a; }
+        .badge-NOISE { background-color: #a855f7; color: white; }
         .badge-MANUAL { background-color: var(--primary); color: white; }
 
         .duration-badge {
@@ -499,6 +500,7 @@
                     <option value="">All Events</option>
                     <option value="RING">🔔 Doorbell Ring</option>
                     <option value="MOTION">👁 Motion</option>
+                    <option value="NOISE">🔊 Noise</option>
                     <option value="MANUAL">🖐 Manual</option>
                 </select>
                 <button class="btn btn-outline" onclick="loadData()">🔄 Refresh</button>
@@ -555,6 +557,7 @@
                         <select id="trig-event" class="form-control">
                             <option value="RING">Doorbell Ring</option>
                             <option value="MOTION">Motion</option>
+                            <option value="NOISE">Noise</option>
                             <option value="MANUAL" selected>Manual Trigger</option>
                         </select>
                     </div>

@@ -162,6 +162,39 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     }
                 }
 
+                is IntercomEvent.NoiseStarted -> {
+                    val device = event.device
+                    Log.i(tag, "Noise started on ${device.name}")
+
+                    if (device.recordOnNoise) {
+                        recorder.startRecording(
+                            device = device,
+                            eventType = EventType.NOISE,
+                            maxDurationSeconds = device.noisePostRecordSeconds + 30
+                        )
+                    }
+
+                    if (settings.wakeOnNoise) {
+                        NotificationHelper.showNoiseNotification(this@IntercomMonitorService, device)
+                        val noiseIntent = Intent(this@IntercomMonitorService, IncomingCallActivity::class.java).apply {
+                            putExtra(IncomingCallActivity.EXTRA_DEVICE_ID, device.id)
+                            putExtra(IncomingCallActivity.EXTRA_EVENT_TYPE, EventType.NOISE.name)
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        }
+                        startActivity(noiseIntent)
+                    }
+                }
+
+                is IntercomEvent.NoiseEnded -> {
+                    val device = event.device
+                    Log.i(tag, "Noise ended on ${device.name}")
+                    // Allow post-record time buffer then stop
+                    serviceScope.launch {
+                        delay(device.noisePostRecordSeconds * 1000L)
+                        recorder.stopRecording(device.id)
+                    }
+                }
+
                 is IntercomEvent.CallState -> {
                     Log.d(tag, "Intercom call state: ${event.state} for ${event.device.name}")
                 }

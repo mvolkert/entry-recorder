@@ -21,10 +21,12 @@ object NotificationHelper {
     const val CHANNEL_SERVICE = "entry_recorder_service"
     const val CHANNEL_DOORBELL = "entry_recorder_doorbell"
     const val CHANNEL_MOTION = "entry_recorder_motion"
+    const val CHANNEL_NOISE = "entry_recorder_noise"
 
     const val NOTIFICATION_ID_SERVICE = 1001
     const val NOTIFICATION_ID_DOORBELL = 1002
     const val NOTIFICATION_ID_MOTION = 1003
+    const val NOTIFICATION_ID_NOISE = 1004
 
     fun createNotificationChannels(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -71,7 +73,18 @@ object NotificationHelper {
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
 
-            manager.createNotificationChannels(listOf(serviceChannel, doorbellChannel, motionChannel))
+            // Noise Alert Channel
+            val noiseChannel = NotificationChannel(
+                CHANNEL_NOISE,
+                context.getString(R.string.channel_noise_name),
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = context.getString(R.string.channel_noise_desc)
+                enableVibration(true)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+
+            manager.createNotificationChannels(listOf(serviceChannel, doorbellChannel, motionChannel, noiseChannel))
         }
     }
 
@@ -156,5 +169,33 @@ object NotificationHelper {
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(NOTIFICATION_ID_MOTION + device.id.toInt(), notification)
+    }
+
+    fun showNoiseNotification(context: Context, device: DeviceEntity) {
+        val intent = Intent(context, IncomingCallActivity::class.java).apply {
+            putExtra(IncomingCallActivity.EXTRA_DEVICE_ID, device.id)
+            putExtra(IncomingCallActivity.EXTRA_EVENT_TYPE, EventType.NOISE.name)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            (device.id + 2000).toInt(),
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_NOISE)
+            .setContentTitle("Noise Detected: ${device.name}")
+            .setContentText("Sound registered at ${device.ipAddress}")
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_EVENT)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(NOTIFICATION_ID_NOISE + device.id.toInt(), notification)
     }
 }

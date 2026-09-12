@@ -110,6 +110,13 @@ fun RecordingsScreen(
                             label = { Text("👁 Motion") }
                         )
                     }
+                    item {
+                        FilterChip(
+                            selected = state.selectedEventType == EventType.NOISE,
+                            onClick = { viewModel.selectEventTypeFilter(EventType.NOISE) },
+                            label = { Text("🔊 Noise") }
+                        )
+                    }
                 }
             }
         }
@@ -229,8 +236,13 @@ fun RecordingCardItem(
                         contentScale = ContentScale.Crop
                     )
                 } else {
+                    val fallbackIcon = when (recording.eventType) {
+                        EventType.RING -> Icons.Default.Call
+                        EventType.NOISE -> Icons.Default.VolumeUp
+                        else -> Icons.Default.Videocam
+                    }
                     Icon(
-                        imageVector = if (recording.eventType == EventType.RING) Icons.Default.Call else Icons.Default.Videocam,
+                        imageVector = fallbackIcon,
                         contentDescription = null,
                         tint = Color.White
                     )
@@ -256,12 +268,18 @@ fun RecordingCardItem(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     // Event Badge
+                    val badgeColor = when (recording.eventType) {
+                        EventType.RING -> Color(0xFFFF9800)
+                        EventType.MOTION -> Color(0xFF0288D1)
+                        EventType.NOISE -> Color(0xFF8E24AA)
+                        EventType.MANUAL -> Color(0xFF43A047)
+                    }
                     Surface(
                         shape = RoundedCornerShape(4.dp),
-                        color = if (recording.eventType == EventType.RING) Color(0xFFFF9800) else Color(0xFF0288D1)
+                        color = badgeColor
                     ) {
                         Text(
-                            text = if (recording.eventType == EventType.RING) "RING" else "MOTION",
+                            text = recording.eventType.name,
                             color = Color.White,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,

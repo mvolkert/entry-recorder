@@ -2,6 +2,8 @@
     <string name="app_name">EntryRecorder</string>
     <string name="channel_motion_name">Motion Alerts</string>
     <string name="channel_motion_desc">Notifications for detected motion events</string>
+    <string name="channel_noise_name">Noise Alerts</string>
+    <string name="channel_noise_desc">Notifications for detected noise events</string>
     <string name="channel_call_name">Doorbell Calls</string>
     <string name="channel_call_desc">Incoming video doorbell calls and rings</string>
     <string name="channel_service_name">Background Monitor Service</string>

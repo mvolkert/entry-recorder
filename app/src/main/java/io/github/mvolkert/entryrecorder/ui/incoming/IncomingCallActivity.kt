@@ -163,9 +163,21 @@ fun IncomingCallContent(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column {
+                    val headerText = when (eventType) {
+                        EventType.RING -> "🔔 Doorbell Ringing"
+                        EventType.MOTION -> "👁 Motion Detected"
+                        EventType.NOISE -> "🔊 Noise Detected"
+                        EventType.MANUAL -> "⏺ Manual Recording"
+                    }
+                    val headerColor = when (eventType) {
+                        EventType.RING -> Color(0xFFFFD54F)
+                        EventType.MOTION -> Color(0xFF81D4FA)
+                        EventType.NOISE -> Color(0xFFFFAB91)
+                        EventType.MANUAL -> Color(0xFFA5D6A7)
+                    }
                     Text(
-                        text = if (eventType == EventType.RING) "🔔 Doorbell Ringing" else "👁 Motion Detected",
-                        color = if (eventType == EventType.RING) Color(0xFFFFD54F) else Color(0xFF81D4FA),
+                        text = headerText,
+                        color = headerColor,
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp
                     )

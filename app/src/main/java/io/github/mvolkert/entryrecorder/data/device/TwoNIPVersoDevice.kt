@@ -134,6 +134,14 @@ class TwoNIPVersoDevice(
                             listener.onEvent(IntercomEvent.MotionEnded(deviceEntity))
                         }
                     }
+                    "NoiseDetected" -> {
+                        val state = params.get("state")?.asBoolean ?: (params.get("state")?.asString == "active")
+                        if (state) {
+                            listener.onEvent(IntercomEvent.NoiseStarted(deviceEntity))
+                        } else {
+                            listener.onEvent(IntercomEvent.NoiseEnded(deviceEntity))
+                        }
+                    }
                     "KeyPressed" -> {
                         // Key 1 is typical main doorbell ring button on 2N Verso
                         listener.onEvent(IntercomEvent.DoorbellRung(deviceEntity, callerNumber = "Doorbell Button"))
@@ -159,6 +167,7 @@ class TwoNIPVersoDevice(
         pollingJob = scope.launch {
             Log.i(tag, "Starting 2N HTTP polling fallback loop")
             var lastMotionState = false
+            var lastNoiseState = false
 
             while (isActive && isMonitoring.get()) {
                 try {
@@ -181,8 +190,32 @@ class TwoNIPVersoDevice(
                         }
                     }
                 } catch (e: Exception) {
-                    Log.w(tag, "Polling error: ${e.message}")
+                    Log.w(tag, "Motion polling error: ${e.message}")
                 }
+
+                try {
+                    // Check Noise Status
+                    val noiseUrl = "${deviceEntity.httpBaseUrl}/api/noise/status"
+                    val req = Request.Builder().url(noiseUrl).get().build()
+                    client.newCall(req).execute().use { response ->
+                        if (response.isSuccessful) {
+                            val body = response.body?.string()
+                            if (body != null) {
+                                val json = JsonParser.parseString(body).asJsonObject
+                                val noise = json.getAsJsonObject("result")?.get("active")?.asBoolean ?: false
+                                if (noise && !lastNoiseState) {
+                                    listener.onEvent(IntercomEvent.NoiseStarted(deviceEntity))
+                                } else if (!noise && lastNoiseState) {
+                                    listener.onEvent(IntercomEvent.NoiseEnded(deviceEntity))
+                                }
+                                lastNoiseState = noise
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(tag, "Noise polling error: ${e.message}")
+                }
+
                 delay(1500)
             }
         }

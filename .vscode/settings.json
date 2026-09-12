@@ -6,6 +6,11 @@
             "approve": true,
             "matchCommandLine": true
         },
-        "&": true
+        "&": true,
+        "/^python -m py_compile server/entry_recorder_server/\\*\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "ForEach-Object": true
     }
 }
