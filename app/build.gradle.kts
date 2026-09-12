@@ -107,7 +107,7 @@ dependencies {
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
     // Linphone SDK for SIP calling (Peer-to-Peer and PBX registrar)
-    implementation("org.linphone:linphone-sdk-android:5.2.115")
+    implementation("org.linphone:linphone-sdk-android:5.2.112")
 
     // JSON parsing
     implementation("com.google.code.gson:gson:2.10.1")
