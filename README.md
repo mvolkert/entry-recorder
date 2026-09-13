@@ -138,7 +138,7 @@ app/src/main/java/io/github/mvolkert/entryrecorder/
 
 ## Build & Installation
 
-Erfordert Android Studio (Hedgehog oder neuer) und JDK 17.
+Erfordert Android Studio (Hedgehog oder neuer) und JDK 21.
 
 Für signierte Release-Bundles die folgenden Properties in der globalen Gradle-Konfiguration
 (`%USERPROFILE%\.gradle\gradle.properties`) hinterlegen. Das verwendete Keystore-File
