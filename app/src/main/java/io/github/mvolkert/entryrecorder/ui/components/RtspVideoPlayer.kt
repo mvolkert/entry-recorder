@@ -4,16 +4,17 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -23,6 +24,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import androidx.media3.ui.PlayerView
+import java.net.ConnectException
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -35,20 +37,13 @@ fun RtspVideoPlayer(
     val context = LocalContext.current
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var retryCount by remember { mutableIntStateOf(0) }
 
-    val exoPlayer = remember(rtspUrl) {
+    val exoPlayer = remember {
         val renderersFactory = DefaultRenderersFactory(context)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
 
         ExoPlayer.Builder(context, renderersFactory).build().apply {
-            val mediaItem = MediaItem.fromUri(rtspUrl)
-            val mediaSource = RtspMediaSource.Factory()
-                .setForceUseRtpTcp(true)
-                .setTimeoutMs(8000)
-                .createMediaSource(mediaItem)
-
-            setMediaSource(mediaSource)
-            playWhenReady = autoPlay
             addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     when (playbackState) {
@@ -64,17 +59,46 @@ fun RtspVideoPlayer(
 
                 override fun onPlayerError(error: PlaybackException) {
                     isLoading = false
-                    errorMessage = "RTSP Error: ${error.localizedMessage ?: error.errorCodeName}"
+                    val cause = error.cause
+                    errorMessage = when {
+                        cause is ConnectException -> "Connection Timed Out. Check if the intercom is on the same Wi-Fi."
+                        error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "RTSP Error: 404 Not Found. Check your stream path."
+                        else -> "RTSP Error: ${error.localizedMessage ?: error.errorCodeName}"
+                    }
                 }
             })
-            prepare()
         }
     }
 
-    DisposableEffect(exoPlayer) {
+    LaunchedEffect(rtspUrl, autoPlay, retryCount) {
+        try {
+            isLoading = true
+            errorMessage = null
+            
+            val mediaItem = MediaItem.fromUri(rtspUrl)
+            val mediaSource = RtspMediaSource.Factory()
+                .setForceUseRtpTcp(true)
+                .setDebugLoggingEnabled(true)
+                .setTimeoutMs(15000)
+                .createMediaSource(mediaItem)
+
+            exoPlayer.setMediaSource(mediaSource)
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = autoPlay
+        } catch (e: Exception) {
+            isLoading = false
+            errorMessage = "Setup Error: ${e.localizedMessage}"
+        }
+    }
+
+    DisposableEffect(Unit) {
         onDispose {
-            exoPlayer.stop()
-            exoPlayer.release()
+            try {
+                exoPlayer.stop()
+                exoPlayer.release()
+            } catch (_: Exception) {
+                // Ignore errors during release
+            }
         }
     }
 
@@ -106,14 +130,29 @@ fun RtspVideoPlayer(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.7f)),
+                    .background(Color.Black.copy(alpha = 0.85f)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = msg,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium
-                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(24.dp)
+                ) {
+                    Text(
+                        text = msg,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = { retryCount++ },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Retry Connection", color = MaterialTheme.colorScheme.onErrorContainer)
+                    }
+                }
             }
         }
     }

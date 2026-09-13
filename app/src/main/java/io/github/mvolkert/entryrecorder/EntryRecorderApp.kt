@@ -9,6 +9,7 @@ import io.github.mvolkert.entryrecorder.service.IntercomMonitorService
 import io.github.mvolkert.entryrecorder.sip.SipCallManager
 import io.github.mvolkert.entryrecorder.video.RtspStreamRecorder
 import io.github.mvolkert.entryrecorder.worker.RetentionCleanupWorker
+import android.util.Log
 import java.util.concurrent.TimeUnit
 
 class EntryRecorderApp : Application() {
@@ -26,6 +27,9 @@ class EntryRecorderApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+
+        // 0. Setup crash protection for known Media3 RTSP bugs
+        setupExoPlayerCrashProtection()
 
         // 1. Setup notification channels
         NotificationHelper.createNotificationChannels(this)
@@ -54,5 +58,23 @@ class EntryRecorderApp : Application() {
             ExistingPeriodicWorkPolicy.KEEP,
             cleanupRequest
         )
+    }
+
+    private fun setupExoPlayerCrashProtection() {
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            // Specifically catch the Media3 RTSP NullPointerException to prevent fatal app exit
+            val isExoPlayerRtspCrash = thread.name.contains("ExoPlayer:Playback") &&
+                    throwable is NullPointerException &&
+                    throwable.stackTrace.any { it.className.contains("RtspClient") }
+
+            if (isExoPlayerRtspCrash) {
+                Log.e("EntryRecorderApp", "Caught fatal Media3 RTSP crash on thread ${thread.name}. Preventing app exit.", throwable)
+                // We don't call the default handler, so the process stays alive.
+                // The player UI will eventually show an error or the user will retry.
+            } else {
+                defaultHandler?.uncaughtException(thread, throwable)
+            }
+        }
     }
 }
