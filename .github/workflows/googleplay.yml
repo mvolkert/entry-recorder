@@ -33,7 +33,19 @@ jobs:
           echo "GRADLE_USER_HOME=${HOME}/.gradle" >> $GITHUB_ENV
           echo "${GRADLE_PROPERTIES}" > ~/.gradle/gradle.properties
 
+      - name: Restore release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ENTRY_RECORDER_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          echo "${KEYSTORE_BASE64}" | base64 --decode > app/entry-recorder-release.jks
+
       - name: Build Android App Bundle
+        env:
+          ENTRY_RECORDER_STORE_FILE: app/entry-recorder-release.jks
+          ENTRY_RECORDER_STORE_PASSWORD: ${{ secrets.ENTRY_RECORDER_STORE_PASSWORD }}
+          ENTRY_RECORDER_KEY_ALIAS: ${{ secrets.ENTRY_RECORDER_KEY_ALIAS }}
+          ENTRY_RECORDER_KEY_PASSWORD: ${{ secrets.ENTRY_RECORDER_KEY_PASSWORD }}
         run: |
           if [ -f "./gradlew" ]; then
             chmod +x gradlew

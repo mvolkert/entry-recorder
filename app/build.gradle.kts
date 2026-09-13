@@ -4,9 +4,51 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+val releaseStoreFile = providers.gradleProperty("ENTRY_RECORDER_STORE_FILE")
+    .orElse(providers.environmentVariable("ENTRY_RECORDER_STORE_FILE"))
+    .orNull
+val releaseStorePassword = providers.gradleProperty("ENTRY_RECORDER_STORE_PASSWORD")
+    .orElse(providers.environmentVariable("ENTRY_RECORDER_STORE_PASSWORD"))
+    .orNull
+val releaseKeyAlias = providers.gradleProperty("ENTRY_RECORDER_KEY_ALIAS")
+    .orElse(providers.environmentVariable("ENTRY_RECORDER_KEY_ALIAS"))
+    .orNull
+val releaseKeyPassword = providers.gradleProperty("ENTRY_RECORDER_KEY_PASSWORD")
+    .orElse(providers.environmentVariable("ENTRY_RECORDER_KEY_PASSWORD"))
+    .orNull
+val releaseSigningConfigured = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+).all { !it.isNullOrBlank() }
+val releaseBuildRequested = gradle.startParameter.taskNames.any {
+    it.contains("Release", ignoreCase = true)
+}
+
+if (releaseBuildRequested && !releaseSigningConfigured) {
+    throw GradleException(
+        "Release signing is not configured. Set ENTRY_RECORDER_STORE_FILE, " +
+            "ENTRY_RECORDER_STORE_PASSWORD, ENTRY_RECORDER_KEY_ALIAS and " +
+            "ENTRY_RECORDER_KEY_PASSWORD."
+    )
+}
+
 android {
     namespace = "io.github.mvolkert.entryrecorder"
     compileSdk = 34
+
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = rootProject.file(requireNotNull(releaseStoreFile))
+                storePassword = requireNotNull(releaseStorePassword)
+                keyAlias = requireNotNull(releaseKeyAlias)
+                keyPassword = requireNotNull(releaseKeyPassword)
+                storeType = "PKCS12"
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "io.github.mvolkert.entryrecorder"
@@ -32,6 +74,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         debug {
             isDebuggable = true

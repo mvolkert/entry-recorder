@@ -11,6 +11,9 @@
             "approve": true,
             "matchCommandLine": true
         },
-        "ForEach-Object": true
+        "ForEach-Object": true,
+        "where.exe": true,
+        "true": true,
+        "command": true
     }
 }
