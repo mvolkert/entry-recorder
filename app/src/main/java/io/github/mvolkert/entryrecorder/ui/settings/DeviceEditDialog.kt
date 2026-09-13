@@ -146,7 +146,7 @@ fun DeviceEditDialog(
                         )
                     }
 
-                    Divider(modifier = Modifier.padding(vertical = 4.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
                     // SIP Mode Configuration
                     Text("SIP Intercom Configuration", fontWeight = FontWeight.Bold)
@@ -189,7 +189,7 @@ fun DeviceEditDialog(
                         }
                     }
 
-                    Divider(modifier = Modifier.padding(vertical = 4.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
                     // Recording Triggers
                     Text("Recording Triggers", fontWeight = FontWeight.Bold)

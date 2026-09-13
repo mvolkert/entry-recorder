@@ -27,6 +27,7 @@ data class SipSessionState(
     val errorMessage: String? = null
 )
 
+@Suppress("DEPRECATION")
 class SipCallManager private constructor(private val context: Context) {
 
     private val tag = "SipCallManager"

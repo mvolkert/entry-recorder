@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -238,7 +239,7 @@ fun RecordingCardItem(
                 } else {
                     val fallbackIcon = when (recording.eventType) {
                         EventType.RING -> Icons.Default.Call
-                        EventType.NOISE -> Icons.Default.VolumeUp
+                        EventType.NOISE -> Icons.AutoMirrored.Filled.VolumeUp
                         else -> Icons.Default.Videocam
                     }
                     Icon(
@@ -350,7 +351,7 @@ fun RecordingCardItem(
                             onToggleProtect()
                         }
                     )
-                    Divider()
+                    HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                         leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },

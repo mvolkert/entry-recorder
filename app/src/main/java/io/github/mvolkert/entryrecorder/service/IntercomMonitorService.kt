@@ -262,6 +262,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun acquireWakeAndWifiLocks() {
         try {
             val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager

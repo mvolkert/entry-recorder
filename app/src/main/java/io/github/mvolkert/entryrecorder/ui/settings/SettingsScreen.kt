@@ -184,7 +184,7 @@ fun SettingsScreen(
                                     viewModel.testServerConnection(
                                         state.appSettings.serverBaseUrl,
                                         state.appSettings.serverApiKey
-                                    ) { success, msg ->
+                                    ) { _, msg ->
                                         isTestingServer = false
                                         Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                                     }

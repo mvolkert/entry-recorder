@@ -41,7 +41,7 @@ class MainActivity : ComponentActivity() {
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
+    ) { _ ->
         // Monitor service can be started or refreshed
         IntercomMonitorService.start(this)
     }

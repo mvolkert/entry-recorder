@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeDown
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -55,8 +57,6 @@ class IncomingCallActivity : ComponentActivity() {
             ) {
                 var device by remember { mutableStateOf<DeviceEntity?>(null) }
                 val sipState by sipManager.sessionState.collectAsState()
-                val scope = rememberCoroutineScope()
-
                 LaunchedEffect(deviceId) {
                     if (deviceId != -1L) {
                         device = repository.getDeviceById(deviceId)
@@ -114,6 +114,7 @@ class IncomingCallActivity : ComponentActivity() {
     }
 }
 
+@Suppress("UNUSED_PARAMETER")
 @Composable
 fun IncomingCallContent(
     device: DeviceEntity?,
@@ -258,7 +259,7 @@ fun IncomingCallContent(
                                 )
                         ) {
                             Icon(
-                                imageVector = if (sipState.isSpeakerOn) Icons.Default.VolumeUp else Icons.Default.VolumeDown,
+                                imageVector = if (sipState.isSpeakerOn) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeDown,
                                 contentDescription = "Speaker",
                                 tint = Color.White
                             )
