@@ -51,7 +51,18 @@ data class DeviceEntity(
             val authPart = if (username.isNotBlank() && password.isNotBlank()) {
                 "$username:$password@"
             } else ""
-            val cleanPath = if (rtspPath.startsWith("/")) rtspPath else "/$rtspPath"
+            
+            // Sanitize path: remove repeated IP addresses or hostnames that users often paste accidentally
+            var sanitizedPath = rtspPath.trim()
+            if (sanitizedPath.contains(ipAddress)) {
+                sanitizedPath = sanitizedPath.replace(ipAddress, "").replace("//", "/")
+            }
+            
+            val cleanPath = when {
+                sanitizedPath.isBlank() || sanitizedPath == "/" -> "/live.sdp" // Default for 2N
+                sanitizedPath.startsWith("/") -> sanitizedPath
+                else -> "/$sanitizedPath"
+            }
             return "rtsp://$authPart$ipAddress:$rtspPort$cleanPath"
         }
 
