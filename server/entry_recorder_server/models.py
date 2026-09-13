@@ -13,10 +13,11 @@ class StartRecordingRequest(BaseModel):
     device_name: str = Field(..., description="Display name of the intercom device")
     rtsp_url: Optional[str] = Field(None, description="Full RTSP stream URL with credentials if needed")
     snapshot_url: Optional[str] = Field(None, description="HTTP Snapshot URL as fallback")
-    username: Optional[str] = Field(None, description="Device HTTP username for basic auth snapshot grab")
-    password: Optional[str] = Field(None, description="Device HTTP password for basic auth snapshot grab")
+    username: Optional[str] = Field(None, description="Device HTTP username for basic/digest auth snapshot grab")
+    password: Optional[str] = Field(None, description="Device HTTP password for basic/digest auth snapshot grab")
+    source_mode: Optional[str] = Field("auto", description="Source mode: 'auto', 'rtsp', or 'snapshot'")
     event_type: EventType = Field(EventType.RING, description="Trigger event type (RING, MOTION, MANUAL)")
-    duration_seconds: int = Field(60, description="Max recording duration in seconds", ge=1, le=600)
+    duration_seconds: int = Field(60, description="Max recording duration in seconds", ge=1, le=86400)
     note: Optional[str] = Field(None, description="Optional custom label or note")
 
 class StopRecordingRequest(BaseModel):
@@ -58,3 +59,29 @@ class CleanupResult(BaseModel):
     deleted_count: int
     freed_bytes: int
     remaining_recordings_count: int
+
+class DeviceCreate(BaseModel):
+    name: str = Field(..., description="Display name of the intercom device")
+    rtsp_url: Optional[str] = Field(None, description="Full RTSP stream URL, with credentials if needed")
+    snapshot_url: Optional[str] = Field(None, description="HTTP Snapshot URL as fallback for recording")
+    username: Optional[str] = Field(None, description="Device HTTP username")
+    password: Optional[str] = Field(None, description="Device HTTP password")
+    live_mode: str = Field("rtsp", description="Live view source: 'rtsp' or 'snapshot'")
+
+class DeviceUpdate(BaseModel):
+    name: str = Field(..., description="Display name of the intercom device")
+    rtsp_url: Optional[str] = Field(None, description="Full RTSP stream URL, with credentials if needed")
+    snapshot_url: Optional[str] = Field(None, description="HTTP Snapshot URL as fallback for recording")
+    username: Optional[str] = Field(None, description="Device HTTP username")
+    password: Optional[str] = Field(None, description="Device HTTP password")
+    live_mode: str = Field("rtsp", description="Live view source: 'rtsp' or 'snapshot'")
+
+class DeviceResponse(BaseModel):
+    id: int
+    name: str
+    rtsp_url: Optional[str] = None
+    snapshot_url: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    live_mode: str = "rtsp"
+    live_url: str

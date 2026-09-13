@@ -14,6 +14,8 @@
         "ForEach-Object": true,
         "where.exe": true,
         "true": true,
-        "command": true
+        "command": true,
+        "Get-Command": true,
+        "gradle bundleRelease": true
     }
 }

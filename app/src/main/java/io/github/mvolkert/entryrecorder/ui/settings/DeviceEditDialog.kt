@@ -53,6 +53,7 @@ fun DeviceEditDialog(
     var recordOnMotion by remember { mutableStateOf(initialDevice?.recordOnMotion ?: true) }
     var recordOnRing by remember { mutableStateOf(initialDevice?.recordOnRing ?: true) }
     var recordOnNoise by remember { mutableStateOf(initialDevice?.recordOnNoise ?: true) }
+    var recordOnMotionOnDevice by remember { mutableStateOf(initialDevice?.recordOnMotionOnDevice ?: false) }
 
     var isTestingConnection by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<String?>(null) }
@@ -216,6 +217,21 @@ fun DeviceEditDialog(
                         Text("Record on Noise Detected")
                         Switch(checked = recordOnNoise, onCheckedChange = { recordOnNoise = it })
                     }
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Record on Motion (Analyzed On-Device by App)")
+                            Switch(checked = recordOnMotionOnDevice, onCheckedChange = { recordOnMotionOnDevice = it })
+                        }
+                        Text(
+                            "App analyzes the live video stream itself instead of relying on the device's built-in motion detection",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
 
                     // Test Connection Button
                     Button(
@@ -307,6 +323,7 @@ fun DeviceEditDialog(
                                 recordOnMotion = recordOnMotion,
                                 recordOnRing = recordOnRing,
                                 recordOnNoise = recordOnNoise,
+                                recordOnMotionOnDevice = recordOnMotionOnDevice,
                                 isEnabled = true
                             )
                             onSave(updated)

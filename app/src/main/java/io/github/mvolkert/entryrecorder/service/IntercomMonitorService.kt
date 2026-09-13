@@ -16,6 +16,7 @@ import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
 import io.github.mvolkert.entryrecorder.notification.NotificationHelper
 import io.github.mvolkert.entryrecorder.ui.incoming.IncomingCallActivity
+import io.github.mvolkert.entryrecorder.video.OnDeviceMotionAnalyzer
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
 
@@ -25,6 +26,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val activeDevices = ConcurrentHashMap<Long, IntercomDevice>()
+    private val activeMotionAnalyzers = ConcurrentHashMap<Long, OnDeviceMotionAnalyzer>()
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
 
@@ -84,6 +86,24 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                 // Configure SIP for device
                 sipManager.configureDeviceSip(entity)
             }
+
+            // Manage the on-device (app-side) motion analyzer independently of the device implementation
+            val existingAnalyzer = activeMotionAnalyzers[entity.id]
+            if (entity.recordOnMotionOnDevice) {
+                if (existingAnalyzer == null) {
+                    val analyzer = OnDeviceMotionAnalyzer(entity, this@IntercomMonitorService)
+                    activeMotionAnalyzers[entity.id] = analyzer
+                    analyzer.start()
+                }
+            } else {
+                existingAnalyzer?.stop()
+                activeMotionAnalyzers.remove(entity.id)
+            }
+        }
+
+        // Stop analyzers for devices that were removed/disabled entirely
+        for (id in activeMotionAnalyzers.keys.toSet() - newIds) {
+            activeMotionAnalyzers.remove(id)?.stop()
         }
 
         // Update foreground notification with count
@@ -195,6 +215,38 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     }
                 }
 
+                is IntercomEvent.MotionOnDeviceStarted -> {
+                    val device = event.device
+                    Log.i(tag, "On-device motion analysis started on ${device.name}")
+
+                    if (device.recordOnMotionOnDevice) {
+                        recorder.startRecording(
+                            device = device,
+                            eventType = EventType.MOTION,
+                            maxDurationSeconds = device.motionPostRecordSeconds + 30
+                        )
+                    }
+
+                    if (settings.wakeOnMotion) {
+                        NotificationHelper.showMotionNotification(this@IntercomMonitorService, device)
+                        val motionIntent = Intent(this@IntercomMonitorService, IncomingCallActivity::class.java).apply {
+                            putExtra(IncomingCallActivity.EXTRA_DEVICE_ID, device.id)
+                            putExtra(IncomingCallActivity.EXTRA_EVENT_TYPE, EventType.MOTION.name)
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        }
+                        startActivity(motionIntent)
+                    }
+                }
+
+                is IntercomEvent.MotionOnDeviceEnded -> {
+                    val device = event.device
+                    Log.i(tag, "On-device motion analysis ended on ${device.name}")
+                    serviceScope.launch {
+                        delay(device.motionPostRecordSeconds * 1000L)
+                        recorder.stopRecording(device.id)
+                    }
+                }
+
                 is IntercomEvent.CallState -> {
                     Log.d(tag, "Intercom call state: ${event.state} for ${event.device.name}")
                 }
@@ -243,6 +295,11 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             }
         }
         activeDevices.clear()
+
+        for (analyzer in activeMotionAnalyzers.values) {
+            analyzer.stop()
+        }
+        activeMotionAnalyzers.clear()
 
         try {
             wakeLock?.let { if (it.isHeld) it.release() }

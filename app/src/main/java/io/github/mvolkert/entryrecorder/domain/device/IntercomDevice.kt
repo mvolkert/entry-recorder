@@ -7,6 +7,9 @@ sealed class IntercomEvent {
     data class MotionEnded(val device: DeviceEntity, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
     data class NoiseStarted(val device: DeviceEntity, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
     data class NoiseEnded(val device: DeviceEntity, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
+    // Motion detected by analyzing the video stream on-device, independent of the device's own detection
+    data class MotionOnDeviceStarted(val device: DeviceEntity, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
+    data class MotionOnDeviceEnded(val device: DeviceEntity, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
     data class DoorbellRung(val device: DeviceEntity, val callerNumber: String? = null, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
     data class CallState(val device: DeviceEntity, val state: String, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
     data class ConnectionState(val device: DeviceEntity, val isConnected: Boolean, val message: String? = null) : IntercomEvent()

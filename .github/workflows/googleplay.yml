@@ -39,6 +39,18 @@ jobs:
         shell: bash
         run: |
           echo "${KEYSTORE_BASE64}" | base64 --decode > app/entry-recorder-release.jks
+      - name: Validate Play service account
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        shell: bash
+        run: |
+          test -n "${GOOGLE_SERVICE_ACCOUNT_JSON}"
+          echo "${GOOGLE_SERVICE_ACCOUNT_JSON}" | jq -e '
+            .type == "service_account" and
+            (.project_id | type == "string") and
+            (.client_email | type == "string") and
+            (.private_key | type == "string")
+          ' > /dev/null
 
       - name: Build Android App Bundle
         env:
@@ -61,3 +73,11 @@ jobs:
           packageName: io.github.mvolkert.entryrecorder
           releaseFiles: app/build/outputs/bundle/release/app-release.aab
           track: beta
+          status: completed
+
+      - name: Upload App Bundle on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: app/build/outputs/bundle/release/app-release.aab
