@@ -45,7 +45,7 @@ android {
                 storePassword = requireNotNull(releaseStorePassword)
                 keyAlias = requireNotNull(releaseKeyAlias)
                 keyPassword = requireNotNull(releaseKeyPassword)
-                storeType = "PKCS12"
+                storeType = "JKS"
             }
         }
     }
