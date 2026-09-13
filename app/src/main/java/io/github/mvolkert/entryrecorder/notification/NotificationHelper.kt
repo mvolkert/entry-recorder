@@ -1,5 +1,6 @@
 package io.github.mvolkert.entryrecorder.notification
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,7 +9,6 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
-import android.os.Build
 import androidx.core.app.NotificationCompat
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
@@ -29,63 +29,61 @@ object NotificationHelper {
     const val NOTIFICATION_ID_NOISE = 1004
 
     fun createNotificationChannels(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            // Background Service Channel
-            val serviceChannel = NotificationChannel(
-                CHANNEL_SERVICE,
-                context.getString(R.string.channel_service_name),
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = context.getString(R.string.channel_service_desc)
-                setShowBadge(false)
-            }
-
-            // Doorbell Ring / Incoming Call Channel (Max importance for full-screen lockscreen alert)
-            val ringUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-            val audioAttributes = AudioAttributes.Builder()
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                .build()
-
-            val doorbellChannel = NotificationChannel(
-                CHANNEL_DOORBELL,
-                context.getString(R.string.channel_call_name),
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = context.getString(R.string.channel_call_desc)
-                enableVibration(true)
-                vibrationPattern = longArrayOf(0, 500, 200, 500, 200, 800)
-                setSound(ringUri, audioAttributes)
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-                setBypassDnd(true)
-            }
-
-            // Motion Alert Channel
-            val motionChannel = NotificationChannel(
-                CHANNEL_MOTION,
-                context.getString(R.string.channel_motion_name),
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = context.getString(R.string.channel_motion_desc)
-                enableVibration(true)
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            }
-
-            // Noise Alert Channel
-            val noiseChannel = NotificationChannel(
-                CHANNEL_NOISE,
-                context.getString(R.string.channel_noise_name),
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = context.getString(R.string.channel_noise_desc)
-                enableVibration(true)
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            }
-
-            manager.createNotificationChannels(listOf(serviceChannel, doorbellChannel, motionChannel, noiseChannel))
+        // Background Service Channel
+        val serviceChannel = NotificationChannel(
+            CHANNEL_SERVICE,
+            context.getString(R.string.channel_service_name),
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = context.getString(R.string.channel_service_desc)
+            setShowBadge(false)
         }
+
+        // Doorbell Ring / Incoming Call Channel (Max importance for full-screen lockscreen alert)
+        val ringUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        val audioAttributes = AudioAttributes.Builder()
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+            .build()
+
+        val doorbellChannel = NotificationChannel(
+            CHANNEL_DOORBELL,
+            context.getString(R.string.channel_call_name),
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = context.getString(R.string.channel_call_desc)
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0, 500, 200, 500, 200, 800)
+            setSound(ringUri, audioAttributes)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            setBypassDnd(true)
+        }
+
+        // Motion Alert Channel
+        val motionChannel = NotificationChannel(
+            CHANNEL_MOTION,
+            context.getString(R.string.channel_motion_name),
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = context.getString(R.string.channel_motion_desc)
+            enableVibration(true)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+        }
+
+        // Noise Alert Channel
+        val noiseChannel = NotificationChannel(
+            CHANNEL_NOISE,
+            context.getString(R.string.channel_noise_name),
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = context.getString(R.string.channel_noise_desc)
+            enableVibration(true)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+        }
+
+        manager.createNotificationChannels(listOf(serviceChannel, doorbellChannel, motionChannel, noiseChannel))
     }
 
     fun buildServiceNotification(context: Context, activeDevicesCount: Int): Notification {
@@ -106,6 +104,7 @@ object NotificationHelper {
             .build()
     }
 
+    @SuppressLint("FullScreenIntentPolicy")
     fun showDoorbellNotification(context: Context, device: DeviceEntity, caller: String?) {
         val fullScreenIntent = Intent(context, IncomingCallActivity::class.java).apply {
             putExtra(IncomingCallActivity.EXTRA_DEVICE_ID, device.id)
