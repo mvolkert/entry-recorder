@@ -1,5 +1,5 @@
 {
-    "java.configuration.updateBuildConfiguration": "interactive",
+    "java.configuration.updateBuildConfiguration": "automatic",
     "chat.tools.terminal.autoApprove": {
         ".\\gradlew": true,
         "/^gradle --version$/": {

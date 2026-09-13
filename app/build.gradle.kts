@@ -106,12 +106,12 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
 
     kotlinOptions {
-        jvmTarget = "17"
+        jvmTarget = "21"
     }
 
     buildFeatures {
@@ -174,7 +174,7 @@ dependencies {
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
     // Linphone SDK for SIP calling (Peer-to-Peer and PBX registrar)
-    implementation("org.linphone:linphone-sdk-android:5.2.112")
+    implementation("org.linphone:linphone-sdk-android:5.5.19")
 
     // JSON parsing
     implementation("com.google.code.gson:gson:2.10.1")
