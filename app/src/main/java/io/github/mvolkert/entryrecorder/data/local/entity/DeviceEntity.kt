@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import io.github.mvolkert.entryrecorder.data.model.DeviceType
 import io.github.mvolkert.entryrecorder.data.model.SipMode
+import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 
 @Entity(tableName = "devices")
 data class DeviceEntity(
@@ -19,6 +20,12 @@ data class DeviceEntity(
     val rtspPath: String = "/live.sdp",
     val username: String = "admin",
     val password: String = "2n",
+
+    // Streaming Protocol & Endpoints
+    val streamProtocol: StreamProtocol = StreamProtocol.AUTO,
+    val mjpegPath: String = "/api/camera/mjpeg",
+    val snapshotPath: String = "/api/camera/snapshot",
+    val snapshotFps: Int = 5,
     
     // SIP Configuration
     val sipMode: SipMode = SipMode.PEER_TO_PEER,
@@ -67,5 +74,21 @@ data class DeviceEntity(
         }
 
     val snapshotUrl: String
-        get() = "$httpBaseUrl/api/camera/snapshot?width=1280&height=720"
+        get() {
+            var path = snapshotPath.trim()
+            if (!path.startsWith("/")) path = "/$path"
+            val separator = if (path.contains("?")) "&" else "?"
+            return if (path.contains("width=") || path.contains("height=")) {
+                "$httpBaseUrl$path"
+            } else {
+                "$httpBaseUrl$path${separator}width=1280&height=720"
+            }
+        }
+
+    val mjpegUrl: String
+        get() {
+            var path = mjpegPath.trim()
+            if (!path.startsWith("/")) path = "/$path"
+            return "$httpBaseUrl$path"
+        }
 }

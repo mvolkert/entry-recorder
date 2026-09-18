@@ -1,35 +1,57 @@
 package io.github.mvolkert.entryrecorder.ui.live
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.StopCircle
+import androidx.compose.material.icons.filled.VideocamOff
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
-import io.github.mvolkert.entryrecorder.data.model.EventType
-import io.github.mvolkert.entryrecorder.ui.components.RtspVideoPlayer
+import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LiveCamerasScreen(
+    modifier: Modifier = Modifier,
     settingsViewModel: SettingsViewModel = viewModel(),
     onStartManualRecording: (DeviceEntity) -> Unit = {},
     onStopManualRecording: (DeviceEntity) -> Unit = {},
-    isDeviceRecording: (Long) -> Boolean = { false },
-    modifier: Modifier = Modifier
+    isDeviceRecording: (Long) -> Boolean = { false }
 ) {
     val state by settingsViewModel.uiState.collectAsState()
 
@@ -153,15 +175,15 @@ fun LiveDeviceCard(
                 }
             }
 
-            // RTSP Video Player Box
+            // Live Video Player Box
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(230.dp)
                     .background(Color.Black)
             ) {
-                RtspVideoPlayer(
-                    rtspUrl = device.rtspStreamUrl,
+                LiveStreamPlayer(
+                    device = device,
                     modifier = Modifier.fillMaxSize(),
                     useController = false
                 )

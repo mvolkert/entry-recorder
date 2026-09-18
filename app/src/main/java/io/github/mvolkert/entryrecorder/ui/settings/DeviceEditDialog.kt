@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.*
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,6 +23,7 @@ import io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.DeviceType
 import io.github.mvolkert.entryrecorder.data.model.SipMode
+import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -42,6 +44,11 @@ fun DeviceEditDialog(
     var rtspPath by remember { mutableStateOf(initialDevice?.rtspPath ?: "/live.sdp") }
     var username by remember { mutableStateOf(initialDevice?.username ?: "admin") }
     var password by remember { mutableStateOf(initialDevice?.password ?: "2n") }
+
+    var streamProtocol by remember { mutableStateOf(initialDevice?.streamProtocol ?: StreamProtocol.AUTO) }
+    var mjpegPath by remember { mutableStateOf(initialDevice?.mjpegPath ?: "/api/camera/mjpeg") }
+    var snapshotPath by remember { mutableStateOf(initialDevice?.snapshotPath ?: "/api/camera/snapshot") }
+    var snapshotFps by remember { mutableStateOf(initialDevice?.snapshotFps?.toString() ?: "5") }
 
     var sipMode by remember { mutableStateOf(initialDevice?.sipMode ?: SipMode.PEER_TO_PEER) }
     var sipLocalPort by remember { mutableStateOf(initialDevice?.sipLocalPort?.toString() ?: "5060") }
@@ -146,7 +153,77 @@ fun DeviceEditDialog(
                         )
                     }
 
-                    Divider(modifier = Modifier.padding(vertical = 4.dp))
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        thickness = DividerDefaults.Thickness,
+                        color = DividerDefaults.color
+                    )
+
+                    // Video Stream Protocol Selector
+                    Text("Video Streaming Protocol", fontWeight = FontWeight.Bold)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = streamProtocol == StreamProtocol.AUTO,
+                                onClick = { streamProtocol = StreamProtocol.AUTO }
+                            )
+                            Text("Auto (RTSP with MJPEG/Snapshot fallback)")
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = streamProtocol == StreamProtocol.RTSP,
+                                onClick = { streamProtocol = StreamProtocol.RTSP }
+                            )
+                            Text("RTSP Stream (Port $rtspPort)")
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = streamProtocol == StreamProtocol.MJPEG_STREAM,
+                                onClick = { streamProtocol = StreamProtocol.MJPEG_STREAM }
+                            )
+                            Text("MJPEG Stream (HTTP multipart)")
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = streamProtocol == StreamProtocol.HTTP_SNAPSHOT,
+                                onClick = { streamProtocol = StreamProtocol.HTTP_SNAPSHOT }
+                            )
+                            Text("HTTP Snapshot Polling")
+                        }
+                    }
+
+                    if (streamProtocol == StreamProtocol.MJPEG_STREAM || streamProtocol == StreamProtocol.AUTO) {
+                        OutlinedTextField(
+                            value = mjpegPath,
+                            onValueChange = { mjpegPath = it },
+                            label = { Text("MJPEG Stream Path (e.g. /api/camera/mjpeg)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    if (streamProtocol == StreamProtocol.HTTP_SNAPSHOT || streamProtocol == StreamProtocol.AUTO) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = snapshotPath,
+                                onValueChange = { snapshotPath = it },
+                                label = { Text("Snapshot Path") },
+                                modifier = Modifier.weight(2f)
+                            )
+                            OutlinedTextField(
+                                value = snapshotFps,
+                                onValueChange = { snapshotFps = it },
+                                label = { Text("FPS") },
+                                modifier = Modifier.weight(1f),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        thickness = DividerDefaults.Thickness,
+                        color = DividerDefaults.color
+                    )
 
                     // SIP Mode Configuration
                     Text("SIP Intercom Configuration", fontWeight = FontWeight.Bold)
@@ -189,7 +266,11 @@ fun DeviceEditDialog(
                         }
                     }
 
-                    Divider(modifier = Modifier.padding(vertical = 4.dp))
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        thickness = DividerDefaults.Thickness,
+                        color = DividerDefaults.color
+                    )
 
                     // Recording Triggers
                     Text("Recording Triggers", fontWeight = FontWeight.Bold)
@@ -245,7 +326,11 @@ fun DeviceEditDialog(
                                 rtspPort = rtspPort.toIntOrNull() ?: 554,
                                 rtspPath = rtspPath,
                                 username = username,
-                                password = password
+                                password = password,
+                                streamProtocol = streamProtocol,
+                                mjpegPath = mjpegPath,
+                                snapshotPath = snapshotPath,
+                                snapshotFps = snapshotFps.toIntOrNull() ?: 5
                             )
                             isTestingConnection = true
                             testResult = null
@@ -314,6 +399,10 @@ fun DeviceEditDialog(
                                 rtspPath = rtspPath.trim(),
                                 username = username.trim(),
                                 password = password.trim(),
+                                streamProtocol = streamProtocol,
+                                mjpegPath = mjpegPath.trim(),
+                                snapshotPath = snapshotPath.trim(),
+                                snapshotFps = snapshotFps.toIntOrNull() ?: 5,
                                 sipMode = sipMode,
                                 sipLocalPort = sipLocalPort.toIntOrNull() ?: 5060,
                                 sipServerHost = if (sipServerHost.isNotBlank()) sipServerHost.trim() else null,

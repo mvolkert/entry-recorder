@@ -1,20 +1,45 @@
 package io.github.mvolkert.entryrecorder.ui.incoming
 
 import android.app.KeyguardManager
-import android.content.Context
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.filled.VolumeDown
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CallEnd
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -25,15 +50,13 @@ import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.sip.CallUiState
-import io.github.mvolkert.entryrecorder.ui.components.RtspVideoPlayer
-import kotlinx.coroutines.launch
+import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
 
 class IncomingCallActivity : ComponentActivity() {
 
     private val app by lazy { application as EntryRecorderApp }
     private val repository by lazy { app.repository }
     private val sipManager by lazy { app.sipCallManager }
-    private val recorder by lazy { app.recorder }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,7 +64,6 @@ class IncomingCallActivity : ComponentActivity() {
 
         val deviceId = intent.getLongExtra(EXTRA_DEVICE_ID, -1L)
         val eventTypeName = intent.getStringExtra(EXTRA_EVENT_TYPE) ?: EventType.RING.name
-        val caller = intent.getStringExtra(EXTRA_CALLER) ?: "Doorbell"
         val eventType = try { EventType.valueOf(eventTypeName) } catch (_: Exception) { EventType.RING }
 
         setContent {
@@ -55,7 +77,6 @@ class IncomingCallActivity : ComponentActivity() {
             ) {
                 var device by remember { mutableStateOf<DeviceEntity?>(null) }
                 val sipState by sipManager.sessionState.collectAsState()
-                val scope = rememberCoroutineScope()
 
                 LaunchedEffect(deviceId) {
                     if (deviceId != -1L) {
@@ -66,7 +87,6 @@ class IncomingCallActivity : ComponentActivity() {
                 IncomingCallContent(
                     device = device,
                     eventType = eventType,
-                    caller = caller,
                     sipState = sipState,
                     onAcceptCall = {
                         sipManager.acceptCall()
@@ -93,7 +113,7 @@ class IncomingCallActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
-            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            val keyguardManager = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
             keyguardManager.requestDismissKeyguard(this, null)
         } else {
             @Suppress("DEPRECATION")
@@ -118,7 +138,6 @@ class IncomingCallActivity : ComponentActivity() {
 fun IncomingCallContent(
     device: DeviceEntity?,
     eventType: EventType,
-    caller: String,
     sipState: io.github.mvolkert.entryrecorder.sip.SipSessionState,
     onAcceptCall: () -> Unit,
     onDeclineCall: () -> Unit,
@@ -133,8 +152,8 @@ fun IncomingCallContent(
     ) {
         // 1. Fullscreen Live Video Stream
         if (device != null) {
-            RtspVideoPlayer(
-                rtspUrl = device.rtspStreamUrl,
+            LiveStreamPlayer(
+                device = device,
                 modifier = Modifier.fillMaxSize(),
                 useController = false
             )
@@ -258,7 +277,7 @@ fun IncomingCallContent(
                                 )
                         ) {
                             Icon(
-                                imageVector = if (sipState.isSpeakerOn) Icons.Default.VolumeUp else Icons.Default.VolumeDown,
+                                imageVector = if (sipState.isSpeakerOn) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeDown,
                                 contentDescription = "Speaker",
                                 tint = Color.White
                             )

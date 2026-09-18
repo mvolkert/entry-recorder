@@ -14,8 +14,9 @@ object ThumbnailUtil {
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(videoPath)
-            // Extract frame around 1 second in or at first keyframe
+            // Extract frame around 1 second in, at 0, or at first keyframe
             val bitmap = retriever.getFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?: retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 ?: retriever.frameAtTime
 
             if (bitmap != null) {

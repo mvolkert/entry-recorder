@@ -8,16 +8,17 @@ import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
+import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
+import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
+import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
 import kotlinx.coroutines.*
 import java.io.File
-import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(UnstableApi::class)
 class RtspStreamRecorder(
@@ -68,7 +69,7 @@ class RtspStreamRecorder(
                 if (result.isSuccess) {
                     activeServerRecordings[device.id] = true
                     launch {
-                        delay((maxDurationSeconds + 2) * 1000L)
+                        delay(((maxDurationSeconds + 2) * 1000L).milliseconds)
                         activeServerRecordings.remove(device.id)
                     }
                     return@launch
@@ -85,16 +86,16 @@ class RtspStreamRecorder(
     private fun startLocalRecording(device: DeviceEntity, eventType: EventType, maxDurationSeconds: Int) {
         val timestampStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val recordingsDir = File(context.filesDir, "recordings").apply { mkdirs() }
-        val outputFile = File(recordingsDir, "REC_${device.id}_${eventType.name}_$timestampStr.mp4")
+        val outputFile = File(recordingsDir, "REC_${device.id}_${eventType.name}_$timestampStr.mkv")
 
         val startTime = System.currentTimeMillis()
-        Log.i(tag, "Starting local recording for ${device.name} [${eventType.name}] -> ${outputFile.name}")
+        Log.i(tag, "Starting local MKV recording for ${device.name} [${eventType.name}] -> ${outputFile.name}")
 
         val job = scope.launch {
             try {
-                // Recording capture loop: captures snapshot frames / RTSP stream chunks
-                recordStreamFrames(device, outputFile, maxDurationSeconds)
-            } catch (e: CancellationException) {
+                // Recording capture loop: captures snapshot frames / MJPEG stream chunks into crash-safe MKV
+                recordStreamToMkv(device, outputFile, maxDurationSeconds)
+            } catch (_: CancellationException) {
                 Log.d(tag, "Recording cancelled/stopped normally for ${device.name}")
             } catch (e: Exception) {
                 Log.e(tag, "Error during recording for ${device.name}", e)
@@ -136,32 +137,45 @@ class RtspStreamRecorder(
         }
     }
 
-    private suspend fun recordStreamFrames(device: DeviceEntity, outputFile: File, maxDurationSeconds: Int) = withContext(Dispatchers.IO) {
+    /**
+     * Records incoming snapshot or MJPEG frames directly into a streaming Matroska (MKV) container.
+     * Every cluster is flushed to disk incrementally, making the recording resilient to crashes.
+     */
+    private suspend fun recordStreamToMkv(device: DeviceEntity, outputFile: File, maxDurationSeconds: Int) = withContext(Dispatchers.IO) {
         val deadline = System.currentTimeMillis() + (maxDurationSeconds * 1000L)
-        val snapshotUrl = device.snapshotUrl
+        val startTime = System.currentTimeMillis()
 
-        // Capture snapshot frames into file / buffer
-        FileOutputStream(outputFile).use { fos ->
+        MkvStreamMuxer(outputFile).use { muxer ->
+            val useMjpeg = device.streamProtocol == StreamProtocol.MJPEG_STREAM
+
+            if (useMjpeg) {
+                val mjpegReader = MjpegStreamReader()
+                try {
+                    mjpegReader.streamRawJpeg(device).collect { jpegBytes ->
+                        if (!isActive || System.currentTimeMillis() >= deadline) {
+                            return@collect
+                        }
+                        val relTimeMs = System.currentTimeMillis() - startTime
+                        muxer.writeMjpegFrame(jpegBytes, relTimeMs)
+                    }
+                } catch (_: Exception) {
+                    // Fall back to snapshot polling if MJPEG stream drops
+                }
+            }
+
+            // Fallback or snapshot polling mode
             while (isActive && System.currentTimeMillis() < deadline) {
                 try {
-                    val url = URL(snapshotUrl)
-                    val connection = (url.openConnection() as HttpURLConnection).apply {
-                        connectTimeout = 3000
-                        readTimeout = 3000
-                        val auth = "${device.username}:${device.password}"
-                        val encodedAuth = android.util.Base64.encodeToString(auth.toByteArray(), android.util.Base64.NO_WRAP)
-                        setRequestProperty("Authorization", "Basic $encodedAuth")
+                    val frameBytes = HttpSnapshotClient.fetchSnapshotBytes(device)
+                    if (frameBytes != null && frameBytes.isNotEmpty()) {
+                        val relTimeMs = System.currentTimeMillis() - startTime
+                        muxer.writeMjpegFrame(frameBytes, relTimeMs)
                     }
-
-                    if (connection.responseCode == 200) {
-                        connection.inputStream.use { input ->
-                            input.copyTo(fos)
-                        }
-                    }
-                } catch (e: Exception) {
-                    // Ignored single frame grab errors
+                } catch (_: Exception) {
+                    // Ignore single frame fetch glitches
                 }
-                delay(200) // ~5 fps capture interval
+                val delayMs = (1000L / device.snapshotFps.coerceIn(1, 30))
+                delay(delayMs.milliseconds)
             }
         }
     }

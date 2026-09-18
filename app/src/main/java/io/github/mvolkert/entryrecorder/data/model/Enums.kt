@@ -5,6 +5,13 @@ enum class DeviceType {
     GENERIC_RTSP_ONVIF
 }
 
+enum class StreamProtocol {
+    AUTO,           // Prefers RTSP, automatically falls back to MJPEG or Snapshot if unavailable
+    RTSP,           // Direct RTSP video stream
+    MJPEG_STREAM,   // HTTP multipart/x-mixed-replace stream
+    HTTP_SNAPSHOT   // HTTP periodic snapshot polling
+}
+
 enum class SipMode {
     PEER_TO_PEER,   // Direct LAN IP-to-IP SIP call
     PBX_REGISTRAR,  // Registered to PBX like Fritz!Box / Asterisk
