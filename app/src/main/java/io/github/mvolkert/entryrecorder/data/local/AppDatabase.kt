@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
         RecordingEntity::class,
         AppSettingsEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -45,6 +45,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v5 -> v6: add the SAF export-folder tree URI. Empty string means no folder chosen yet.
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE app_settings ADD COLUMN exportFolderUri TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -53,7 +62,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "entry_recorder_database"
                 )
                     .fallbackToDestructiveMigration(false)
-                    .addMigrations(MIGRATION_4_5)
+                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

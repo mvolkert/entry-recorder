@@ -123,21 +123,29 @@ IDs are `1002+deviceId` (doorbell), `1003+deviceId` (motion), `1004+deviceId` (n
 overlap across channels for different devices (e.g. doorbell id=2 → 1004 == motion id=1 → 1004),
 and `.toInt()` on a `Long` id can wrap. File: `notification/NotificationHelper.kt:142,170,198`
 
-### 8. Export workflow: save exports to disk (SAF folder), separate from Share
-Two related pain points reported after the hybrid export landed:
-- **Canceled share wastes the re-encode**: `ExportTranscoder` writes the H.264 MKV into
-  `cacheDir/export` (a cache dir, so it can be evicted and is invisible to the user). If the share
-  sheet is dismissed, nothing is persisted and the whole transcode must be redone next time.
-- **Proposal (target design)**: let the user pick a **persistent export folder via SAF**
-  (`ACTION_OPEN_DOCUMENT_TREE` + persisted `TakePersistableUriPermission`) in Settings. On export,
-  copy **both** the original `...snapshot.mkv` (MJPEG) **and** the re-encoded `..._h264.mkv` into that
-  one user-accessible folder so they survive and are browsable/shareable outside the app. The **Share**
-  button then becomes a *pure* share intent (FileProvider URI) and is no longer the only way to get the
-  file onto disk. "Save to Gallery" would write into the chosen folder (or MediaStore) instead of cache.
-  - Keep an **export status/indicator** so a long transcode is visible and can't be silently lost.
-  - Related existing request: *"Move recordings to a SAF-pickable folder"* (Feature Requests below).
-  Files: `ui/recordings/RecordingsScreen.kt`, `video/ExportTranscoder.kt`, `util/ExportHelper.kt`,
-  `data/local/entity/AppSettingsEntity.kt` (new `exportFolderUri` + migration), `ui/settings/SettingsScreen.kt`
+### 8. Export workflow: save exports to disk (SAF folder), separate from Share — ✅ IMPLEMENTED (⚠️ needs on-device validation)
+Problem: `ExportTranscoder` wrote the H.264 MKV only into `cacheDir/export` (evictable, invisible to the
+user), so a dismissed share sheet wasted the whole re-encode and nothing landed on disk.
+
+Implemented (hybrid-consistent, Share stays pure):
+- **Settings → "Export Folder"**: pick a persistent folder via SAF `ACTION_OPEN_DOCUMENT_TREE`
+  (`rememberLauncherForActivityResult`), take a persisted read/write `TakePersistableUriPermission`
+  (releases the previous grant when changed / on Remove). Stored as `AppSettingsEntity.exportFolderUri`
+  (Room migration **v5→v6**, real `Migration`).
+- **New "Export to folder" action** in `RecordingsScreen.exportToFolder`: transcodes (when the toggle is on)
+  then writes **both** the original MJPEG MKV and the re-encoded `_h264.mkv` into the chosen folder via
+  `ExportHelper.saveFileToSafFolder` (raw `DocumentsContract` create/overwrite-by-name, no new dependency),
+  with the existing progress dialog. Because results persist on disk, a canceled Share no longer forces a
+  re-export.
+- **Share** is now a *pure* share intent (transcode→cache→FileProvider, never writes to the export folder);
+  the menu was relabelled "Share / Export" → **Share** and the SAF export moved to its own item.
+- "Save to Gallery" (MediaStore Movies) kept unchanged.
+Files: `data/local/entity/AppSettingsEntity.kt`, `data/local/AppDatabase.kt` (MIGRATION_5_6),
+`util/ExportHelper.kt` (`saveFileToSafFolder`/`findSafChildByName`/`safFolderDisplayName`),
+`ui/recordings/RecordingsViewModel.kt` (`exportFolderUri`), `ui/recordings/RecordingsScreen.kt`
+(`exportToFolder` + menu), `ui/settings/SettingsScreen.kt` (folder picker).
+- ⚠️ Validate on device: SAF grant persistence across reboots, overwrite-by-name behavior, and that both
+  files appear and play in the chosen folder.
 
 ---
 
@@ -213,13 +221,19 @@ Two related pain points reported after the hybrid export landed:
 ## Feature Requests (from original 2Do)
 - [ ] Add an **Exit** button in the expanded (foreground) notification to stop monitoring
       (`NotificationHelper.buildServiceNotification` currently has no stop action).
-- [ ] Move recordings to a **SAF-pickable folder** (user-selected, easily accessible & shareable)
-      instead of the private `filesDir/recordings` location.
+- [~] **WON'T DO** — Move the **live recording capture location** to a SAF-pickable folder.
+      Decision (owner): crash-resilience must come first, so capture stays a forward-only local
+      `FileOutputStream` in `filesDir/recordings`. Mirroring the raw `V_MJPEG` MKV into SAF would be pure
+      storage waste because those files are **not decodable by any third-party player** (VLC/gallery).
+      Making a SAF file *playable* would require H.264 transcode **at record time**, which breaks
+      crash-resilience and reintroduces the rejected CPU/battery cost. The playable output belongs in SAF
+      only via **export/transcode-on-demand** (Bug #8 ✅). Per-recording SAF subfolders were considered and
+      dropped as unnecessary under this design.
 - [] Add Backup Function to save all settings
 ---
 
 ## Suggested priorities
-1. ✅ Thumbnails + ✅ export MIME + ✅ **hybrid playback (cheap capture, in-app JPEG player, transcode-on-export + toggle)** + ✅ **VLC/AVCC re-encode fix** implemented (Bug #1). ⚠️ Next: validate on a real device (player/reader/encoder framing + confirm VLC plays the re-export). Follow-up #8: SAF export folder so exports persist to disk independent of Share. Long-term also move the server to MKV and drop MP4; add RTSP H.264 passthrough for stream-capable cams.
+1. ✅ Thumbnails + ✅ export MIME + ✅ **hybrid playback (cheap capture, in-app JPEG player, transcode-on-export + toggle)** + ✅ **VLC/AVCC re-encode fix** + ✅ **SAF export folder (#8)** implemented (Bug #1). ⚠️ Next: validate on a real device (player/reader/encoder framing, confirm VLC plays the re-export, and SAF export persistence). Long-term also move the server to MKV and drop MP4; add RTSP H.264 passthrough for stream-capable cams.
 2. Surface server recordings in the app – Bug #3.
 3. Stop FGS start being blocked after reboot – Bug #6.
 4. Preserve un-shown fields on device edit; wire or remove dead settings – Bugs #4, #5.

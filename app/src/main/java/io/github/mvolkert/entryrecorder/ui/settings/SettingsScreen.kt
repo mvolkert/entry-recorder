@@ -1,7 +1,11 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
 import android.text.format.Formatter
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
+import io.github.mvolkert.entryrecorder.util.ExportHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,6 +38,36 @@ fun SettingsScreen(
     var editingDevice by remember { mutableStateOf<DeviceEntity?>(null) }
     var showAddDeviceDialog by remember { mutableStateOf(false) }
     var isTestingServer by remember { mutableStateOf(false) }
+
+    val exportFolderFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+    val exportFolderPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val previous = state.appSettings.exportFolderUri
+                if (previous.isNotBlank() && previous != uri.toString()) {
+                    runCatching {
+                        context.contentResolver.releasePersistableUriPermission(Uri.parse(previous), exportFolderFlags)
+                    }
+                }
+                context.contentResolver.takePersistableUriPermission(uri, exportFolderFlags)
+                viewModel.updateSettings(state.appSettings.copy(exportFolderUri = uri.toString()))
+            } catch (e: SecurityException) {
+                Toast.makeText(context, "Could not persist export folder permission", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    fun clearExportFolder() {
+        val previous = state.appSettings.exportFolderUri
+        if (previous.isNotBlank()) {
+            runCatching {
+                context.contentResolver.releasePersistableUriPermission(Uri.parse(previous), exportFolderFlags)
+            }
+        }
+        viewModel.updateSettings(state.appSettings.copy(exportFolderUri = ""))
+    }
 
     Scaffold(
         topBar = {
@@ -309,6 +344,47 @@ fun SettingsScreen(
                                     viewModel.updateSettings(state.appSettings.copy(transcodeOnExport = it))
                                 }
                             )
+                        }
+
+                        // Export folder (SAF) picker
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Export Folder", fontWeight = FontWeight.Medium)
+                            Text(
+                                text = "Choose a folder where \"Export to folder\" saves recordings " +
+                                        "(original MJPEG + re-encoded H.264). The Share button only shares " +
+                                        "and never writes here.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            val folder = state.appSettings.exportFolderUri
+                            if (folder.isNotBlank()) {
+                                Text(
+                                    text = "Selected: ${ExportHelper.safFolderDisplayName(Uri.parse(folder))}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = { exportFolderPicker.launch(null) },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.FolderOpen, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(if (folder.isBlank()) "Choose folder" else "Change folder")
+                                }
+                                if (folder.isNotBlank()) {
+                                    TextButton(onClick = { clearExportFolder() }) {
+                                        Text("Remove", color = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+                            }
                         }
 
                         // Trigger cleanup now button

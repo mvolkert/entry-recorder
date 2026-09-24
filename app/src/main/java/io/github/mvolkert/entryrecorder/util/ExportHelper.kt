@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
@@ -119,6 +120,67 @@ object ExportHelper {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save to gallery", e)
             Toast.makeText(context, "Save failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Copies [sourceFile] into the SAF tree folder [treeUri] (a persisted ACTION_OPEN_DOCUMENT_TREE
+     * URI) under [displayName], overwriting an existing document with the same name. Used by
+     * "Export to folder" so exports persist to a user-accessible location independent of Share.
+     * @return true on success.
+     */
+    fun saveFileToSafFolder(context: Context, treeUri: Uri, sourceFile: File, displayName: String): Boolean {
+        if (!sourceFile.exists()) return false
+        return try {
+            val existing = findSafChildByName(context, treeUri, displayName)
+            if (existing != null) DocumentsContract.deleteDocument(context.contentResolver, existing)
+
+            val parentDoc = DocumentsContract.buildDocumentUriUsingTree(
+                treeUri, DocumentsContract.getTreeDocumentId(treeUri)
+            )
+            val child = DocumentsContract.createDocument(
+                context.contentResolver, parentDoc, mimeFor(sourceFile), displayName
+            ) ?: return false
+
+            context.contentResolver.openOutputStream(child)?.use { out ->
+                FileInputStream(sourceFile).use { input -> input.copyTo(out) }
+            } ?: return false
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to write to SAF export folder", e)
+            false
+        }
+    }
+
+    /** Returns the URI of a direct child document named [name] in [treeUri], or null if absent. */
+    private fun findSafChildByName(context: Context, treeUri: Uri, name: String): Uri? {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+            treeUri, DocumentsContract.getTreeDocumentId(treeUri)
+        )
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME
+        )
+        context.contentResolver.query(childrenUri, projection, null, null, null)?.use { c ->
+            val idIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val nameIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            while (c.moveToNext()) {
+                if (c.getString(nameIdx) == name) {
+                    return DocumentsContract.buildDocumentUriUsingTree(treeUri, c.getString(idIdx))
+                }
+            }
+        }
+        return null
+    }
+
+    /** Human-readable label for a SAF tree URI (the path after the volume, e.g. "Documents/Exports"). */
+    fun safFolderDisplayName(treeUri: Uri): String {
+        return try {
+            val docId = DocumentsContract.getTreeDocumentId(treeUri)
+            val parts = docId.split(":")
+            (parts.drop(1).firstOrNull() ?: docId).trimEnd('/')
+        } catch (e: Exception) {
+            treeUri.toString()
         }
     }
 }

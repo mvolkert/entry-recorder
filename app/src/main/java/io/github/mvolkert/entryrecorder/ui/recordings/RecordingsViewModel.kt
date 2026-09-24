@@ -34,6 +34,11 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
         .map { it?.transcodeOnExport ?: true }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
+    /** SAF tree URI of the user-chosen export folder ("" = not set). Drives "Export to folder". */
+    val exportFolderUri: StateFlow<String> = repository.settingsFlow
+        .map { it?.exportFolderUri ?: "" }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
     val uiState: StateFlow<RecordingsUiState> = combine(
         repository.allRecordings,
         repository.allDevices,

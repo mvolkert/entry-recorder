@@ -1,6 +1,7 @@
 package io.github.mvolkert.entryrecorder.ui.recordings
 
 import android.text.format.Formatter
+import android.net.Uri
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -49,13 +50,15 @@ fun RecordingsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val transcodeOnExport by viewModel.transcodeOnExport.collectAsState()
+    val exportFolderUri by viewModel.exportFolderUri.collectAsState()
     var activePlaybackRecording by remember { mutableStateOf<RecordingEntity?>(null) }
     var recordingToDelete by remember { mutableStateOf<RecordingEntity?>(null) }
     var exportProgress by remember { mutableStateOf<Int?>(null) }
 
     // Exports an MJPEG MKV by first transcoding to H.264 (so it plays in other apps) when the
     // setting is enabled; otherwise shares/saves the raw file. Transcoding runs only here (on
-    // explicit user action), never during capture.
+    // explicit user action), never during capture. This path is Share-only: it uses the system
+    // share sheet and does NOT persist anything to the user's export folder.
     fun runExport(recording: RecordingEntity, share: Boolean) {
         val src = File(recording.filePath)
         val isMjpegMkv = src.extension.equals("mkv", ignoreCase = true)
@@ -74,6 +77,54 @@ fun RecordingsScreen(
                 exportProgress = null
                 if (share) ExportHelper.shareFile(context, out, recording)
                 else ExportHelper.saveFileToGallery(context, out, recording)
+            } catch (e: Exception) {
+                exportProgress = null
+                Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    // Persists exports to the user's SAF folder: writes BOTH the original MJPEG MKV and (when the
+    // transcode setting is on) the re-encoded H.264 MKV into the chosen folder, so they survive and
+    // are browsable outside the app. Because results land on disk, a canceled Share no longer forces
+    // a re-export.
+    fun exportToFolder(recording: RecordingEntity) {
+        if (exportFolderUri.isBlank()) {
+            Toast.makeText(context, "Set an export folder in Settings first.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val src = File(recording.filePath)
+        if (!src.exists()) {
+            Toast.makeText(context, "Recording file not found", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val isMjpegMkv = src.extension.equals("mkv", ignoreCase = true)
+        val willTranscode = transcodeOnExport && isMjpegMkv
+
+        scope.launch {
+            try {
+                if (willTranscode) exportProgress = 0
+                val h264 = if (willTranscode) {
+                    ExportTranscoder.transcodeToH264(context, recording) { done, total ->
+                        val pct = if (total > 0) (done * 100 / total) else 0
+                        scope.launch { exportProgress = pct }
+                    }
+                } else null
+                exportProgress = null
+
+                val treeUri = Uri.parse(exportFolderUri)
+                val savedOriginal = ExportHelper.saveFileToSafFolder(context, treeUri, src, src.name)
+                val savedH264 = h264?.let { ExportHelper.saveFileToSafFolder(context, treeUri, it, it.name) } ?: true
+
+                val label = ExportHelper.safFolderDisplayName(treeUri)
+                when {
+                    savedOriginal && savedH264 ->
+                        Toast.makeText(context, "Exported to $label", Toast.LENGTH_LONG).show()
+                    savedOriginal || savedH264 ->
+                        Toast.makeText(context, "Partially exported to $label", Toast.LENGTH_LONG).show()
+                    else ->
+                        Toast.makeText(context, "Export to folder failed", Toast.LENGTH_LONG).show()
+                }
             } catch (e: Exception) {
                 exportProgress = null
                 Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
@@ -189,7 +240,8 @@ fun RecordingsScreen(
                             onDelete = { recordingToDelete = recording },
                             onToggleProtect = { viewModel.toggleProtection(recording) },
                             onShare = { runExport(recording, share = true) },
-                            onExportGallery = { runExport(recording, share = false) }
+                            onExportGallery = { runExport(recording, share = false) },
+                            onExportFolder = { exportToFolder(recording) }
                         )
                     }
                 }
@@ -254,7 +306,8 @@ fun RecordingCardItem(
     onDelete: () -> Unit,
     onToggleProtect: () -> Unit,
     onShare: () -> Unit,
-    onExportGallery: () -> Unit
+    onExportGallery: () -> Unit,
+    onExportFolder: () -> Unit
 ) {
     val context = LocalContext.current
     val locale = LocalConfiguration.current.locales[0]
@@ -376,7 +429,15 @@ fun RecordingCardItem(
                     onDismissRequest = { menuExpanded = false }
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Share / Export") },
+                        text = { Text("Export to folder") },
+                        leadingIcon = { Icon(Icons.Default.SaveAlt, contentDescription = null) },
+                        onClick = {
+                            menuExpanded = false
+                            onExportFolder()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Share") },
                         leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
                         onClick = {
                             menuExpanded = false
