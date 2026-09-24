@@ -29,6 +29,11 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     private val _selectedEventType = MutableStateFlow<EventType?>(null)
     private val _searchQuery = MutableStateFlow("")
 
+    /** Whether exports should be transcoded to H.264 for universal playback (Settings-driven). */
+    val transcodeOnExport: StateFlow<Boolean> = repository.settingsFlow
+        .map { it?.transcodeOnExport ?: true }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
     val uiState: StateFlow<RecordingsUiState> = combine(
         repository.allRecordings,
         repository.allDevices,

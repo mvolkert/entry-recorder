@@ -18,10 +18,26 @@ object ExportHelper {
     private const val TAG = "ExportHelper"
 
     /**
+     * Derives the share/storage MIME type from the actual file extension so MKV recordings are
+     * no longer mislabelled as MP4 after the crash-resilient MKV pivot.
+     */
+    private fun mimeFor(file: File): String = when (file.extension.lowercase()) {
+        "mp4" -> "video/mp4"
+        "mkv", "m4v" -> "video/x-matroska"
+        else -> "video/*"
+    }
+
+    /**
      * Share video file via Android system share sheet (WhatsApp, Email, Cloud, etc.)
      */
     fun shareRecording(context: Context, recording: RecordingEntity) {
-        val file = File(recording.filePath)
+        shareFile(context, File(recording.filePath), recording)
+    }
+
+    /**
+     * Shares an arbitrary video [file] (e.g. a transcoded H.264 export) via the system share sheet.
+     */
+    fun shareFile(context: Context, file: File, recording: RecordingEntity) {
         if (!file.exists()) {
             Toast.makeText(context, "Video file not found", Toast.LENGTH_SHORT).show()
             return
@@ -35,7 +51,7 @@ object ExportHelper {
             )
 
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "video/mp4"
+                type = mimeFor(file)
                 putExtra(Intent.EXTRA_STREAM, contentUri)
                 putExtra(Intent.EXTRA_SUBJECT, "EntryRecorder: ${recording.deviceName} - ${recording.eventType}")
                 putExtra(Intent.EXTRA_TEXT, "Video recording from ${recording.deviceName} (${recording.eventType})")
@@ -53,19 +69,27 @@ object ExportHelper {
      * Save video to public Downloads / Movies folder via MediaStore
      */
     fun saveToPublicGallery(context: Context, recording: RecordingEntity) {
-        val sourceFile = File(recording.filePath)
+        saveFileToGallery(context, File(recording.filePath), recording)
+    }
+
+    /**
+     * Saves an arbitrary video [sourceFile] (e.g. a transcoded H.264 export) to the public
+     * Movies/EntryRecorder folder via MediaStore.
+     */
+    fun saveFileToGallery(context: Context, sourceFile: File, recording: RecordingEntity) {
         if (!sourceFile.exists()) {
             Toast.makeText(context, "Source file not found", Toast.LENGTH_SHORT).show()
             return
         }
 
         try {
-            val fileName = "EntryRecorder_${recording.deviceName}_${System.currentTimeMillis()}.mp4"
+            val extension = sourceFile.extension.ifBlank { "mkv" }
+            val fileName = "EntryRecorder_${recording.deviceName}_${System.currentTimeMillis()}.$extension"
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val values = ContentValues().apply {
                     put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
-                    put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                    put(MediaStore.Video.Media.MIME_TYPE, mimeFor(sourceFile))
                     put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/EntryRecorder")
                     put(MediaStore.Video.Media.IS_PENDING, 1)
                 }

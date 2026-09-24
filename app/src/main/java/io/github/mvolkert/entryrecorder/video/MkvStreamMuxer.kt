@@ -18,8 +18,8 @@ import java.io.OutputStream
  */
 class MkvStreamMuxer(
     outputFile: File,
-    private val width: Int = 1280,
-    private val height: Int = 720,
+    width: Int = 1280,
+    height: Int = 720,
     private val trackNumber: Long = 1L
 ) : AutoCloseable {
 
@@ -31,17 +31,109 @@ class MkvStreamMuxer(
     private var framesInCurrentCluster = 0
     private var lastFrameTimeMs: Long = 0L
 
+    // Track codec configuration. Header must be written lazily because the H.264
+    // CodecPrivate (avcC) is only known once the encoder has produced its CSD.
+    private enum class Codec { MJPEG, H264 }
+    private var codec: Codec = Codec.MJPEG
+    private var h264CodecPrivate: ByteArray? = null
+    private var trackWidth: Int = width
+    private var trackHeight: Int = height
+
     init {
         outputFile.parentFile?.mkdirs()
         fos = FileOutputStream(outputFile)
+        // Header is written on the first frame (see writeHeader / ensureHeaderForMjpeg).
+    }
+
+    /**
+     * Configures the track as H.264 (V_MPEG4/ISO/AVC) with the given AVCDecoderConfigurationRecord
+     * (avcC) built from the encoder's SPS/PPS, then writes the header. Must be called before the
+     * first [writeH264Frame].
+     */
+    @Synchronized
+    fun configureH264(codecPrivate: ByteArray, width: Int, height: Int) {
+        if (isHeaderWritten) return
+        this.codec = Codec.H264
+        this.h264CodecPrivate = codecPrivate
+        this.trackWidth = width
+        this.trackHeight = height
         writeHeader()
+    }
+
+    @Synchronized
+    fun writeH264Frame(annexBByteStream: ByteArray, timestampMs: Long, isKeyframe: Boolean) {
+        if (fos == null) return
+        if (!isHeaderWritten) return // H.264 requires configureH264() first (needs avcC).
+        // Matroska stores H.264 in packetized (AVCC) mode: each NAL unit is prefixed with a 4-byte
+        // big-endian length (matching the avcC lengthSizeMinusOne = 3), NOT Annex-B start codes.
+        // Writing start codes makes strict demuxers like VLC/libavformat misread every block
+        // (interpreting 00 00 00 01 as a length of 1) and show a black screen, even though lenient
+        // players such as MXPlayer sniff and recover.
+        val avcc = annexBToLengthPrefixed(annexBByteStream)
+        writeFrame(avcc, timestampMs, isKeyframe)
+    }
+
+    /** Converts an Annex-B access unit to AVCC (4-byte length-prefixed) NAL units. */
+    private fun annexBToLengthPrefixed(annexB: ByteArray): ByteArray {
+        val nals = extractNalUnits(annexB)
+        if (nals.isEmpty()) return annexB
+        val out = ByteArrayOutputStream(annexB.size + nals.size * 4)
+        for (nal in nals) {
+            val len = nal.size
+            out.write((len ushr 24) and 0xFF)
+            out.write((len ushr 16) and 0xFF)
+            out.write((len ushr 8) and 0xFF)
+            out.write(len and 0xFF)
+            out.write(nal)
+        }
+        return out.toByteArray()
+    }
+
+    /** Splits an Annex-B byte stream (3- or 4-byte start codes) into raw NAL units. */
+    private fun extractNalUnits(data: ByteArray): List<ByteArray> {
+        val nals = ArrayList<ByteArray>()
+        val n = data.size
+        var i = 0
+        var nalStart = -1
+        while (i < n) {
+            val sc = startCodeLengthAt(data, i)
+            if (sc > 0) {
+                if (nalStart >= 0 && i > nalStart) nals.add(data.copyOfRange(nalStart, i))
+                i += sc
+                nalStart = i
+            } else {
+                i++
+            }
+        }
+        if (nalStart in 0 until n) nals.add(data.copyOfRange(nalStart, n))
+        return nals.filter { it.isNotEmpty() }
+    }
+
+    private fun startCodeLengthAt(data: ByteArray, index: Int): Int {
+        val n = data.size
+        if (index + 4 <= n &&
+            data[index].toInt() == 0 && data[index + 1].toInt() == 0 &&
+            data[index + 2].toInt() == 0 && data[index + 3].toInt() == 1
+        ) return 4
+        if (index + 3 <= n &&
+            data[index].toInt() == 0 && data[index + 1].toInt() == 0 &&
+            data[index + 2].toInt() == 1
+        ) return 3
+        return 0
     }
 
     @Synchronized
     fun writeMjpegFrame(jpegBytes: ByteArray, timestampMs: Long) {
         if (fos == null) return
-        if (!isHeaderWritten) writeHeader()
+        if (!isHeaderWritten) writeHeader() // MJPEG header can be written on demand.
+        writeFrame(jpegBytes, timestampMs, isKeyframe = true)
+    }
 
+    /**
+     * Packs a single access unit as a SimpleBlock, opening a new cluster roughly every 1s and
+     * flushing clusters to disk so the file stays structurally valid after a crash.
+     */
+    private fun writeFrame(payload: ByteArray, timestampMs: Long, isKeyframe: Boolean) {
         // Start a new cluster if empty or more than 1000ms has elapsed
         if (currentClusterStream == null || (timestampMs - clusterTimecodeMs >= 1000L && framesInCurrentCluster > 0)) {
             flushCurrentCluster()
@@ -60,9 +152,9 @@ class MkvStreamMuxer(
         blockData.write((relTimeMs shr 8) and 0xFF)
         blockData.write(relTimeMs and 0xFF)
         // Flags: Keyframe (0x80)
-        blockData.write(0x80)
-        // Frame payload (JPEG data)
-        blockData.write(jpegBytes)
+        blockData.write(if (isKeyframe) 0x80 else 0x00)
+        // Frame payload (full JPEG bytes for MJPEG, or AVCC length-prefixed NALs for H.264)
+        blockData.write(payload)
 
         val blockBytes = blockData.toByteArray()
         val clusterBuf = currentClusterStream ?: return
@@ -75,8 +167,10 @@ class MkvStreamMuxer(
         framesInCurrentCluster++
         lastFrameTimeMs = timestampMs
 
-        // Flush to disk every keyframe/cluster so file is safe against crashes
-        if (framesInCurrentCluster >= 5) {
+        // For H.264 a new cluster should begin at keyframes; flush on keyframe or every 5 frames
+        // so the file remains safe against crashes.
+        val forceFlush = (codec == Codec.H264 && isKeyframe) || framesInCurrentCluster >= 5
+        if (forceFlush) {
             flushCurrentCluster()
         }
     }
@@ -153,13 +247,26 @@ class MkvStreamMuxer(
             writeUintElement(ID_TRACK_UID, trackNumber, trackEntry)
             // TrackType: 1 = Video
             writeUintElement(ID_TRACK_TYPE, 1L, trackEntry)
-            // CodecID: "V_MS/VFW/FOURCC" or "V_MJPEG"
-            writeStringElement(ID_CODEC_ID, "V_MJPEG", trackEntry)
+            // CodecID + CodecPrivate depend on the configured codec.
+            when (codec) {
+                Codec.H264 -> {
+                    writeStringElement(ID_CODEC_ID, "V_MPEG4/ISO/AVC", trackEntry)
+                    val cp = h264CodecPrivate
+                    if (cp != null && cp.isNotEmpty()) {
+                        writeElementId(ID_CODEC_PRIVATE, trackEntry)
+                        writeVint(cp.size.toLong(), trackEntry)
+                        trackEntry.write(cp)
+                    }
+                }
+                Codec.MJPEG -> {
+                    writeStringElement(ID_CODEC_ID, "V_MJPEG", trackEntry)
+                }
+            }
 
             // Video Settings (0xE0)
             val video = ByteArrayOutputStream()
-            writeUintElement(ID_PIXEL_WIDTH, width.toLong(), video)
-            writeUintElement(ID_PIXEL_HEIGHT, height.toLong(), video)
+            writeUintElement(ID_PIXEL_WIDTH, trackWidth.toLong(), video)
+            writeUintElement(ID_PIXEL_HEIGHT, trackHeight.toLong(), video)
             val videoBytes = video.toByteArray()
             writeElementId(ID_VIDEO, trackEntry)
             writeVint(videoBytes.size.toLong(), trackEntry)
@@ -207,6 +314,7 @@ class MkvStreamMuxer(
         private const val ID_TRACK_UID = 0x73C5L
         private const val ID_TRACK_TYPE = 0x83L
         private const val ID_CODEC_ID = 0x86L
+        private const val ID_CODEC_PRIVATE = 0x63A2L
         private const val ID_VIDEO = 0xE0L
         private const val ID_PIXEL_WIDTH = 0xB0L
         private const val ID_PIXEL_HEIGHT = 0xBAL

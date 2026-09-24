@@ -2,5 +2,7 @@
 <paths>
     <external-files-path name="recordings" path="recordings/" />
     <external-cache-path name="cache" path="." />
+    <cache-path name="internal_cache" path="." />
     <files-path name="internal_recordings" path="recordings/" />
+    <files-path name="internal_exports" path="export/" />
 </paths>

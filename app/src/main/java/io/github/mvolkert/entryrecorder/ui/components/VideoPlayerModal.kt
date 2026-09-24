@@ -4,15 +4,19 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -32,22 +36,10 @@ fun VideoPlayerModal(
     recording: RecordingEntity,
     onDismiss: () -> Unit
 ) {
-    val context = LocalContext.current
-    val exoPlayer = remember(recording.filePath) {
-        ExoPlayer.Builder(context).build().apply {
-            val mediaItem = MediaItem.fromUri(File(recording.filePath).toURI().toString())
-            setMediaItem(mediaItem)
-            prepare()
-            playWhenReady = true
-        }
-    }
-
-    DisposableEffect(exoPlayer) {
-        onDispose {
-            exoPlayer.stop()
-            exoPlayer.release()
-        }
-    }
+    // Local app recordings are crash-safe MKV files holding JPEG frames on a V_MJPEG track, which
+    // ExoPlayer cannot decode; play them with the dedicated JPEG frame player. Anything else
+    // (e.g. server MP4 or other containers) keeps using ExoPlayer.
+    val isJpegMkv = recording.filePath.substringAfterLast('.', "").equals("mkv", ignoreCase = true)
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -58,19 +50,17 @@ fun VideoPlayerModal(
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        player = exoPlayer
-                        useController = true
-                        layoutParams = FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+            if (isJpegMkv) {
+                JpegFramePlayer(
+                    filePath = recording.filePath,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                ExoPlayerView(
+                    filePath = recording.filePath,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
 
             // Close button top right
             IconButton(
@@ -88,4 +78,42 @@ fun VideoPlayerModal(
             }
         }
     }
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+private fun ExoPlayerView(
+    filePath: String,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val exoPlayer = remember(filePath) {
+        ExoPlayer.Builder(context).build().apply {
+            val mediaItem = MediaItem.fromUri(File(filePath).toURI().toString())
+            setMediaItem(mediaItem)
+            prepare()
+            playWhenReady = true
+        }
+    }
+
+    DisposableEffect(exoPlayer) {
+        onDispose {
+            exoPlayer.stop()
+            exoPlayer.release()
+        }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            PlayerView(ctx).apply {
+                player = exoPlayer
+                useController = true
+                layoutParams = FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            }
+        },
+        modifier = modifier
+    )
 }

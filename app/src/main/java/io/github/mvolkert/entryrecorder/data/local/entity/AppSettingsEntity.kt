@@ -18,5 +18,8 @@ data class AppSettingsEntity(
     val wakeOnRing: Boolean = true,
     val wakeOnNoise: Boolean = true,
     val vibrateOnRing: Boolean = true,
-    val soundOnRing: Boolean = true
+    val soundOnRing: Boolean = true,
+    // When true, exporting/sharing a recording transcodes its MJPEG MKV to H.264 first so it plays
+    // in other apps (costs CPU/battery only at export time). When false, the raw MKV is shared.
+    val transcodeOnExport: Boolean = true
 )

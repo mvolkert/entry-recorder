@@ -18,6 +18,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(UnstableApi::class)
@@ -91,16 +92,17 @@ class RtspStreamRecorder(
         val startTime = System.currentTimeMillis()
         Log.i(tag, "Starting local MKV recording for ${device.name} [${eventType.name}] -> ${outputFile.name}")
 
+        val firstFrameRef = AtomicReference<ByteArray?>(null)
         val job = scope.launch {
             try {
                 // Recording capture loop: captures snapshot frames / MJPEG stream chunks into crash-safe MKV
-                recordStreamToMkv(device, outputFile, maxDurationSeconds)
+                recordStreamToMkv(device, outputFile, maxDurationSeconds, firstFrameRef)
             } catch (_: CancellationException) {
                 Log.d(tag, "Recording cancelled/stopped normally for ${device.name}")
             } catch (e: Exception) {
                 Log.e(tag, "Error during recording for ${device.name}", e)
             } finally {
-                finalizeRecording(device, eventType, startTime, outputFile)
+                finalizeRecording(device, eventType, startTime, outputFile, firstFrameRef.get())
             }
         }
 
@@ -138,25 +140,36 @@ class RtspStreamRecorder(
     }
 
     /**
-     * Records incoming snapshot or MJPEG frames directly into a streaming Matroska (MKV) container.
-     * Every cluster is flushed to disk incrementally, making the recording resilient to crashes.
+     * Records incoming snapshot or MJPEG frames directly into a streaming Matroska (MKV) container
+     * as a `V_MJPEG` track. Every cluster is flushed incrementally, so the file is crash-resilient.
+     *
+     * Deliberately NO re-encoding during capture (keeps the 24/7 monitor cheap on CPU/battery).
+     * In-app playback uses a dedicated JPEG frame player (JpegFramePlayer), and an H.264
+     * transcode is produced lazily only when the user exports/shares (see [ExportTranscoder]).
      */
-    private suspend fun recordStreamToMkv(device: DeviceEntity, outputFile: File, maxDurationSeconds: Int) = withContext(Dispatchers.IO) {
+    private suspend fun recordStreamToMkv(
+        device: DeviceEntity,
+        outputFile: File,
+        maxDurationSeconds: Int,
+        firstFrameRef: AtomicReference<ByteArray?>
+    ) = withContext(Dispatchers.IO) {
         val deadline = System.currentTimeMillis() + (maxDurationSeconds * 1000L)
         val startTime = System.currentTimeMillis()
+        val fps = device.snapshotFps.coerceIn(1, 30)
 
         MkvStreamMuxer(outputFile).use { muxer ->
-            val useMjpeg = device.streamProtocol == StreamProtocol.MJPEG_STREAM
+            fun handleJpeg(jpeg: ByteArray) {
+                if (firstFrameRef.get() == null) firstFrameRef.set(jpeg)
+                val relTimeMs = System.currentTimeMillis() - startTime
+                muxer.writeMjpegFrame(jpeg, relTimeMs)
+            }
 
-            if (useMjpeg) {
+            if (device.streamProtocol == StreamProtocol.MJPEG_STREAM) {
                 val mjpegReader = MjpegStreamReader()
                 try {
                     mjpegReader.streamRawJpeg(device).collect { jpegBytes ->
-                        if (!isActive || System.currentTimeMillis() >= deadline) {
-                            return@collect
-                        }
-                        val relTimeMs = System.currentTimeMillis() - startTime
-                        muxer.writeMjpegFrame(jpegBytes, relTimeMs)
+                        if (!isActive || System.currentTimeMillis() >= deadline) return@collect
+                        handleJpeg(jpegBytes)
                     }
                 } catch (_: Exception) {
                     // Fall back to snapshot polling if MJPEG stream drops
@@ -167,15 +180,11 @@ class RtspStreamRecorder(
             while (isActive && System.currentTimeMillis() < deadline) {
                 try {
                     val frameBytes = HttpSnapshotClient.fetchSnapshotBytes(device)
-                    if (frameBytes != null && frameBytes.isNotEmpty()) {
-                        val relTimeMs = System.currentTimeMillis() - startTime
-                        muxer.writeMjpegFrame(frameBytes, relTimeMs)
-                    }
+                    if (frameBytes != null && frameBytes.isNotEmpty()) handleJpeg(frameBytes)
                 } catch (_: Exception) {
                     // Ignore single frame fetch glitches
                 }
-                val delayMs = (1000L / device.snapshotFps.coerceIn(1, 30))
-                delay(delayMs.milliseconds)
+                delay((1000L / fps).milliseconds)
             }
         }
     }
@@ -184,14 +193,19 @@ class RtspStreamRecorder(
         device: DeviceEntity,
         eventType: EventType,
         startTimeMs: Long,
-        outputFile: File
+        outputFile: File,
+        firstFrameJpeg: ByteArray?
     ) {
         activeRecordings.remove(device.id)
         val durationSec = ((System.currentTimeMillis() - startTimeMs) / 1000L).coerceAtLeast(1L)
         val fileSize = if (outputFile.exists()) outputFile.length() else 0L
 
         if (fileSize > 0) {
-            val thumbPath = ThumbnailUtil.extractAndSaveThumbnail(context, outputFile.absolutePath, device.id)
+            // Prefer the captured JPEG frame for the thumbnail: MJPEG-in-MKV cannot be decoded by
+            // MediaMetadataRetriever on most devices, so frame-based thumbnails are far more reliable.
+            val thumbPath = firstFrameJpeg?.let {
+                ThumbnailUtil.saveThumbnailFromJpeg(context, it, device.id)
+            } ?: ThumbnailUtil.extractAndSaveThumbnail(context, outputFile.absolutePath, device.id)
             val recording = RecordingEntity(
                 deviceId = device.id,
                 deviceName = device.name,

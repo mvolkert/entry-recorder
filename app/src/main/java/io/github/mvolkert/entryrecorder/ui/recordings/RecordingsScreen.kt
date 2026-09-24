@@ -9,7 +9,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,6 +18,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -29,6 +29,12 @@ import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.ui.components.VideoPlayerModal
 import io.github.mvolkert.entryrecorder.util.ExportHelper
+import io.github.mvolkert.entryrecorder.video.ExportTranscoder
+import kotlinx.coroutines.launch
+import android.widget.Toast
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material3.HorizontalDivider
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -41,8 +47,39 @@ fun RecordingsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val transcodeOnExport by viewModel.transcodeOnExport.collectAsState()
     var activePlaybackRecording by remember { mutableStateOf<RecordingEntity?>(null) }
     var recordingToDelete by remember { mutableStateOf<RecordingEntity?>(null) }
+    var exportProgress by remember { mutableStateOf<Int?>(null) }
+
+    // Exports an MJPEG MKV by first transcoding to H.264 (so it plays in other apps) when the
+    // setting is enabled; otherwise shares/saves the raw file. Transcoding runs only here (on
+    // explicit user action), never during capture.
+    fun runExport(recording: RecordingEntity, share: Boolean) {
+        val src = File(recording.filePath)
+        val isMjpegMkv = src.extension.equals("mkv", ignoreCase = true)
+        if (!(transcodeOnExport && isMjpegMkv)) {
+            if (share) ExportHelper.shareFile(context, src, recording)
+            else ExportHelper.saveFileToGallery(context, src, recording)
+            return
+        }
+        exportProgress = 0
+        scope.launch {
+            try {
+                val out = ExportTranscoder.transcodeToH264(context, recording) { done, total ->
+                    val pct = if (total > 0) (done * 100 / total) else 0
+                    scope.launch { exportProgress = pct }
+                }
+                exportProgress = null
+                if (share) ExportHelper.shareFile(context, out, recording)
+                else ExportHelper.saveFileToGallery(context, out, recording)
+            } catch (e: Exception) {
+                exportProgress = null
+                Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -151,8 +188,8 @@ fun RecordingsScreen(
                             onPlay = { activePlaybackRecording = recording },
                             onDelete = { recordingToDelete = recording },
                             onToggleProtect = { viewModel.toggleProtection(recording) },
-                            onShare = { ExportHelper.shareRecording(context, recording) },
-                            onExportGallery = { ExportHelper.saveToPublicGallery(context, recording) }
+                            onShare = { runExport(recording, share = true) },
+                            onExportGallery = { runExport(recording, share = false) }
                         )
                     }
                 }
@@ -191,6 +228,22 @@ fun RecordingsScreen(
             }
         )
     }
+
+    // Export (transcode) progress
+    exportProgress?.let { pct ->
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Preparing export…") },
+            text = {
+                Column {
+                    Text("Converting to H.264 for universal playback…  $pct%")
+                    Spacer(modifier = Modifier.height(12.dp))
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton = {}
+        )
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -204,7 +257,8 @@ fun RecordingCardItem(
     onExportGallery: () -> Unit
 ) {
     val context = LocalContext.current
-    val dateStr = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(Date(recording.timestamp))
+    val locale = LocalConfiguration.current.locales[0]
+    val dateStr = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", locale).format(Date(recording.timestamp))
     val sizeStr = Formatter.formatFileSize(context, recording.fileSizeBytes)
 
     Card(
@@ -238,7 +292,7 @@ fun RecordingCardItem(
                 } else {
                     val fallbackIcon = when (recording.eventType) {
                         EventType.RING -> Icons.Default.Call
-                        EventType.NOISE -> Icons.Default.VolumeUp
+                        EventType.NOISE -> Icons.AutoMirrored.Filled.VolumeUp
                         else -> Icons.Default.Videocam
                     }
                     Icon(
@@ -350,7 +404,7 @@ fun RecordingCardItem(
                             onToggleProtect()
                         }
                     )
-                    Divider()
+                    HorizontalDivider(Modifier, DividerDefaults.Thickness, DividerDefaults.color)
                     DropdownMenuItem(
                         text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                         leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },

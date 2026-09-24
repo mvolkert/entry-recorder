@@ -289,6 +289,28 @@ fun SettingsScreen(
                             )
                         }
 
+                        // Transcode-on-export toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Transcode to H.264 on Export", fontWeight = FontWeight.Medium)
+                                Text(
+                                    text = "Converts recordings for universal playback when sharing/saving. Uses CPU & battery only during export.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = state.appSettings.transcodeOnExport,
+                                onCheckedChange = {
+                                    viewModel.updateSettings(state.appSettings.copy(transcodeOnExport = it))
+                                }
+                            )
+                        }
+
                         // Trigger cleanup now button
                         OutlinedButton(
                             onClick = {
