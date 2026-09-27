@@ -152,21 +152,29 @@ fun LiveDeviceCard(
                 }
 
                 if (isRecording) {
+                    // Compact badge: total height stays below the device-name line height, so the
+                    // header row (and the card/video layout) never grows or shrinks when it appears.
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = Color.Red
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(8.dp)
+                                    .size(5.dp)
                                     .background(Color.White, shape = RoundedCornerShape(50))
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("REC", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                "REC",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 9.sp,
+                                lineHeight = 12.sp
+                            )
                         }
                     }
                 }
