@@ -114,7 +114,13 @@ class RtspStreamRecorder(
             } catch (e: Exception) {
                 Log.e(tag, "Error during recording for ${device.name}", e)
             } finally {
-                finalizeRecording(device, eventType, startTime, outputFile, firstFrameRef.get())
+                // Finalization performs suspending DB writes (recording row, thumbnail, auto-export
+                // mirror). On a manual early stop this coroutine is already cancelled, which would
+                // abort those suspends and silently lose the whole recording — run it NonCancellable
+                // so stopping early still commits the recording like a natural timeout does.
+                withContext(NonCancellable) {
+                    finalizeRecording(device, eventType, startTime, outputFile, firstFrameRef.get())
+                }
             }
         }
 
