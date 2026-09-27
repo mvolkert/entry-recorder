@@ -118,7 +118,7 @@ class StreamRecorder:
                 return False
 
             timestamp_str = time.strftime("%Y%m%d_%H%M%S")
-            filename = f"REC_{device_id}_{event_type.value}_{timestamp_str}.mp4"
+            filename = f"REC_{device_id}_{event_type.value}_{timestamp_str}.mkv"
             output_file = settings.recordings_dir / filename
             start_time_ms = int(time.time() * 1000)
 
@@ -202,7 +202,7 @@ class StreamRecorder:
             "-t", str(duration_sec),
             "-c:v", "copy",
             "-c:a", "aac",
-            "-movflags", "+faststart",
+            "-f", "matroska",
             str(job.output_file)
         ]
         try:
@@ -253,7 +253,7 @@ class StreamRecorder:
         ffmpeg_bin = shutil.which(settings.FFMPEG_PATH) or os.path.isfile(settings.FFMPEG_PATH)
 
         if ffmpeg_bin:
-            # Encode incoming snapshots directly to H.264 MP4 via FFmpeg image2pipe
+            # Encode incoming snapshots directly to H.264 MKV via FFmpeg image2pipe
             cmd = [
                 settings.FFMPEG_PATH,
                 "-y",
@@ -263,7 +263,7 @@ class StreamRecorder:
                 "-i", "pipe:0",
                 "-c:v", "libx264",
                 "-pix_fmt", "yuv420p",
-                "-movflags", "+faststart",
+                "-f", "matroska",
                 str(job.output_file)
             ]
             try:

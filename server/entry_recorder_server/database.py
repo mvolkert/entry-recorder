@@ -121,19 +121,13 @@ def delete_recording(recording_id: int) -> Optional[Dict[str, Any]]:
     if not rec:
         return None
 
+    # Remove files first so a failed deletion cannot orphan them behind a removed row.
+    _remove_recording_files(rec.get("file_path"), rec.get("thumbnail_path"))
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM recordings WHERE id = ?", (recording_id,))
         conn.commit()
-
-    # Clean up files
-    try:
-        if rec.get("file_path") and os.path.exists(rec["file_path"]):
-            os.remove(rec["file_path"])
-        if rec.get("thumbnail_path") and os.path.exists(rec["thumbnail_path"]):
-            os.remove(rec["thumbnail_path"])
-    except Exception:
-        pass
 
     return rec
 
@@ -146,6 +140,19 @@ def get_storage_stats() -> Dict[str, Any]:
             "total_count": row["cnt"],
             "total_size_bytes": row["total_size"]
         }
+
+def _remove_recording_files(file_path: Optional[str], thumbnail_path: Optional[str]) -> bool:
+    """Delete the media files first. Returns True only when every present file was removed
+    (missing files count as success). If any deletion fails we keep the DB row so the
+    recording stays tracked instead of becoming an orphan file."""
+    ok = True
+    for p in (file_path, thumbnail_path):
+        if p and os.path.exists(p):
+            try:
+                os.remove(p)
+            except Exception:
+                ok = False
+    return ok
 
 def cleanup_recordings(retention_days: int, max_storage_bytes: int) -> Dict[str, Any]:
     deleted_count = 0
@@ -162,14 +169,9 @@ def cleanup_recordings(retention_days: int, max_storage_bytes: int) -> Dict[str,
             )
             old_recs = cursor.fetchall()
             for r in old_recs:
+                if not _remove_recording_files(r["file_path"], r["thumbnail_path"]):
+                    continue  # keep the row; avoid orphaning files on a failed delete
                 cursor.execute("DELETE FROM recordings WHERE id = ?", (r["id"],))
-                try:
-                    if r["file_path"] and os.path.exists(r["file_path"]):
-                        os.remove(r["file_path"])
-                    if r["thumbnail_path"] and os.path.exists(r["thumbnail_path"]):
-                        os.remove(r["thumbnail_path"])
-                except Exception:
-                    pass
                 deleted_count += 1
                 freed_bytes += r["file_size_bytes"]
             conn.commit()
@@ -186,14 +188,9 @@ def cleanup_recordings(retention_days: int, max_storage_bytes: int) -> Dict[str,
             for r in candidates:
                 if current_total <= max_storage_bytes:
                     break
+                if not _remove_recording_files(r["file_path"], r["thumbnail_path"]):
+                    continue  # keep the row; avoid orphaning files on a failed delete
                 cursor.execute("DELETE FROM recordings WHERE id = ?", (r["id"],))
-                try:
-                    if r["file_path"] and os.path.exists(r["file_path"]):
-                        os.remove(r["file_path"])
-                    if r["thumbnail_path"] and os.path.exists(r["thumbnail_path"]):
-                        os.remove(r["thumbnail_path"])
-                except Exception:
-                    pass
                 deleted_count += 1
                 freed_bytes += r["file_size_bytes"]
                 current_total -= r["file_size_bytes"]

@@ -21,7 +21,9 @@ data class StartServerRecordingPayload(
     @SerializedName("username") val username: String?,
     @SerializedName("password") val password: String?,
     @SerializedName("event_type") val eventType: String,
-    @SerializedName("duration_seconds") val durationSeconds: Int
+    @SerializedName("duration_seconds") val durationSeconds: Int,
+    @SerializedName("source_mode") val sourceMode: String = "auto",
+    @SerializedName("note") val note: String? = null
 )
 
 data class ServerStatusDto(
@@ -30,6 +32,24 @@ data class ServerStatusDto(
     @SerializedName("active_recordings_count") val activeCount: Int,
     @SerializedName("total_recordings_count") val totalCount: Int,
     @SerializedName("total_storage_bytes") val storageBytes: Long
+)
+
+/**
+ * A recording stored on the Python server. `videoUrl`/`thumbnailUrl` are server-relative paths
+ * (e.g. `/api/recordings/5/video`) that must be prefixed with the configured server base URL.
+ */
+data class ServerRecordingDto(
+    val id: Long,
+    @SerializedName("device_id") val deviceId: Long,
+    @SerializedName("device_name") val deviceName: String,
+    @SerializedName("event_type") val eventType: String,
+    val timestamp: Long,
+    @SerializedName("duration_seconds") val durationSeconds: Int,
+    @SerializedName("file_size_bytes") val fileSizeBytes: Long,
+    @SerializedName("is_protected") val isProtected: Boolean,
+    val note: String?,
+    @SerializedName("video_url") val videoUrl: String?,
+    @SerializedName("thumbnail_url") val thumbnailUrl: String?
 )
 
 class ServerRecordingClient(
@@ -137,6 +157,42 @@ class ServerRecordingClient(
             }
         } catch (e: Exception) {
             Log.e(tag, "Server stop recording failed for device $deviceId", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Fetch the recordings stored on the server (data-layer foundation for surfacing server
+     * recordings in the app gallery). Returns server-relative URLs that callers prefix with the base URL.
+     */
+    suspend fun listRecordings(
+        serverUrl: String,
+        apiKey: String?,
+        deviceId: Long? = null,
+        limit: Int = 100
+    ): Result<List<ServerRecordingDto>> = withContext(Dispatchers.IO) {
+        try {
+            val base = normalizeUrl(serverUrl)
+            val url = buildString {
+                append("$base/api/recordings?limit=").append(limit)
+                if (deviceId != null) append("&device_id=").append(deviceId)
+            }
+            val requestBuilder = Request.Builder().url(url).get()
+            if (!apiKey.isNullOrBlank()) {
+                requestBuilder.addHeader("X-API-Key", apiKey)
+            }
+            client.newCall(requestBuilder.build()).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string() ?: "[]"
+                    val type = object : com.google.gson.reflect.TypeToken<List<ServerRecordingDto>>() {}.type
+                    val list: List<ServerRecordingDto> = gson.fromJson(body, type)
+                    Result.success(list)
+                } else {
+                    Result.failure(Exception("HTTP ${response.code}: ${response.body?.string()}"))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Listing server recordings failed", e)
             Result.failure(e)
         }
     }

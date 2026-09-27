@@ -1,6 +1,7 @@
 import os
 import shutil
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional, List
 import uvicorn
@@ -41,10 +42,22 @@ from .live import stream_mjpeg, stream_mjpeg_snapshot, MJPEG_CONTENT_TYPE
 
 logger = logging.getLogger(__name__)
 
+# Initialize database on startup (FastAPI lifespan replaces the deprecated @app.on_event)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    if not settings.API_KEY:
+        logger.warning(
+            "API_KEY is not set: all endpoints (including device credentials, media and live "
+            "streams) are UNAUTHENTICATED. Set API_KEY in .env to enable access control."
+        )
+    yield
+
 app = FastAPI(
     title="Entry Recorder Server",
     description="Video recording backend server and Web UI for Entry Recorder intercoms",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # CORS setup for mobile and web clients
@@ -72,16 +85,6 @@ def verify_api_key(
             detail="Invalid or missing API key"
         )
     return key or api_key
-
-# Initialize database on startup
-@app.on_event("startup")
-async def on_startup():
-    init_db()
-    if not settings.API_KEY:
-        logger.warning(
-            "API_KEY is not set: all endpoints (including device credentials, media and live "
-            "streams) are UNAUTHENTICATED. Set API_KEY in .env to enable access control."
-        )
 
 # Serve static web UI
 static_dir = Path(__file__).parent / "static"
@@ -218,9 +221,10 @@ async def get_recording_video(
     path = Path(r["file_path"])
     if not path.exists():
         raise HTTPException(status_code=404, detail="Video file missing on disk")
+    media_type = "video/x-matroska" if path.suffix.lower() == ".mkv" else "video/mp4"
     return FileResponse(
         path=str(path),
-        media_type="video/mp4",
+        media_type=media_type,
         filename=path.name
     )
 

@@ -110,21 +110,22 @@ Close the "claimed but not editable" gaps once the data layer is safe (Phase 1 #
 ## Phase 4 — Server recordings in the app + MKV-everywhere
 The largest feature work; depends on Phase 0 validation (server output format) and Phase 2 (id handling).
 
-- [ ] **Bug #3 – Surface server recordings in the app.** Verified: `ServerRecordingClient` only implements
-      `testConnection`/`startRecording`/`stopRecording`; the app never queries `/api/recordings`, `/video`,
-      `/thumbnail` or `/live`, so PYTHON_SERVER-mode recordings never appear in the gallery (Room-only).
-      Add list/fetch endpoints + a unified or bridged gallery (e.g., server recordings shown with a badge,
-      streamed playback via `/video`). Files: `data/server/ServerRecordingClient.kt`,
-      `ui/recordings/RecordingsViewModel.kt`, `video/RtspStreamRecorder.kt`
+- [~] **Bug #3 – Surface server recordings in the app.** Data-layer foundation added: `ServerRecordingClient.listRecordings()`
+      + `ServerRecordingDto` (server-relative `/video` & `/thumbnail` URLs). Remaining: a unified/bridged gallery that
+      renders network thumbnails + streams remote playback needs a UI-model abstraction over the Room-only
+      `RecordingEntity` list (architectural change; confirm design before building).
+      Files: `data/server/ServerRecordingClient.kt`, `ui/recordings/RecordingsViewModel.kt`, `ui/recordings/RecordingsScreen.kt`
 - [ ] **Live view through the server** (`/api/live/{id}/mjpeg`) in `LiveCamerasScreen`.
-- [ ] **Server: MP4 → MKV.** `recorder.py` still writes `.mp4` with `-movflags +faststart` (verified, L121/L205/L266);
-      switch to MKV so the whole stack is crash-resilient, update `/video` `media_type` and the web player.
+- [x] **Server: MP4 → MKV.** `recorder.py` now writes `.mkv` (`-f matroska`, MP4 `+faststart` removed) for both
+      FFmpeg RTSP copy and snapshot/libx264 paths; `/video` derives `video/x-matroska`. ⚠️ Verify the web `index.html`
+      HTML5 `<video>` plays MKV in target browsers (some browsers won't); may need an in-page transcode/download note.
 - [ ] **Server ↔ app device sync.** Server `devices` table and app devices are independent; the app never
       registers devices on the server, so `/api/live/{id}/mjpeg` only works for server-UI-created devices.
-- [ ] **Server cleanup order.** `cleanup_recordings` deletes DB rows then files — a failed file deletion orphans files.
-- [ ] **Server: lifespan handler** – `@app.on_event("startup")` is deprecated. File: `main.py:68`
-- [ ] **Docs/API payload parity** – `server/README.md` example sends `source_mode` but the app's
-      `StartServerRecordingPayload` omits `source_mode`/`note` and sends `snapshot_url` not in the example.
+- [x] **Server cleanup order.** `cleanup_recordings` now deletes files first and only removes the DB row when file
+      deletion succeeded (failed deletions keep the row so nothing is orphaned); same ordering applied to `delete_recording`.
+- [x] **Server: lifespan handler** – replaced deprecated `@app.on_event("startup")` with an `@asynccontextmanager` lifespan.
+- [~] **Docs/API payload parity** – app `StartServerRecordingPayload` now sends `source_mode` ("auto") and `note`,
+      matching the server model. `server/README.md` example update folded into the Docs section.
 - 🔭 Long-term: **RTSP H.264 passthrough** (demux→re-mux, zero re-encode/CPU) for stream-capable cameras.
 
 ---
