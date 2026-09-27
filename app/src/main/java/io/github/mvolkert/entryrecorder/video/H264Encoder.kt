@@ -172,8 +172,10 @@ class H264Encoder(
                             // Some encoders carry SPS/PPS in-band with the first IDR instead of a
                             // dedicated CODEC_CONFIG buffer; learn them from any access unit.
                             extractParameterSets(bytes)
-                            val isKey = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_SYNC_FRAME) != 0 ||
-                                containsIdr(bytes)
+                            // Keyframe detection: parse the NAL units for an IDR (type 5). This is the
+                            // reliable signal; the deprecated BUFFER_FLAG_SYNC_FRAME hint is intentionally
+                            // not used.
+                            val isKey = containsIdr(bytes)
                             result.add(
                                 EncodedFrame(
                                     annexB = normalizeToAnnexB(bytes),

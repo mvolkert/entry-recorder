@@ -265,7 +265,7 @@ in a way we can't validate from CI stays listed here until a real-device pass.
 **Safe fixes (no device-dependent behavior change):**
 - [x] `SipCallManager` static-field holds `Context` (StaticFieldLeak) → hold `Application` instead; the
       singleton already only ever gets `applicationContext`. File: `sip/SipCallManager.kt:30,234`
-- [ ] `H264Encoder.drainOutputs` uses deprecated `MediaCodec.BUFFER_FLAG_SYNC_FRAME` for keyframe detection
+- [x] `H264Encoder.drainOutputs` uses deprecated `MediaCodec.BUFFER_FLAG_SYNC_FRAME` for keyframe detection
       → drop it and rely on the existing `containsIdr(bytes)` (already OR-ed in today). File: `video/H264Encoder.kt:175`
 - [ ] `AudioManager.isSpeakerphoneOn` deprecated (API 31) → use `setCommunicationDevice(TYPE_SPEAKER)` on
       API 31+ (and `AudioManager communicated devices` list), keep the legacy call as fallback. File: `sip/SipCallManager.kt:206`
