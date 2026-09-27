@@ -1,43 +1,31 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Adaptive-icon foreground: CCTV mark v2 scaled from the 24dp grid (x2.75)
-     into the 66dp safe zone, centered on the 108dp canvas. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Owner-provided dome-camera artwork. Wrapped in a 0.8x scale group so the
+         full drawing stays inside the adaptive-icon safe zone (launchers only
+         reveal the central 72/108 of the canvas; the raw 24-unit span would
+         clip the housing corners on circular/squircle masks). -->
     <group
         android:name="mark"
-        android:scaleX="2.75"
-        android:scaleY="2.75"
-        android:translateX="27.75"
-        android:translateY="27.75">
-        <!-- Ceiling mount plate -->
-        <path
-            android:pathData="M14.6,6.9H19.4"
-            android:strokeColor="#FFFFFFFF"
-            android:strokeWidth="2.2"
-            android:strokeLineCap="round" />
-        <!-- Mount arm -->
-        <path
-            android:pathData="M16.8,8.1L14.2,11.9"
-            android:strokeColor="#FFFFFFFF"
-            android:strokeWidth="1.9"
-            android:strokeLineCap="round" />
-        <!-- Bullet camera body (pill) -->
-        <path
-            android:pathData="M10,14.9H16.4"
-            android:strokeColor="#FFFFFFFF"
-            android:strokeWidth="5"
-            android:strokeLineCap="round" />
-        <!-- Lens ring: outer disc minus inner disc via even-odd fill -->
-        <path
-            android:fillColor="#FFFFFFFF"
-            android:fillType="evenOdd"
-            android:pathData="M2.3,14.9a2.4,2.4 0 1,0 4.8,0a2.4,2.4 0 1,0 -4.8,0z M3.3,14.9a1.4,1.4 0 1,0 2.8,0a1.4,1.4 0 1,0 -2.8,0z" />
-        <!-- Lens center dot -->
-        <path
-            android:fillColor="#FFFFFFFF"
-            android:pathData="M4,14.9a0.7,0.7 0 1,0 1.4,0a0.7,0.7 0 1,0 -1.4,0z" />
+        android:pivotX="12"
+        android:pivotY="12.2"
+        android:scaleX="0.8"
+        android:scaleY="0.8">
+
+    <!-- The evenOdd fillType is used to seamlessly combine the solid camera body and the transparent cutouts into a single scalable path -->
+    <path
+        android:fillColor="#000000"
+        android:fillType="evenOdd"
+        android:pathData="
+            M 4,6 H 20 A 1,1 0 0 1 21,7 V 10.2 H 3 V 7 A 1,1 0 0 1 4,6 Z
+            M 14, 7.3 H 15 A 0.8,0.8 0 0 1 15, 8.9 H 14 A 0.8,0.8 0 0 1 14, 7.3 Z
+            M 17.5, 7.3 H 18.5 A 0.8,0.8 0 0 1 18.5, 8.9 H 17.5 A 0.8,0.8 0 0 1 17.5, 7.3 Z
+            M 5, 11.4 H 19 A 7,7 0 0 1 5, 11.4 Z
+            M 12, 12.1 A 2.8,2.8 0 1 0 12, 17.7 A 2.8,2.8 0 1 0 12, 12.1
+            M 12, 13.4 A 1.5,1.5 0 1 0 12, 16.4 A 1.5,1.5 0 1 0 12, 13.4
+            M 12, 14.3 A 0.6,0.6 0 1 0 12, 15.5 A 0.6,0.6 0 1 0 12, 14.3" />
     </group>
 </vector>
