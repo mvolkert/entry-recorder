@@ -8,6 +8,4 @@
     <color name="white">#FFFFFFFF</color>
     <color name="brand_primary">#FF1E88E5</color>
     <color name="brand_secondary">#FF26A69A</color>
-    <!-- Adaptive launcher icon background: light, so the black dome-camera foreground contrasts -->
-    <color name="ic_launcher_background">#FFFFFFFF</color>
 </resources>
