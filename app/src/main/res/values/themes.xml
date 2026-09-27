@@ -2,6 +2,8 @@
     <style name="Theme.EntryRecorder" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@color/black</item>
         <item name="android:navigationBarColor">@color/black</item>
+        <!-- Pre-Android-12 splash = window background; keeps cold start dark -->
+        <item name="android:windowBackground">@color/black</item>
     </style>
 
     <style name="Theme.EntryRecorder.LockScreen" parent="Theme.EntryRecorder">
