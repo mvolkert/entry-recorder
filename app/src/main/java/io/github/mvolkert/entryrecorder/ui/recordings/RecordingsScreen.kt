@@ -92,10 +92,10 @@ fun RecordingsScreen(
         }
     }
 
-    // Persists exports to the user's SAF folder: writes BOTH the original MJPEG MKV and (when the
-    // transcode setting is on) the re-encoded H.264 MKV into the chosen folder, so they survive and
-    // are browsable outside the app. Because results land on disk, a canceled Share no longer forces
-    // a re-export.
+    // Persists an export to the user's SAF folder as ONE file per recording: the re-encoded H.264
+    // MKV when the transcode setting produced one, otherwise the original MJPEG MKV. The lossless
+    // original always stays in-app (and Settings can mirror originals to this folder at
+    // finalization), so the folder isn't cluttered with near-duplicate, hard-to-play files.
     fun exportToFolder(recording: RecordingEntity) {
         if (exportFolderUri.isBlank()) {
             Toast.makeText(context, "Set an export folder in Settings first.", Toast.LENGTH_LONG).show()
@@ -120,19 +120,18 @@ fun RecordingsScreen(
                 } else null
                 exportProgress = null
 
+                // One file per recording: the H.264 re-encode when transcoding produced one,
+                // otherwise the original MKV.
+                val out = h264 ?: src
                 val treeUri = Uri.parse(exportFolderUri)
-                val savedOriginal = ExportHelper.saveFileToSafFolder(context, treeUri, src, src.name)
-                val savedH264 = h264?.let { ExportHelper.saveFileToSafFolder(context, treeUri, it, it.name) } ?: true
+                val saved = ExportHelper.saveFileToSafFolder(context, treeUri, out, out.name)
 
                 val label = ExportHelper.safFolderDisplayName(treeUri)
-                when {
-                    savedOriginal && savedH264 ->
-                        Toast.makeText(context, "Exported to $label", Toast.LENGTH_LONG).show()
-                    savedOriginal || savedH264 ->
-                        Toast.makeText(context, "Partially exported to $label", Toast.LENGTH_LONG).show()
-                    else ->
-                        Toast.makeText(context, "Export to folder failed", Toast.LENGTH_LONG).show()
-                }
+                Toast.makeText(
+                    context,
+                    if (saved) "Exported to $label" else "Export to folder failed",
+                    Toast.LENGTH_LONG
+                ).show()
             } catch (e: Exception) {
                 exportProgress = null
                 Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
@@ -175,11 +174,10 @@ fun RecordingsScreen(
                             if (ExportHelper.saveFileToGallery(context, out, rec, showToast = false)) saved++
                         }
                         "FOLDER" -> {
+                            // One file per recording (H.264 when produced, else original) — same as the single-item path.
                             val treeUri = Uri.parse(exportFolderUri)
-                            var ok = false
-                            if (ExportHelper.saveFileToSafFolder(context, treeUri, src, src.name)) ok = true
-                            if (h264 != null && ExportHelper.saveFileToSafFolder(context, treeUri, h264, h264.name)) ok = true
-                            if (ok) saved++
+                            val out = h264 ?: src
+                            if (ExportHelper.saveFileToSafFolder(context, treeUri, out, out.name)) saved++
                         }
                     }
                     batchDone += 1

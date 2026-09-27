@@ -1,6 +1,7 @@
 package io.github.mvolkert.entryrecorder.video
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
@@ -13,6 +14,7 @@ import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
+import io.github.mvolkert.entryrecorder.util.ExportHelper
 import kotlinx.coroutines.*
 import java.io.File
 import java.text.SimpleDateFormat
@@ -228,6 +230,27 @@ class RtspStreamRecorder(
             )
             val id = repository.insertRecording(recording)
             Log.i(tag, "Recording saved: id=$id, duration=${durationSec}s, size=$fileSize bytes")
+
+            // Opt-in archive mirror: copy the finalized (lossless) MJPEG MKV into the user's SAF
+            // export folder so sync tools always see complete, up-to-date recordings. Deliberately
+            // done only after finalization — a live-appended file in a synced folder would churn
+            // constantly and expose half-written recordings. Best-effort: failures are logged, never
+            // fatal (the authoritative copy always stays in the app's private storage).
+            val settings = repository.getSettings()
+            if (settings.autoExportOnFinalize && settings.exportFolderUri.isNotBlank()) {
+                val mirrored = try {
+                    ExportHelper.saveFileToSafFolder(
+                        context, Uri.parse(settings.exportFolderUri), outputFile, outputFile.name
+                    )
+                } catch (e: Exception) {
+                    Log.e(tag, "Auto-export mirror failed for ${outputFile.name}", e)
+                    false
+                }
+                if (!mirrored) {
+                    Log.w(tag, "Auto-export to folder did not complete for ${outputFile.name} " +
+                            "(folder grant broken or storage full?)")
+                }
+            }
         } else {
             Log.w(tag, "Recording produced empty file, discarding ${outputFile.name}")
             if (outputFile.exists()) outputFile.delete()

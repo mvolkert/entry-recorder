@@ -405,6 +405,31 @@ fun SettingsScreen(
                             )
                         }
 
+                        // Auto-export (mirror originals at finalization) toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Auto-Export Finished Recordings", fontWeight = FontWeight.Medium)
+                                Text(
+                                    text = "Copies each recording's original MJPEG MKV into the export folder " +
+                                            "as soon as it finishes — a complete, sync-friendly archive " +
+                                            "(plays in VLC, not every gallery app). Best-effort; the app " +
+                                            "always keeps its own copy.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = state.appSettings.autoExportOnFinalize,
+                                onCheckedChange = {
+                                    viewModel.updateSettings(state.appSettings.copy(autoExportOnFinalize = it))
+                                }
+                            )
+                        }
+
                         // Export folder (SAF) picker
                         Column(
                             modifier = Modifier.fillMaxWidth(),
@@ -412,9 +437,10 @@ fun SettingsScreen(
                         ) {
                             Text("Export Folder", fontWeight = FontWeight.Medium)
                             Text(
-                                text = "Choose a folder where \"Export to folder\" saves recordings " +
-                                        "(original MJPEG + re-encoded H.264). The Share button only shares " +
-                                        "and never writes here.",
+                                text = "Choose a folder where \"Export to folder\" saves a single file " +
+                                        "per recording (H.264 when transcoding is on) and where " +
+                                        "\"Auto-Export\" mirrors the original MKVs. The Share button only " +
+                                        "shares and never writes here.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

@@ -22,7 +22,10 @@ data class AppSettingsEntity(
     // When true, exporting/sharing a recording transcodes its MJPEG MKV to H.264 first so it plays
     // in other apps (costs CPU/battery only at export time). When false, the raw MKV is shared.
     val transcodeOnExport: Boolean = true,
-    // SAF tree URI (ACTION_OPEN_DOCUMENT_TREE, persisted permission) where "Export to folder" writes
-    // both the original MJPEG MKV and the re-encoded H.264 MKV. Empty = no folder chosen yet.
-    val exportFolderUri: String = ""
+    // SAF tree URI (ACTION_OPEN_DOCUMENT_TREE, persisted permission) used both by "Export to folder"
+    // (one file per recording) and by the auto-export mirror below. Empty = no folder chosen yet.
+    val exportFolderUri: String = "",
+    // Opt-in archive mirror: copies the original (lossless) MJPEG MKV into exportFolderUri right
+    // after a local recording is finalized, so sync tools always see complete, up-to-date files.
+    val autoExportOnFinalize: Boolean = false
 )

@@ -30,6 +30,12 @@ Legend: `[x]` implemented · `[~]` partially implemented / needs validation · `
 - Monitor Button maybe, Monitoring seems to go active after a minute of the app running and it only shows a notification. maybe a motion icon next to the record button to show status of each camera
       - is motion detection global or could it be set per device?
 
+  
+## Features
+- Recording finishes → copy the complete file to the exposed folder as a one-shot event
+- toggle to export original lossless mkv file
+- broadcast intent to trigger export
+
 
 ##  Phase 0 — Validate the hybrid playback/export pipeline on a real device ✅ (validated 2026-09-27)
 Everything already shipped (Bug #1 hybrid + #8 SAF export) is device-dependent and unverifiable from CI.
@@ -41,6 +47,8 @@ Do this first — it gates Phase 4 (server MKV) and de-risks everything else.
 - [x] SAF export folder: grant persistence across reboots, overwrite-by-name behavior,
       both `_h264.mkv` + raw MKV appear and play in the chosen folder.
 - [x] Room migrations v4→v5 (`transcodeOnExport`) and v5→v6 (`exportFolderUri`) run cleanly over real data.
+- [ ] Room migration v6→v7 (`autoExportOnFinalize`) runs cleanly over real data + auto-export mirror verified
+      (finish a recording with the toggle on → original MKV appears in the export folder).
 
 **Done so far (freeze, don't rebuild):** capture stays JPEG-in-MKV no re-encode · thumbnails from
 first captured JPEG · in-app `JpegFramePlayer` routing in `VideoPlayerModal` · transcode-on-export +
@@ -150,6 +158,11 @@ User-facing extras, independent of the pipeline work.
 - [x] **Exit button in the expanded foreground notification** to stop monitoring
       (`NotificationHelper.buildServiceNotification` has no stop action).
 - [x] **Backup function** – export/import all settings (devices + app settings) to a user file.
+- [x] **Auto-Export finished recordings** (merges the "raw MKV export noise" question with the exposed-folder idea):
+      opt-in `autoExportOnFinalize` mirrors each finalized local MJPEG MKV into the SAF export folder right after
+      capture (complete, sync-friendly lossless archive; never mid-write). Folder export (single & bulk) now writes
+      ONE file per recording — H.264 when transcoding, else original — resolving #1 by subtraction.
+      Files: `AppSettingsEntity.kt`, `AppDatabase.kt` (v6→v7), `video/RtspStreamRecorder.kt`, `SettingsScreen.kt`, `RecordingsScreen.kt`
 
 ---
 
