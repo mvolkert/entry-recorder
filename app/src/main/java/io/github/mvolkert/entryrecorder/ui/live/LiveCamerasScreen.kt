@@ -1,6 +1,7 @@
 package io.github.mvolkert.entryrecorder.ui.live
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,7 +19,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.material3.Card
@@ -218,13 +221,30 @@ fun LiveDeviceCard(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     MonitorStatusDot(status = monitorStatus)
+                    TriggerIndicators(device = device, monitorStatus = monitorStatus)
                     Spacer(modifier = Modifier.width(10.dp))
                     IconButton(onClick = onToggleRecord) {
-                        Icon(
-                            imageVector = if (isRecording) Icons.Default.StopCircle else Icons.Default.FiberManualRecord,
-                            contentDescription = "Manual Record",
-                            tint = if (isRecording) Color.Red else MaterialTheme.colorScheme.primary
-                        )
+                        if (isRecording) {
+                            Icon(
+                                imageVector = Icons.Default.StopCircle,
+                                contentDescription = "Stop manual recording",
+                                tint = Color.Red
+                            )
+                        } else {
+                            // Classic record button: red dot centered in a ring
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .background(Color.Red, CircleShape)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -251,4 +271,44 @@ private fun MonitorStatusDot(status: MonitorStatus) {
             .background(color, CircleShape)
             .semantics { contentDescription = description }
     )
+}
+
+/**
+ * Tiny per-trigger indicators for every recording trigger configured on [device]:
+ * bell = record on doorbell ring, walking man = record on motion (native or on-device
+ * analysis; turns amber while motion is currently detected), speaker = record on noise.
+ */
+@Composable
+private fun TriggerIndicators(device: DeviceEntity, monitorStatus: MonitorStatus) {
+    val idleTint = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (device.isEnabled && device.recordOnRing) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(
+                imageVector = Icons.Default.Notifications,
+                contentDescription = "Records on doorbell ring",
+                modifier = Modifier.size(16.dp),
+                tint = idleTint
+            )
+        }
+        if (device.isEnabled && (device.recordOnMotion || device.recordOnMotionOnDevice)) {
+            val motionNow = monitorStatus == MonitorStatus.MOTION
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.DirectionsWalk,
+                contentDescription = if (motionNow) "Motion detected" else "Records on motion",
+                modifier = Modifier.size(16.dp),
+                tint = if (motionNow) Color(0xFFFFB300) else idleTint
+            )
+        }
+        if (device.isEnabled && device.recordOnNoise) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                contentDescription = "Records on noise",
+                modifier = Modifier.size(16.dp),
+                tint = idleTint
+            )
+        }
+    }
 }
