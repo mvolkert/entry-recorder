@@ -1,5 +1,6 @@
 package io.github.mvolkert.entryrecorder.sip
 
+import android.app.Application
 import android.content.Context
 import android.media.AudioManager
 import android.util.Log
@@ -27,12 +28,14 @@ data class SipSessionState(
     val errorMessage: String? = null
 )
 
-class SipCallManager private constructor(private val context: Context) {
+// Holds Application (not an arbitrary Context) so the process-lifetime singleton in the
+// companion never retains an Activity/Service — this is what clears the StaticFieldLeak warning.
+class SipCallManager private constructor(private val app: Application) {
 
     private val tag = "SipCallManager"
     private var core: Core? = null
     private var currentCall: Call? = null
-    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private val audioManager = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
     private val _sessionState = MutableStateFlow(SipSessionState())
     val sessionState: StateFlow<SipSessionState> = _sessionState.asStateFlow()
@@ -99,7 +102,7 @@ class SipCallManager private constructor(private val context: Context) {
         try {
             val factory = Factory.instance()
             factory.setDebugMode(false, "EntryRecorderSIP")
-            val newCore = factory.createCore(null, null, context)
+            val newCore = factory.createCore(null, null, app)
 
             newCore.addListener(coreListener)
             newCore.isMicEnabled = true
@@ -231,7 +234,7 @@ class SipCallManager private constructor(private val context: Context) {
 
         fun getInstance(context: Context): SipCallManager {
             return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: SipCallManager(context.applicationContext).also { INSTANCE = it }
+                INSTANCE ?: SipCallManager(context.applicationContext as Application).also { INSTANCE = it }
             }
         }
     }

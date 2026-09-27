@@ -257,6 +257,30 @@ none of this is verifiable from the build. Run each on a real Android 15/16 devi
 
 ---
 
+## Lint & deprecation debt — post targetSdk 37 cleanup 🔄
+Deprecations surfaced by the compiler/IDE after the targetSdk 37 bump. Policy: fix them properly, **no
+`@Suppress`** (a suppression hides the signal and gets forgotten). Anything that changes runtime behavior
+in a way we can't validate from CI stays listed here until a real-device pass.
+
+**Safe fixes (no device-dependent behavior change):**
+- [x] `SipCallManager` static-field holds `Context` (StaticFieldLeak) → hold `Application` instead; the
+      singleton already only ever gets `applicationContext`. File: `sip/SipCallManager.kt:30,234`
+- [ ] `H264Encoder.drainOutputs` uses deprecated `MediaCodec.BUFFER_FLAG_SYNC_FRAME` for keyframe detection
+      → drop it and rely on the existing `containsIdr(bytes)` (already OR-ed in today). File: `video/H264Encoder.kt:175`
+- [ ] `AudioManager.isSpeakerphoneOn` deprecated (API 31) → use `setCommunicationDevice(TYPE_SPEAKER)` on
+      API 31+ (and `AudioManager communicated devices` list), keep the legacy call as fallback. File: `sip/SipCallManager.kt:206`
+
+**Deferred (device-unverifiable / large — need a real 2N device / PBX before touching):**
+- [ ] `WifiManager.WIFI_MODE_FULL_HIGH_PERF` — no non-deprecated int constant below API 29; plan the
+      `createWifiLock(tag)` (API 29+) branch + legacy path. File: `service/IntercomMonitorService.kt:309`
+- [ ] `MediaCodecInfo...COLOR_FormatYUV420Planar` → SemiPlanar/model format changes the encoder input path;
+      MUST re-validate the exported H.264 MKV still plays in VLC (see test spec). File: `video/H264Encoder.kt:78`
+- [ ] Linphone `ProxyConfig` → `Account` API migration (+ `createProxyConfig/edit/done/addProxyConfig/` 
+      `defaultProxyConfig/clearProxyConfig`, `setDebugMode`) — large SIP refactor, ties into Phase 2
+      per-device-cores decision. File: `sip/SipCallManager.kt`
+
+---
+
 ## Docs
 - [x] `README.md` + `RtspStreamRecorder` class name/comments still say **MP4**; after the deliberate MP4→MKV
       pivot they should document MKV (also reflects Bug #1's resolved state). `RtspStreamRecorder` already read MKV; fixed the two stale README references (app + server).
