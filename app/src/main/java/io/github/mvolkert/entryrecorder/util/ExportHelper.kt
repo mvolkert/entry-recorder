@@ -36,8 +36,37 @@ object ExportHelper {
     }
 
     /**
-     * Shares an arbitrary video [file] (e.g. a transcoded H.264 export) via the system share sheet.
+     * Shares several recordings at once via the system share sheet (multi-select export).
+     * Uses a FileProvider grant per file, same as [shareFile]; callers should pass files that
+     * already exist on disk (transcoded when the setting is on, raw otherwise).
      */
+    fun shareFiles(context: Context, files: List<File>) {
+        val existing = files.filter { it.exists() }
+        if (existing.isEmpty()) {
+            Toast.makeText(context, "No files to share", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val uris = ArrayList<Uri>()
+            for (f in existing) {
+                uris.add(FileProvider.getUriForFile(context, "io.github.mvolkert.entryrecorder.fileprovider", f))
+            }
+            val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                type = "video/*"
+                putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(intent, "Share ${uris.size} recording(s)").apply {
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        } catch (e: Exception) {
+            Log.e("ExportHelper", "Failed to share files", e)
+            Toast.makeText(context, "Failed to share files", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** Shares a single video [file] (e.g. a transcoded H.264 export) via the system share sheet. */
     fun shareFile(context: Context, file: File, recording: RecordingEntity) {
         if (!file.exists()) {
             Toast.makeText(context, "Video file not found", Toast.LENGTH_SHORT).show()
@@ -77,13 +106,18 @@ object ExportHelper {
      * Saves an arbitrary video [sourceFile] (e.g. a transcoded H.264 export) to the public
      * Movies/EntryRecorder folder via MediaStore.
      */
-    fun saveFileToGallery(context: Context, sourceFile: File, recording: RecordingEntity) {
+    fun saveFileToGallery(
+        context: Context,
+        sourceFile: File,
+        recording: RecordingEntity,
+        showToast: Boolean = true,
+    ): Boolean {
         if (!sourceFile.exists()) {
-            Toast.makeText(context, "Source file not found", Toast.LENGTH_SHORT).show()
-            return
+            if (showToast) Toast.makeText(context, "Source file not found", Toast.LENGTH_SHORT).show()
+            return false
         }
 
-        try {
+        return try {
             val extension = sourceFile.extension.ifBlank { "mkv" }
             val fileName = "EntryRecorder_${recording.deviceName}_${System.currentTimeMillis()}.$extension"
 
@@ -108,18 +142,24 @@ object ExportHelper {
                     values.clear()
                     values.put(MediaStore.Video.Media.IS_PENDING, 0)
                     context.contentResolver.update(itemUri, values, null, null)
-                    Toast.makeText(context, "Saved to Movies/EntryRecorder", Toast.LENGTH_LONG).show()
+                    if (showToast) Toast.makeText(context, "Saved to Movies/EntryRecorder", Toast.LENGTH_LONG).show()
+                    true
+                } else {
+                    if (showToast) Toast.makeText(context, "Failed to create MediaStore entry", Toast.LENGTH_SHORT).show()
+                    false
                 }
             } else {
                 val destDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "EntryRecorder")
                 destDir.mkdirs()
                 val destFile = File(destDir, fileName)
                 sourceFile.copyTo(destFile, overwrite = true)
-                Toast.makeText(context, "Saved to ${destFile.absolutePath}", Toast.LENGTH_LONG).show()
+                if (showToast) Toast.makeText(context, "Saved to ${destFile.absolutePath}", Toast.LENGTH_LONG).show()
+                true
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save to gallery", e)
-            Toast.makeText(context, "Save failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+            if (showToast) Toast.makeText(context, "Save failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+            false
         }
     }
 

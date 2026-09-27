@@ -59,6 +59,9 @@ fun RecordingsScreen(
     var selectionMode by remember { mutableStateOf(false) }
     val selectedIds by viewModel.selectedIds.collectAsState()
     var showBulkDeleteConfirm by remember { mutableStateOf(false) }
+    var showExportMenu by remember { mutableStateOf(false) }
+    var batchTotal by remember { mutableStateOf<Int?>(null) }
+    var batchDone by remember { mutableStateOf(0) }
 
     // Exports an MJPEG MKV by first transcoding to H.264 (so it plays in other apps) when the
     // setting is enabled; otherwise shares/saves the raw file. Transcoding runs only here (on
@@ -137,6 +140,67 @@ fun RecordingsScreen(
         }
     }
 
+    // Multi-select export. Applies the same lazy transcode-on-export policy as the single-item
+    // path but across all selected recordings, with a k/n progress dialog. Share collects the
+    // (transcoded-when-enabled) files and hands them to the system sheet in one action; Gallery
+    // and Folder write each file and report a final saved count. kind: "SHARE" | "GALLERY" | "FOLDER".
+    fun runBatchExport(kind: String) {
+        val targets = state.recordings.filter { it.id in selectedIds }
+        if (targets.isEmpty()) {
+            Toast.makeText(context, "Nothing selected", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (kind == "FOLDER" && exportFolderUri.isBlank()) {
+            Toast.makeText(context, "Set an export folder in Settings first.", Toast.LENGTH_LONG).show()
+            return
+        }
+        batchTotal = targets.size
+        batchDone = 0
+        scope.launch {
+            val toShare = ArrayList<File>()
+            var saved = 0
+            try {
+                for (rec in targets) {
+                    val src = File(rec.filePath)
+                    val isMjpegMkv = src.extension.equals("mkv", ignoreCase = true)
+                    val willTranscode = transcodeOnExport && isMjpegMkv && src.exists()
+                    val h264 = if (willTranscode) {
+                        try { ExportTranscoder.transcodeToH264(context, rec) } catch (e: Exception) { null }
+                    } else null
+
+                    when (kind) {
+                        "SHARE" -> toShare.add(h264 ?: src)
+                        "GALLERY" -> {
+                            val out = h264 ?: src
+                            if (ExportHelper.saveFileToGallery(context, out, rec, showToast = false)) saved++
+                        }
+                        "FOLDER" -> {
+                            val treeUri = Uri.parse(exportFolderUri)
+                            var ok = false
+                            if (ExportHelper.saveFileToSafFolder(context, treeUri, src, src.name)) ok = true
+                            if (h264 != null && ExportHelper.saveFileToSafFolder(context, treeUri, h264, h264.name)) ok = true
+                            if (ok) saved++
+                        }
+                    }
+                    batchDone += 1
+                }
+
+                when (kind) {
+                    "SHARE" -> if (toShare.isNotEmpty()) ExportHelper.shareFiles(context, toShare)
+                    "GALLERY" -> Toast.makeText(context, "Saved $saved of ${targets.size} to Gallery", Toast.LENGTH_LONG).show()
+                    "FOLDER" -> Toast.makeText(context, "Exported $saved of ${targets.size} to folder", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+            } finally {
+                batchTotal = null
+                batchDone = 0
+                selectionMode = false
+                viewModel.clearSelection()
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             Column(
@@ -158,6 +222,43 @@ fun RecordingsScreen(
                     if (selectionMode) {
                         IconButton(onClick = { viewModel.selectAllVisible() }) {
                             Icon(Icons.Default.SelectAll, contentDescription = "Select all")
+                        }
+                        Box {
+                            IconButton(
+                                onClick = { showExportMenu = true },
+                                enabled = selectedIds.isNotEmpty()
+                            ) {
+                                Icon(Icons.Default.Upload, contentDescription = "Export selected")
+                            }
+                            DropdownMenu(
+                                expanded = showExportMenu,
+                                onDismissRequest = { showExportMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Share…") },
+                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                                    onClick = {
+                                        showExportMenu = false
+                                        runBatchExport("SHARE")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Save to Gallery") },
+                                    leadingIcon = { Icon(Icons.Default.Download, contentDescription = null) },
+                                    onClick = {
+                                        showExportMenu = false
+                                        runBatchExport("GALLERY")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Export to Folder") },
+                                    leadingIcon = { Icon(Icons.Default.SaveAlt, contentDescription = null) },
+                                    onClick = {
+                                        showExportMenu = false
+                                        runBatchExport("FOLDER")
+                                    }
+                                )
+                            }
                         }
                         IconButton(
                             onClick = { showBulkDeleteConfirm = true },
@@ -387,6 +488,23 @@ fun RecordingsScreen(
             text = {
                 Column {
                     Text("Converting to H.264 for universal playback…  $pct%")
+                    Spacer(modifier = Modifier.height(12.dp))
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton = {}
+        )
+    }
+
+    // Batch export progress (multi-select): shows "k of n" across the selected recordings while
+    // each item is transcoded (when the setting is on) and written/shared.
+    batchTotal?.let { total ->
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Exporting…") },
+            text = {
+                Column {
+                    Text("Processing $batchDone of $total recording(s)…")
                     Spacer(modifier = Modifier.height(12.dp))
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
