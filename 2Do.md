@@ -52,7 +52,7 @@ Do this first — it gates Phase 4 (server MKV) and de-risks everything else.
 - [x] SAF export folder: grant persistence across reboots, overwrite-by-name behavior,
       both `_h264.mkv` + raw MKV appear and play in the chosen folder.
 - [x] Room migrations v4→v5 (`transcodeOnExport`) and v5→v6 (`exportFolderUri`) run cleanly over real data.
-- [ ] Room migration v6→v7 (`autoExportOnFinalize`) runs cleanly over real data + auto-export mirror verified
+- [x] Room migration v6→v7 (`autoExportOnFinalize`) runs cleanly over real data + auto-export mirror verified
       (finish a recording with the toggle on → original MKV appears in the export folder).
 
 **Done so far (freeze, don't rebuild):** capture stays JPEG-in-MKV no re-encode · thumbnails from
