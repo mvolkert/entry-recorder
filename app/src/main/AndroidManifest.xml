@@ -69,12 +69,15 @@
             android:excludeFromRecents="true"
             android:theme="@style/Theme.EntryRecorder.LockScreen" />
 
-        <!-- Background Intercom Monitor Service -->
+        <!-- Background Intercom Monitor Service.
+             Uses connectedDevice only: the phoneCall FGS type cannot be started from a BOOT
+             broadcast/background (ForegroundServiceStartNotAllowedException on Android 12/14),
+             which silently broke autostart. SIP calling itself runs via the full-screen activity. -->
         <service
             android:name=".service.IntercomMonitorService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice|phoneCall" />
+            android:foregroundServiceType="connectedDevice" />
 
         <!-- Boot Receiver to start monitoring automatically -->
         <receiver

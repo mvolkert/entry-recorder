@@ -60,6 +60,11 @@ class EntryRecorderApp : Application() {
         )
     }
 
+    // NOTE: Targeted workaround for a known Media3 RTSP defect that throws a hard
+    // NullPointerException on the playback thread. That crash is NOT surfaced as a normal
+    // PlaybackException (players already handle onPlayerError), so this narrow global guard is the
+    // only way to keep the process alive on affected devices. It is deliberately scoped to the
+    // exact ExoPlayer-RTSP-NPE signature and forwards every other throwable to the default handler.
     private fun setupExoPlayerCrashProtection() {
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->

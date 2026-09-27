@@ -43,10 +43,16 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         acquireWakeAndWifiLocks()
 
         // Start as Foreground Service immediately
-        startForeground(
-            NotificationHelper.NOTIFICATION_ID_SERVICE,
-            NotificationHelper.buildServiceNotification(this, 0)
-        )
+        val serviceNotification = NotificationHelper.buildServiceNotification(this, 0)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            startForeground(
+                NotificationHelper.NOTIFICATION_ID_SERVICE,
+                serviceNotification,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            )
+        } else {
+            startForeground(NotificationHelper.NOTIFICATION_ID_SERVICE, serviceNotification)
+        }
 
         // Initialize SIP engine
         sipManager.initialize()
@@ -322,10 +328,16 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     companion object {
         fun start(context: Context) {
             val intent = Intent(context, IntercomMonitorService::class.java)
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                // Android 12+/14 may reject background FGS starts (e.g. from BOOT) with
+                // ForegroundServiceStartNotAllowedException. Log instead of crashing the receiver.
+                Log.e("IntercomMonitorService", "Foreground service start not allowed", e)
             }
         }
 

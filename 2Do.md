@@ -44,24 +44,24 @@ Files: `video/MjpegMkvReader.kt`, `ui/components/JpegFramePlayer.kt`, `ui/compon
 ## Phase 1 — Data-loss & correctness hotfixes (small, isolated)
 Silent data loss and dead UI come first — cheap fixes, immediate user impact.
 
-- [ ] **Bug #4 – Device edit resets un-shown fields.** `DeviceEditDialog` rebuilds a full `DeviceEntity`
+- [x] **Bug #4 – Device edit resets un-shown fields.** `DeviceEditDialog` rebuilds a full `DeviceEntity`
       on save but omits `useHttps`, `httpsPort`, `ringRecordSeconds`, `motionPostRecordSeconds`,
       `noisePostRecordSeconds`, `isEnabled` → each edit silently reverts them. Start from
       `initialDevice` and copy-over only edited fields. File: `ui/settings/DeviceEditDialog.kt:392-417`
-- [ ] **Bug #5 – Dead settings.** `wakeOnRing`/`vibrateOnRing`/`soundOnRing` are toggled in
+- [x] **Bug #5 – Dead settings.** `wakeOnRing`/`vibrateOnRing`/`soundOnRing` are toggled in
       `SettingsScreen` but never read by `IntercomMonitorService` (doorbell always wakes/rings) —
       wire them into the DoorbellRung path or remove the toggles.
       `maxStorageUsageMb` is used by the worker but has **no UI** despite README "configurable storage quota" → add one.
       Files: `service/IntercomMonitorService.kt`, `ui/settings/SettingsScreen.kt`
-- [ ] **Bug #7 – Notification-ID collisions.** Verified still present: `NOTIFICATION_ID_DOORBELL(1002)
+- [x] **Bug #7 – Notification-ID collisions.** Verified still present: `NOTIFICATION_ID_DOORBELL(1002)
       + device.id`, `MOTION(1003) + id`, `NOISE(1004) + id` overlap across channels for different devices
       (doorbell id=2 → 1004 == motion id=1 → 1004); `.toInt()` on a `Long` id can wrap.
       Use a dedicated ID space per event type. File: `notification/NotificationHelper.kt:142,170,198`
-- [ ] **Server: unconditional auth.** `verify_api_key` is a no-op when `API_KEY` is empty (`.env` ships none),
+- [~] **Server: unconditional auth.** `verify_api_key` is a no-op when `API_KEY` is empty (`.env` ships none),
       and `/api/recordings/{id}/video`, `/thumbnail`, `/api/live/{id}/mjpeg` have **no auth dependency at all**
       (verified). Require a key (generate default on first run) and protect the media/live endpoints.
       File: `server/entry_recorder_server/main.py:59-65,196-222`
-- [ ] **Room: remove destructive fallback risk.** Verify `fallbackToDestructiveMigration` no longer active /
+- [x] **Room: remove destructive fallback risk.** Verify `fallbackToDestructiveMigration` no longer active /
       real migrations for every version bump — a v-bump must never wipe the recordings index.
       File: `data/local/AppDatabase.kt`
 
@@ -70,20 +70,20 @@ Silent data loss and dead UI come first — cheap fixes, immediate user impact.
 ## Phase 2 — Service reliability (foreground service & SIP)
 Make the 24/7 monitoring actually survive reboots and multi-device use.
 
-- [ ] **Bug #6 – FGS start blocked on Android 12+/14.** `BootReceiver`/background paths start the FGS with
+- [x] **Bug #6 – FGS start blocked on Android 12+/14.** `BootReceiver`/background paths start the FGS with
       `connectedDevice|phoneCall`; a `phoneCall`-type FGS from a BOOT broadcast is restricted →
       `ForegroundServiceStartNotAllowedException`, autostart silently fails. `FOREGROUND_SERVICE_MEDIA_PLAYBACK`
       permission is declared but the type unused. Rework the start path (e.g., `connectedDevice` for monitoring,
       proper exceptions/exempted boot handling). Files: `AndroidManifest.xml:73-88`, `receiver/BootReceiver.kt`,
       `service/IntercomMonitorService.kt:314-322`
-- [ ] **Server-mode stop reconciliation.** Auto-stop uses a fixed `maxDurationSeconds+2` local timer with no
+- [~] **Server-mode stop reconciliation.** Auto-stop uses a fixed `maxDurationSeconds+2` local timer with no
       reconciliation of the actual server job; the app holds no server recording id, so stop/status can drift.
       Return/persist the server recording id and reconcile via `/api/recordings/{id}`. File: `video/RtspStreamRecorder.kt:69-79`
-- [ ] **SIP per-device cores.** One global Linphone core reconfigured per device in `updateMonitoredDevices` —
+- [~] **SIP per-device cores.** (DEFERRED — owner chose to revisit with real device/PBX; large unverifiable refactor) One global Linphone core reconfigured per device in `updateMonitoredDevices` —
       with multiple devices the last one wins; P2P vs PBX cannot coexist. File: `sip/SipCallManager.kt`
-- [ ] **Replace global `UncaughtExceptionHandler`** that swallows Media3 RTSP NPEs — masks real crashes and can
+- [~] **Replace global `UncaughtExceptionHandler`** that swallows Media3 RTSP NPEs — masks real crashes and can
       leave the player broken; handle at the player error callback instead. File: `EntryRecorderApp.kt:63-79`
-- [ ] **Digest auth robustness.** `parseDigestParams` splits on `,` (breaks on commas in `realm`/`nonce`),
+- [x] **Digest auth robustness.** `parseDigestParams` splits on `,` (breaks on commas in `realm`/`nonce`),
       MD5-only, gives up after one `Authorization` attempt. File: `data/device/TwoNIPVersoDevice.kt:320-332`
 
 ---

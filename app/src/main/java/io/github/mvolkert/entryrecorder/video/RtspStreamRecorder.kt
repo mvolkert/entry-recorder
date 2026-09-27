@@ -69,9 +69,19 @@ class RtspStreamRecorder(
 
                 if (result.isSuccess) {
                     activeServerRecordings[device.id] = true
+                    // The server also auto-stops after duration_seconds, but reconcile explicitly when
+                    // our local timer elapses so app and server state agree instead of drifting. The
+                    // remove() guard prevents a double stop when the user stops early.
                     launch {
                         delay(((maxDurationSeconds + 2) * 1000L).milliseconds)
-                        activeServerRecordings.remove(device.id)
+                        if (activeServerRecordings.remove(device.id) != null) {
+                            val s = repository.getSettings()
+                            serverClient.stopRecording(
+                                serverUrl = s.serverBaseUrl,
+                                apiKey = s.serverApiKey.ifBlank { null },
+                                deviceId = device.id
+                            )
+                        }
                     }
                     return@launch
                 } else {

@@ -251,23 +251,20 @@ class TwoNDigestAuthenticator(
 ) : Authenticator {
 
     override fun authenticate(route: Route?, response: Response): Request? {
-        if (response.request.header("Authorization") != null) {
-            return null // Give up if already authenticated and still unauthorized
-        }
-
         val authHeaders = response.headers("WWW-Authenticate")
         for (header in authHeaders) {
-            if (header.startsWith("Digest", ignoreCase = true)) {
-                val authHeaderValue = buildDigestHeader(header, response.request)
-                if (authHeaderValue != null) {
-                    return response.request.newBuilder()
-                        .header("Authorization", authHeaderValue)
-                        .build()
-                }
-            } else if (header.startsWith("Basic", ignoreCase = true)) {
-                val credentials = Credentials.basic(username, password)
+            val candidate = when {
+                header.startsWith("Digest", ignoreCase = true) -> buildDigestHeader(header, response.request)
+                header.startsWith("Basic", ignoreCase = true) -> Credentials.basic(username, password)
+                else -> null
+            }
+            if (candidate != null) {
+                // Loop guard: only stop retrying if we already sent this exact credential. A stale
+                // nonce yields a different Digest value, so a single legitimate retry is still allowed.
+                val priorAuth = response.priorResponse?.request?.header("Authorization")
+                if (priorAuth == candidate) return null
                 return response.request.newBuilder()
-                    .header("Authorization", credentials)
+                    .header("Authorization", candidate)
                     .build()
             }
         }
@@ -285,16 +282,18 @@ class TwoNDigestAuthenticator(
         val uri = request.url.encodedPath + (if (request.url.encodedQuery != null) "?${request.url.encodedQuery}" else "")
         val method = request.method
 
-        val ha1 = md5Hex("$username:$realm:$password")
-        val ha2 = md5Hex("$method:$uri")
-
+        val isSession = algorithm.endsWith("-sess", ignoreCase = true)
         val nc = "00000001"
         val cnonce = java.util.UUID.randomUUID().toString().replace("-", "").take(16)
 
+        var ha1 = hashHex(algorithm, "$username:$realm:$password")
+        if (isSession) ha1 = hashHex(algorithm, "$ha1:$nonce:$cnonce")
+        val ha2 = hashHex(algorithm, "$method:$uri")
+
         val responseVal = if (qop != null && qop.contains("auth")) {
-            md5Hex("$ha1:$nonce:$nc:$cnonce:auth:$ha2")
+            hashHex(algorithm, "$ha1:$nonce:$nc:$cnonce:auth:$ha2")
         } else {
-            md5Hex("$ha1:$nonce:$ha2")
+            hashHex(algorithm, "$ha1:$nonce:$ha2")
         }
 
         val sb = StringBuilder()
@@ -317,23 +316,66 @@ class TwoNDigestAuthenticator(
         return sb.toString()
     }
 
+    /**
+     * Parses Digest challenge parameters without naively splitting on commas: values may be quoted
+     * and can themselves contain commas (e.g. certain realm/nonce strings). Handles backslash escapes
+     * inside quoted values.
+     */
     private fun parseDigestParams(header: String): Map<String, String> {
         val params = mutableMapOf<String, String>()
-        val parts = header.substringAfter("Digest ").split(",")
-        for (part in parts) {
-            val keyVal = part.trim().split("=", limit = 2)
-            if (keyVal.size == 2) {
-                val key = keyVal[0].trim()
-                val value = keyVal[1].trim().removeSurrounding("\"")
-                params[key] = value
+        val content = if (header.length >= 6 && header.substring(0, 6).equals("Digest", ignoreCase = true)) {
+            header.substring(6)
+        } else {
+            header.substringAfter(' ')
+        }
+        var i = 0
+        val n = content.length
+        while (i < n) {
+            while (i < n && (content[i] == ' ' || content[i] == ',' || content[i] == '\t')) i++
+            val keyStart = i
+            while (i < n && content[i] != '=') i++
+            if (i >= n) break
+            val key = content.substring(keyStart, i).trim()
+            i++ // skip '='
+            val value = if (i < n && content[i] == '"') {
+                i++ // skip opening quote
+                val sb = StringBuilder()
+                while (i < n && content[i] != '"') {
+                    if (content[i] == '\\' && i + 1 < n && (content[i + 1] == '"' || content[i + 1] == '\\')) {
+                        sb.append(content[i + 1]); i += 2
+                    } else {
+                        sb.append(content[i]); i++
+                    }
+                }
+                if (i < n) i++ // skip closing quote
+                sb.toString()
+            } else {
+                val vStart = i
+                while (i < n && content[i] != ',') i++
+                content.substring(vStart, i).trim()
             }
+            if (key.isNotEmpty()) params[key] = value
         }
         return params
     }
 
-    private fun md5Hex(input: String): String {
-        val md = MessageDigest.getInstance("MD5")
-        val bytes = md.digest(input.toByteArray(Charsets.UTF_8))
-        return bytes.joinToString("") { "%02x".format(it) }
+    /**
+     * Computes the digest hash for the requested algorithm (RFC 7616). Supports MD5 and SHA-256
+     * (including the -sess variants); falls back to MD5 for unknown algorithms so behaviour never
+     * regresses on devices that only advertise MD5.
+     */
+    private fun hashHex(algorithm: String, input: String): String {
+        val base = algorithm.removeSuffix("-sess").removeSuffix("-SESS").uppercase()
+        val instance = when (base) {
+            "SHA-256", "SHA256" -> "SHA-256"
+            "MD5", "MD5-SESS" -> "MD5"
+            else -> "MD5"
+        }
+        val md = try {
+            MessageDigest.getInstance(instance)
+        } catch (_: Exception) {
+            MessageDigest.getInstance("MD5")
+        }
+        return md.digest(input.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     }
 }
