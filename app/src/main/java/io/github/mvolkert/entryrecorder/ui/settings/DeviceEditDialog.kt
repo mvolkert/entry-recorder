@@ -389,8 +389,12 @@ fun DeviceEditDialog(
                                 Toast.makeText(context, "Please enter name and IP address", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
-                            val updated = DeviceEntity(
-                                id = initialDevice?.id ?: 0,
+                            // Preserve fields not exposed in this dialog (useHttps, httpsPort,
+                            // ringRecordSeconds, motion/postRecord seconds, isEnabled) by starting
+                            // from the existing device and only overwriting the edited fields.
+                            val base = initialDevice
+                                ?: DeviceEntity(name = name.trim(), ipAddress = ipAddress.trim())
+                            val updated = base.copy(
                                 name = name.trim(),
                                 deviceType = deviceType,
                                 ipAddress = ipAddress.trim(),
@@ -412,8 +416,7 @@ fun DeviceEditDialog(
                                 recordOnMotion = recordOnMotion,
                                 recordOnRing = recordOnRing,
                                 recordOnNoise = recordOnNoise,
-                                recordOnMotionOnDevice = recordOnMotionOnDevice,
-                                isEnabled = true
+                                recordOnMotionOnDevice = recordOnMotionOnDevice
                             )
                             onSave(updated)
                         }

@@ -1,5 +1,6 @@
 import os
 import shutil
+import logging
 from pathlib import Path
 from typing import Optional, List
 import uvicorn
@@ -38,6 +39,8 @@ from .models import (
 from .recorder import recorder
 from .live import stream_mjpeg, stream_mjpeg_snapshot, MJPEG_CONTENT_TYPE
 
+logger = logging.getLogger(__name__)
+
 app = FastAPI(
     title="Entry Recorder Server",
     description="Video recording backend server and Web UI for Entry Recorder intercoms",
@@ -53,21 +56,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# API Key security (optional)
+# API Key security.
+# The key may be supplied either via the X-API-Key header (APIs) or an `api_key` query
+# parameter so that media endpoints loaded directly by <img>/<video> tags in the web UI can
+# authenticate. When no API_KEY is configured the check stays permissive (self-hosted LAN use).
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
-def verify_api_key(key: Optional[str] = Security(api_key_header)):
-    if settings.API_KEY and key != settings.API_KEY:
+def verify_api_key(
+    key: Optional[str] = Security(api_key_header),
+    api_key: Optional[str] = Query(None),
+):
+    if settings.API_KEY and (key or api_key) != settings.API_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API key"
         )
-    return key
+    return key or api_key
 
 # Initialize database on startup
 @app.on_event("startup")
 async def on_startup():
     init_db()
+    if not settings.API_KEY:
+        logger.warning(
+            "API_KEY is not set: all endpoints (including device credentials, media and live "
+            "streams) are UNAUTHENTICATED. Set API_KEY in .env to enable access control."
+        )
 
 # Serve static web UI
 static_dir = Path(__file__).parent / "static"
@@ -194,7 +208,10 @@ async def get_recording(
     )
 
 @app.get("/api/recordings/{recording_id}/video")
-async def get_recording_video(recording_id: int):
+async def get_recording_video(
+    recording_id: int,
+    _key: Optional[str] = Depends(verify_api_key)
+):
     r = get_recording_by_id(recording_id)
     if not r:
         raise HTTPException(status_code=404, detail="Recording not found")
@@ -208,7 +225,10 @@ async def get_recording_video(recording_id: int):
     )
 
 @app.get("/api/recordings/{recording_id}/thumbnail")
-async def get_recording_thumbnail(recording_id: int):
+async def get_recording_thumbnail(
+    recording_id: int,
+    _key: Optional[str] = Depends(verify_api_key)
+):
     r = get_recording_by_id(recording_id)
     if not r or not r.get("thumbnail_path"):
         raise HTTPException(status_code=404, detail="Thumbnail not found")
@@ -323,7 +343,10 @@ async def remove_device(
     return {"status": "deleted", "id": device_id}
 
 @app.get("/api/live/{device_id}/mjpeg")
-async def live_mjpeg(device_id: int):
+async def live_mjpeg(
+    device_id: int,
+    _key: Optional[str] = Depends(verify_api_key)
+):
     device = get_device_by_id(device_id)
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")

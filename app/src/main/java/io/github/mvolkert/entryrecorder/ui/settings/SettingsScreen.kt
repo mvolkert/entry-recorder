@@ -309,6 +309,45 @@ fun SettingsScreen(
                             }
                         }
 
+                        // Storage Quota (purge oldest unprotected recordings above this limit)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("Storage Quota", fontWeight = FontWeight.Medium)
+                                Text(
+                                    text = "Purge oldest recordings above ${state.appSettings.maxStorageUsageMb / 1024} GB",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Row {
+                                IconButton(
+                                    onClick = {
+                                        val newMb = (state.appSettings.maxStorageUsageMb - 1024L).coerceAtLeast(1024L)
+                                        viewModel.updateSettings(state.appSettings.copy(maxStorageUsageMb = newMb))
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Remove, contentDescription = "Decrease")
+                                }
+                                Text(
+                                    "${state.appSettings.maxStorageUsageMb / 1024}GB",
+                                    modifier = Modifier.align(Alignment.CenterVertically),
+                                    fontWeight = FontWeight.Bold
+                                )
+                                IconButton(
+                                    onClick = {
+                                        val newMb = state.appSettings.maxStorageUsageMb + 1024L
+                                        viewModel.updateSettings(state.appSettings.copy(maxStorageUsageMb = newMb))
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = "Increase")
+                                }
+                            }
+                        }
+
                         // Auto-Cleanup toggle
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -433,6 +472,34 @@ fun SettingsScreen(
                                 checked = state.appSettings.wakeOnRing,
                                 onCheckedChange = {
                                     viewModel.updateSettings(state.appSettings.copy(wakeOnRing = it))
+                                }
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Play Sound on Doorbell Ring")
+                            Switch(
+                                checked = state.appSettings.soundOnRing,
+                                onCheckedChange = {
+                                    viewModel.updateSettings(state.appSettings.copy(soundOnRing = it))
+                                }
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Vibrate on Doorbell Ring")
+                            Switch(
+                                checked = state.appSettings.vibrateOnRing,
+                                onCheckedChange = {
+                                    viewModel.updateSettings(state.appSettings.copy(vibrateOnRing = it))
                                 }
                             )
                         }

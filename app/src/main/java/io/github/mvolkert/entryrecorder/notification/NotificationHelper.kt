@@ -24,9 +24,17 @@ object NotificationHelper {
     const val CHANNEL_NOISE = "entry_recorder_noise"
 
     const val NOTIFICATION_ID_SERVICE = 1001
-    const val NOTIFICATION_ID_DOORBELL = 1002
-    const val NOTIFICATION_ID_MOTION = 1003
-    const val NOTIFICATION_ID_NOISE = 1004
+
+    // Non-overlapping id space per (event type, device): base + device*4 + slot.
+    // Prevents cross-channel collisions for different devices (the previous 1002/1003/1004 + id
+    // scheme let e.g. doorbell id=2 == motion id=1) and bounds the value to avoid Long.toInt() wrap.
+    private const val FIRST_EVENT_NOTIFICATION_ID = 10000
+    private const val SLOT_DOORBELL = 1
+    private const val SLOT_MOTION = 2
+    private const val SLOT_NOISE = 3
+
+    private fun eventNotificationId(slot: Int, deviceId: Long): Int =
+        FIRST_EVENT_NOTIFICATION_ID + (deviceId % 1000L * 4L + slot).toInt()
 
     fun createNotificationChannels(context: Context) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -105,7 +113,13 @@ object NotificationHelper {
     }
 
     @SuppressLint("FullScreenIntentPolicy")
-    fun showDoorbellNotification(context: Context, device: DeviceEntity, caller: String?) {
+    fun showDoorbellNotification(
+        context: Context,
+        device: DeviceEntity,
+        caller: String?,
+        playSound: Boolean = true,
+        vibrate: Boolean = true
+    ) {
         val fullScreenIntent = Intent(context, IncomingCallActivity::class.java).apply {
             putExtra(IncomingCallActivity.EXTRA_DEVICE_ID, device.id)
             putExtra(IncomingCallActivity.EXTRA_EVENT_TYPE, EventType.RING.name)
@@ -117,7 +131,7 @@ object NotificationHelper {
 
         val fullScreenPendingIntent = PendingIntent.getActivity(
             context,
-            device.id.toInt(),
+            eventNotificationId(SLOT_DOORBELL, device.id),
             fullScreenIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
@@ -131,15 +145,15 @@ object NotificationHelper {
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setSound(ringUri)
-            .setVibrate(longArrayOf(0, 500, 200, 500, 200, 800))
             .setFullScreenIntent(fullScreenPendingIntent, true)
             .setContentIntent(fullScreenPendingIntent)
             .setAutoCancel(true)
-            .build()
+
+        if (playSound) notification.setSound(ringUri) else notification.setSilent(true)
+        if (vibrate) notification.setVibrate(longArrayOf(0, 500, 200, 500, 200, 800))
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(NOTIFICATION_ID_DOORBELL + device.id.toInt(), notification)
+        manager.notify(eventNotificationId(SLOT_DOORBELL, device.id), notification.build())
     }
 
     fun showMotionNotification(context: Context, device: DeviceEntity) {
@@ -151,7 +165,7 @@ object NotificationHelper {
 
         val pendingIntent = PendingIntent.getActivity(
             context,
-            (device.id + 1000).toInt(),
+            eventNotificationId(SLOT_MOTION, device.id),
             intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
@@ -167,7 +181,7 @@ object NotificationHelper {
             .build()
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(NOTIFICATION_ID_MOTION + device.id.toInt(), notification)
+        manager.notify(eventNotificationId(SLOT_MOTION, device.id), notification)
     }
 
     fun showNoiseNotification(context: Context, device: DeviceEntity) {
@@ -179,7 +193,7 @@ object NotificationHelper {
 
         val pendingIntent = PendingIntent.getActivity(
             context,
-            (device.id + 2000).toInt(),
+            eventNotificationId(SLOT_NOISE, device.id),
             intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
@@ -195,6 +209,6 @@ object NotificationHelper {
             .build()
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(NOTIFICATION_ID_NOISE + device.id.toInt(), notification)
+        manager.notify(eventNotificationId(SLOT_NOISE, device.id), notification)
     }
 }

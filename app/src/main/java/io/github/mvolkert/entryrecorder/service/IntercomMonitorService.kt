@@ -134,19 +134,27 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                         )
                     }
 
-                    // 2. Wake lockscreen & notify
-                    NotificationHelper.showDoorbellNotification(this@IntercomMonitorService, device, event.callerNumber)
+                    // 2. Wake lockscreen & notify (honoring the ring alert settings)
+                    NotificationHelper.showDoorbellNotification(
+                        this@IntercomMonitorService,
+                        device,
+                        event.callerNumber,
+                        playSound = settings.soundOnRing,
+                        vibrate = settings.vibrateOnRing
+                    )
 
                     // 3. Launch IncomingCallActivity directly for immediate lockscreen display
-                    val callIntent = Intent(this@IntercomMonitorService, IncomingCallActivity::class.java).apply {
-                        putExtra(IncomingCallActivity.EXTRA_DEVICE_ID, device.id)
-                        putExtra(IncomingCallActivity.EXTRA_EVENT_TYPE, EventType.RING.name)
-                        putExtra(IncomingCallActivity.EXTRA_CALLER, event.callerNumber ?: "2N IP Verso")
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                                Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                                Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    if (settings.wakeOnRing) {
+                        val callIntent = Intent(this@IntercomMonitorService, IncomingCallActivity::class.java).apply {
+                            putExtra(IncomingCallActivity.EXTRA_DEVICE_ID, device.id)
+                            putExtra(IncomingCallActivity.EXTRA_EVENT_TYPE, EventType.RING.name)
+                            putExtra(IncomingCallActivity.EXTRA_CALLER, event.callerNumber ?: "2N IP Verso")
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        }
+                        startActivity(callIntent)
                     }
-                    startActivity(callIntent)
                 }
 
                 is IntercomEvent.MotionStarted -> {
