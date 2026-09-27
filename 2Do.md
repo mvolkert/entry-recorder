@@ -133,12 +133,12 @@ The largest feature work; depends on Phase 0 validation (server output format) a
 ## Phase 5 — Gallery UX & feature requests
 User-facing extras, independent of the pipeline work.
 
-- [ ] **Bulk / multi-select delete** ("Löschen mehrerer Aufnahmen") — single delete only today.
-- [ ] **Device filter chips + `MANUAL` filter chip** in `RecordingsScreen` (ViewModel already supports `deviceId`;
+- [x] **Bulk / multi-select delete** ("Löschen mehrerer Aufnahmen") — single delete only today.
+- [x] **Device filter chips + `MANUAL` filter chip** in `RecordingsScreen` (ViewModel already supports `deviceId`;
       only 4 chips exist today).
-- [ ] **Exit button in the expanded foreground notification** to stop monitoring
+- [x] **Exit button in the expanded foreground notification** to stop monitoring
       (`NotificationHelper.buildServiceNotification` has no stop action).
-- [ ] **Backup function** – export/import all settings (devices + app settings) to a user file.
+- [x] **Backup function** – export/import all settings (devices + app settings) to a user file.
 
 ---
 

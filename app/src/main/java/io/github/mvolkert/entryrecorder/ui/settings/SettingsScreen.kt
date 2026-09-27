@@ -69,6 +69,26 @@ fun SettingsScreen(
         viewModel.updateSettings(state.appSettings.copy(exportFolderUri = ""))
     }
 
+    // Backup & restore (settings + devices) to a user-chosen JSON file via SAF.
+    val backupExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.exportBackup(uri) { _, msg ->
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+    val backupImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.restoreBackup(uri) { _, msg ->
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -530,6 +550,53 @@ fun SettingsScreen(
                                     viewModel.updateSettings(state.appSettings.copy(wakeOnNoise = it))
                                 }
                             )
+                        }
+                    }
+                }
+            }
+
+            // Backup & Restore Section
+            item {
+                Text(
+                    text = "Backup & Restore",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 16.dp)
+                )
+            }
+
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "Export or import your app settings and configured devices as a single file. " +
+                                    "Recordings are not included. The file stores device/SIP credentials in " +
+                                    "plain text, so keep it somewhere private.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        OutlinedButton(
+                            onClick = { backupExportLauncher.launch("entry-recorder-backup.json") },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Upload, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Export backup")
+                        }
+                        OutlinedButton(
+                            onClick = { backupImportLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Restore from backup")
                         }
                     }
                 }

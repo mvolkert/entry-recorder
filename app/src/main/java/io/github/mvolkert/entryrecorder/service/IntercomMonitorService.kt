@@ -67,6 +67,13 @@ class IntercomMonitorService : Service(), IntercomEventListener {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(tag, "IntercomMonitorService onStartCommand (action=${intent?.action})")
+        // The foreground notification's Stop/Exit action routes here. stopSelf() triggers onDestroy()
+        // which releases the devices, locks and SIP engine, so the user can halt monitoring without
+        // force-closing the app.
+        if (intent?.action == ACTION_STOP) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         return START_STICKY
     }
 
@@ -326,6 +333,9 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
+        /** Action used by the persistent foreground notification to stop monitoring in place. */
+        const val ACTION_STOP = "io.github.mvolkert.entryrecorder.service.ACTION_STOP"
+
         fun start(context: Context) {
             val intent = Intent(context, IntercomMonitorService::class.java)
             try {

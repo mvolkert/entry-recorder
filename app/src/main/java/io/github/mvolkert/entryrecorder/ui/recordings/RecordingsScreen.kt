@@ -55,6 +55,11 @@ fun RecordingsScreen(
     var recordingToDelete by remember { mutableStateOf<RecordingEntity?>(null) }
     var exportProgress by remember { mutableStateOf<Int?>(null) }
 
+    // Multi-select delete mode
+    var selectionMode by remember { mutableStateOf(false) }
+    val selectedIds by viewModel.selectedIds.collectAsState()
+    var showBulkDeleteConfirm by remember { mutableStateOf(false) }
+
     // Exports an MJPEG MKV by first transcoding to H.264 (so it plays in other apps) when the
     // setting is enabled; otherwise shares/saves the raw file. Transcoding runs only here (on
     // explicit user action), never during capture. This path is Share-only: it uses the system
@@ -140,11 +145,42 @@ fun RecordingsScreen(
                     .background(MaterialTheme.colorScheme.surface)
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                Text(
-                    text = "Recordings Archive",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (selectionMode) "${selectedIds.size} selected" else "Recordings Archive",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (selectionMode) {
+                        IconButton(onClick = { viewModel.selectAllVisible() }) {
+                            Icon(Icons.Default.SelectAll, contentDescription = "Select all")
+                        }
+                        IconButton(
+                            onClick = { showBulkDeleteConfirm = true },
+                            enabled = selectedIds.isNotEmpty()
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Delete selected",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                        IconButton(onClick = {
+                            selectionMode = false
+                            viewModel.clearSelection()
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "Exit selection")
+                        }
+                    } else {
+                        IconButton(onClick = { selectionMode = true }) {
+                            Icon(Icons.Default.Checklist, contentDescription = "Select multiple")
+                        }
+                    }
+                }
                 Text(
                     text = "Total storage: ${Formatter.formatFileSize(context, state.totalStorageBytes)}",
                     style = MaterialTheme.typography.bodySmall,
@@ -205,6 +241,42 @@ fun RecordingsScreen(
                             label = { Text("🔊 Noise") }
                         )
                     }
+                    item {
+                        FilterChip(
+                            selected = state.selectedEventType == EventType.MANUAL,
+                            onClick = { viewModel.selectEventTypeFilter(EventType.MANUAL) },
+                            label = { Text("✋ Manual") }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Device Filter Chips
+                if (state.devices.isNotEmpty()) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        item {
+                            FilterChip(
+                                selected = state.selectedDeviceId == null,
+                                onClick = { viewModel.selectDeviceFilter(null) },
+                                label = { Text("📷 All devices") }
+                            )
+                        }
+                        items(state.devices, key = { "dev_${it.id}" }) { device ->
+                            FilterChip(
+                                selected = state.selectedDeviceId == device.id,
+                                onClick = {
+                                    viewModel.selectDeviceFilter(if (state.selectedDeviceId == device.id) null else device.id)
+                                },
+                                label = { Text(device.name) },
+                                leadingIcon = if (state.selectedDeviceId == device.id) {
+                                    { Icon(Icons.Default.Check, contentDescription = null) }
+                                } else null
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -236,6 +308,9 @@ fun RecordingsScreen(
                     items(state.recordings, key = { it.id }) { recording ->
                         RecordingCardItem(
                             recording = recording,
+                            selectionMode = selectionMode,
+                            selected = recording.id in selectedIds,
+                            onSelectToggle = { viewModel.toggleSelection(recording.id) },
                             onPlay = { activePlaybackRecording = recording },
                             onDelete = { recordingToDelete = recording },
                             onToggleProtect = { viewModel.toggleProtection(recording) },
@@ -281,6 +356,29 @@ fun RecordingsScreen(
         )
     }
 
+    // Bulk Delete Confirmation Dialog
+    if (showBulkDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showBulkDeleteConfirm = false },
+            title = { Text("Delete ${selectedIds.size} recording(s)?") },
+            text = { Text("This permanently deletes the selected recordings and their files. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteSelected()
+                    showBulkDeleteConfirm = false
+                    selectionMode = false
+                }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBulkDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     // Export (transcode) progress
     exportProgress?.let { pct ->
         AlertDialog(
@@ -302,6 +400,9 @@ fun RecordingsScreen(
 @Composable
 fun RecordingCardItem(
     recording: RecordingEntity,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onSelectToggle: () -> Unit,
     onPlay: () -> Unit,
     onDelete: () -> Unit,
     onToggleProtect: () -> Unit,
@@ -318,8 +419,16 @@ fun RecordingCardItem(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .combinedClickable(onClick = onPlay),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            .combinedClickable(
+                onClick = { if (selectionMode) onSelectToggle() else onPlay() }
+            ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected)
+                MaterialTheme.colorScheme.secondaryContainer
+            else
+                MaterialTheme.colorScheme.surface
+        )
     ) {
         Row(
             modifier = Modifier
@@ -327,6 +436,10 @@ fun RecordingCardItem(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (selectionMode) {
+                Checkbox(checked = selected, onCheckedChange = { onSelectToggle() })
+                Spacer(modifier = Modifier.width(4.dp))
+            }
             // Thumbnail / Event Icon
             Box(
                 modifier = Modifier

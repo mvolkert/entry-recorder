@@ -29,6 +29,10 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     private val _selectedEventType = MutableStateFlow<EventType?>(null)
     private val _searchQuery = MutableStateFlow("")
 
+    /** Ids currently checked in multi-select delete mode. */
+    private val _selectedIds = MutableStateFlow<Set<Long>>(emptySet())
+    val selectedIds: StateFlow<Set<Long>> = _selectedIds.asStateFlow()
+
     /** Whether exports should be transcoded to H.264 for universal playback (Settings-driven). */
     val transcodeOnExport: StateFlow<Boolean> = repository.settingsFlow
         .map { it?.transcodeOnExport ?: true }
@@ -83,6 +87,32 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     fun deleteRecording(recording: RecordingEntity) {
         viewModelScope.launch {
             repository.deleteRecording(recording)
+        }
+    }
+
+    // --- Multi-select bulk delete ---
+
+    fun toggleSelection(id: Long) {
+        _selectedIds.update { if (id in it) it - id else it + id }
+    }
+
+    fun clearSelection() {
+        _selectedIds.value = emptySet()
+    }
+
+    /** Selects every recording currently visible after filters. */
+    fun selectAllVisible() {
+        _selectedIds.value = uiState.value.recordings.map { it.id }.toSet()
+    }
+
+    /** Deletes the selected recordings (and their files), then clears the selection. */
+    fun deleteSelected() {
+        val ids = _selectedIds.value
+        val targets = uiState.value.recordings.filter { it.id in ids }
+        if (targets.isEmpty()) return
+        viewModelScope.launch {
+            repository.deleteRecordings(targets)
+            _selectedIds.value = emptySet()
         }
     }
 

@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
+import io.github.mvolkert.entryrecorder.service.IntercomMonitorService
 import io.github.mvolkert.entryrecorder.ui.MainActivity
 import io.github.mvolkert.entryrecorder.ui.incoming.IncomingCallActivity
 
@@ -101,6 +102,16 @@ object NotificationHelper {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        // Stop/Exit action: a getService() PendingIntent delivers ACTION_STOP to onStartCommand,
+        // which calls stopSelf(). This gives the user a way to halt the 24/7 monitor from the shade.
+        val stopIntent = Intent(context, IntercomMonitorService::class.java).apply {
+            action = IntercomMonitorService.ACTION_STOP
+        }
+        val stopPendingIntent = PendingIntent.getService(
+            context, NOTIFICATION_ID_SERVICE, stopIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
         return NotificationCompat.Builder(context, CHANNEL_SERVICE)
             .setContentTitle("EntryRecorder Active")
             .setContentText("Monitoring $activeDevicesCount intercom device(s) on LAN")
@@ -109,6 +120,7 @@ object NotificationHelper {
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .addAction(android.R.drawable.ic_media_pause, "Stop monitoring", stopPendingIntent)
             .build()
     }
 

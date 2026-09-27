@@ -43,6 +43,12 @@ class IntercomRepository(
         deviceDao.deleteDeviceById(id)
     }
 
+    /**
+     * Inserts [device] preserving its existing id (Room REPLACE on conflict). Used by backup
+     * restore so re-imported devices keep the ids their recordings still reference.
+     */
+    suspend fun upsertDevice(device: DeviceEntity): Long = deviceDao.insertDevice(device)
+
     // Recordings
     val allRecordings: Flow<List<RecordingEntity>> = recordingDao.getAllRecordingsFlow()
 
@@ -74,6 +80,11 @@ class IntercomRepository(
             }
         } catch (_: Exception) {}
         recordingDao.deleteRecording(recording)
+    }
+
+    /** Bulk variant used by multi-select delete; deletes each recording's files then its row. */
+    suspend fun deleteRecordings(recordings: List<RecordingEntity>) {
+        recordings.forEach { deleteRecording(it) }
     }
 
     suspend fun setRecordingProtected(id: Long, isProtected: Boolean) {
