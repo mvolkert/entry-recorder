@@ -42,18 +42,14 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
-import io.github.mvolkert.entryrecorder.ui.settings.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LiveCamerasScreen(
     modifier: Modifier = Modifier,
-    settingsViewModel: SettingsViewModel = viewModel(),
-    onStartManualRecording: (DeviceEntity) -> Unit = {},
-    onStopManualRecording: (DeviceEntity) -> Unit = {},
-    isDeviceRecording: (Long) -> Boolean = { false }
+    viewModel: LiveViewModel = viewModel()
 ) {
-    val state by settingsViewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsState()
 
     Scaffold(
         topBar = {
@@ -102,14 +98,15 @@ fun LiveCamerasScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     items(state.devices, key = { it.id }) { device ->
+                        val isRecording = device.id in state.recordingDeviceIds
                         LiveDeviceCard(
                             device = device,
-                            isRecording = isDeviceRecording(device.id),
+                            isRecording = isRecording,
                             onToggleRecord = {
-                                if (isDeviceRecording(device.id)) {
-                                    onStopManualRecording(device)
+                                if (isRecording) {
+                                    viewModel.stopManualRecording(device)
                                 } else {
-                                    onStartManualRecording(device)
+                                    viewModel.startManualRecording(device)
                                 }
                             }
                         )

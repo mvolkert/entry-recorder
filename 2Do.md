@@ -21,20 +21,25 @@ Legend: `[x]` implemented · `[~]` partially implemented / needs validation · `
 ---
 
 ##  Phase UI Quality
-- UI doesnt update immediately only on Screen Change -> StateFlow
+- [x] UI keeps Stale most obvious in @LiveCameraScreen.kt — fixed via observable state:
+      `RtspStreamRecorder.activeDeviceIds` StateFlow (published at every recording start/stop) + new
+      `LiveViewModel` replacing the non-observable `isDeviceRecording` lambda; Settings storage now
+      combines the recordings flow. `activeDeviceIds` is also the hook for the future per-camera
+      REC/motion status badge idea below.
 - [x] Multi Select for export Recording — selection mode now also exports: Share / Save to Gallery /
       Export to Folder, reusing the lazy transcode-on-export policy with a "k of n" progress dialog
       (`RecordingsScreen.runBatchExport`, `ExportHelper.shareFiles` + silent `saveFileToGallery`).
-- Update App Icon to M3 compliance and better surveillance camera
-- Update App Splash screen to be dark
-- Monitor Button maybe, Monitoring seems to go active after a minute of the app running and it only shows a notification. maybe a motion icon next to the record button to show status of each camera
-      - is motion detection global or could it be set per device?
+- [] Update App Icon to M3 compliance and better surveillance camera
+- [] Update App Splash screen to be dark
+- [] Monitor Button maybe, Monitoring seems to go active after a minute of the app running and it only shows a notification. maybe a motion icon next to the record button to show status of each camera
+ 
+## To Check
+- [] is motion detection global or could it be set per device?
 
   
 ## Features
-- Recording finishes → copy the complete file to the exposed folder as a one-shot event
-- toggle to export original lossless mkv file
-- broadcast intent to trigger export
+- [x] Recording finishes → copy the complete file to the exposed folder as a one-shot event
+- [] broadcast intent to trigger export
 
 
 ##  Phase 0 — Validate the hybrid playback/export pipeline on a real device ✅ (validated 2026-09-27)

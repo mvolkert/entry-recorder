@@ -32,15 +32,17 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val repository = app.repository
     private val serverClient = ServerRecordingClient()
 
+    // Includes the recordings flow so "Total storage" stays current after adds/deletes/cleanup
+    // without leaving the screen (previously it only refreshed when devices/settings changed).
     val uiState: StateFlow<SettingsUiState> = combine(
         repository.allDevices,
-        repository.settingsFlow
-    ) { devices, settings ->
-        val totalBytes = repository.getTotalStorageBytes()
+        repository.settingsFlow,
+        repository.allRecordings
+    ) { devices, settings, recordings ->
         SettingsUiState(
             devices = devices,
             appSettings = settings ?: AppSettingsEntity(),
-            totalStorageBytes = totalBytes,
+            totalStorageBytes = recordings.sumOf { it.fileSizeBytes },
             isLoading = false
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsUiState())

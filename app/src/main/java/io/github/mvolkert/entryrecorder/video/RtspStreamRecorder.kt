@@ -16,6 +16,9 @@ import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
 import io.github.mvolkert.entryrecorder.util.ExportHelper
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -34,6 +37,17 @@ class RtspStreamRecorder(
     private val activeRecordings = ConcurrentHashMap<Long, ActiveRecordingJob>()
     private val activeServerRecordings = ConcurrentHashMap<Long, Boolean>()
 
+    // Observable recording status: the plain ConcurrentHashMaps above are invisible to Compose, so
+    // every mutation also publishes the affected device ids here (local + server recordings). The
+    // Live screen observes this StateFlow through LiveViewModel instead of polling isRecording().
+    private val _activeDeviceIds = MutableStateFlow<Set<Long>>(emptySet())
+    /** Device ids that currently have an active recording (local or on the server). */
+    val activeDeviceIds: StateFlow<Set<Long>> = _activeDeviceIds.asStateFlow()
+
+    private fun publishActiveIds() {
+        _activeDeviceIds.value = (activeRecordings.keys + activeServerRecordings.keys).toSet()
+    }
+
     private data class ActiveRecordingJob(
         val deviceId: Long,
         val eventType: EventType,
@@ -42,8 +56,7 @@ class RtspStreamRecorder(
         val job: Job
     )
 
-    fun isRecording(deviceId: Long): Boolean =
-        activeRecordings.containsKey(deviceId) || activeServerRecordings.containsKey(deviceId)
+    fun isRecording(deviceId: Long): Boolean = deviceId in _activeDeviceIds.value
 
     /**
      * Start recording an RTSP/Snapshot video sequence for a given device and trigger event.
@@ -71,12 +84,14 @@ class RtspStreamRecorder(
 
                 if (result.isSuccess) {
                     activeServerRecordings[device.id] = true
+                    publishActiveIds()
                     // The server also auto-stops after duration_seconds, but reconcile explicitly when
                     // our local timer elapses so app and server state agree instead of drifting. The
                     // remove() guard prevents a double stop when the user stops early.
                     launch {
                         delay(((maxDurationSeconds + 2) * 1000L).milliseconds)
                         if (activeServerRecordings.remove(device.id) != null) {
+                            publishActiveIds()
                             val s = repository.getSettings()
                             serverClient.stopRecording(
                                 serverUrl = s.serverBaseUrl,
@@ -131,6 +146,7 @@ class RtspStreamRecorder(
             outputFile = outputFile,
             job = job
         )
+        publishActiveIds()
     }
 
     /**
@@ -141,11 +157,13 @@ class RtspStreamRecorder(
         val active = activeRecordings.remove(deviceId)
         if (active != null) {
             Log.i(tag, "Stopping active local recording for device $deviceId")
+            publishActiveIds()
             active.job.cancel()
         }
 
         if (activeServerRecordings.remove(deviceId) != null) {
             Log.i(tag, "Stopping active server recording for device $deviceId")
+            publishActiveIds()
             scope.launch {
                 val settings = repository.getSettings()
                 serverClient.stopRecording(
@@ -215,6 +233,7 @@ class RtspStreamRecorder(
         firstFrameJpeg: ByteArray?
     ) {
         activeRecordings.remove(device.id)
+        publishActiveIds()
         val durationSec = ((System.currentTimeMillis() - startTimeMs) / 1000L).coerceAtLeast(1L)
         val fileSize = if (outputFile.exists()) outputFile.length() else 0L
 

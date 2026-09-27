@@ -21,8 +21,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import io.github.mvolkert.entryrecorder.EntryRecorderApp
-import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.service.IntercomMonitorService
 import io.github.mvolkert.entryrecorder.ui.live.LiveCamerasScreen
 import io.github.mvolkert.entryrecorder.ui.recordings.RecordingsScreen
@@ -36,8 +34,6 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
 }
 
 class MainActivity : ComponentActivity() {
-
-    private val app by lazy { application as EntryRecorderApp }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -117,18 +113,8 @@ class MainActivity : ComponentActivity() {
                     .padding(innerPadding)
             ) {
                 composable(Screen.Live.route) {
-                    LiveCamerasScreen(
-                        settingsViewModel = settingsViewModel,
-                        onStartManualRecording = { device ->
-                            app.recorder.startRecording(device, EventType.MANUAL, 120)
-                        },
-                        onStopManualRecording = { device ->
-                            app.recorder.stopRecording(device.id)
-                        },
-                        isDeviceRecording = { deviceId ->
-                            app.recorder.isRecording(deviceId)
-                        }
-                    )
+                    // Recording status + devices arrive as observable state via LiveViewModel.
+                    LiveCamerasScreen()
                 }
 
                 composable(Screen.Recordings.route) {
