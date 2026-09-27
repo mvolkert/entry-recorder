@@ -40,8 +40,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -220,7 +218,6 @@ fun LiveDeviceCard(
                 )
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    MonitorStatusDot(status = monitorStatus)
                     TriggerIndicators(device = device, monitorStatus = monitorStatus)
                     Spacer(modifier = Modifier.width(10.dp))
                     IconButton(onClick = onToggleRecord) {
@@ -253,34 +250,19 @@ fun LiveDeviceCard(
 }
 
 /**
- * Live monitoring status of a device as published by IntercomMonitorService:
- * teal = events are being monitored, amber = motion currently detected,
- * grey = not monitored (device disabled or the service has not picked it up yet).
- * Always rendered at a fixed size so state changes never shift the card layout.
- */
-@Composable
-private fun MonitorStatusDot(status: MonitorStatus) {
-    val (color, description) = when (status) {
-        MonitorStatus.MONITORING -> MaterialTheme.colorScheme.primary to "Monitoring"
-        MonitorStatus.MOTION -> Color(0xFFFFB300) to "Motion detected"
-        MonitorStatus.DISABLED -> Color(0xFF5A6068) to "Not monitored"
-    }
-    Box(
-        modifier = Modifier
-            .size(12.dp)
-            .background(color, CircleShape)
-            .semantics { contentDescription = description }
-    )
-}
-
-/**
  * Tiny per-trigger indicators for every recording trigger configured on [device]:
  * bell = record on doorbell ring, walking man = record on motion (native or on-device
  * analysis; turns amber while motion is currently detected), speaker = record on noise.
+ *
+ * The tint doubles as the monitor-service status (replacing the earlier standalone dot):
+ * faded = the service has not taken this camera over yet, normal = actively monitored.
  */
 @Composable
 private fun TriggerIndicators(device: DeviceEntity, monitorStatus: MonitorStatus) {
-    val idleTint = MaterialTheme.colorScheme.onSurfaceVariant
+    val idleTint = if (monitorStatus == MonitorStatus.DISABLED)
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+    else MaterialTheme.colorScheme.onSurfaceVariant
+    val motionNow = monitorStatus == MonitorStatus.MOTION
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (device.isEnabled && device.recordOnRing) {
             Spacer(modifier = Modifier.width(8.dp))
@@ -292,7 +274,6 @@ private fun TriggerIndicators(device: DeviceEntity, monitorStatus: MonitorStatus
             )
         }
         if (device.isEnabled && (device.recordOnMotion || device.recordOnMotionOnDevice)) {
-            val motionNow = monitorStatus == MonitorStatus.MOTION
             Spacer(modifier = Modifier.width(8.dp))
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.DirectionsWalk,
