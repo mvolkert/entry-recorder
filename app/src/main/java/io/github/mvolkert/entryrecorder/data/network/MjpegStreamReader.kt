@@ -128,7 +128,9 @@ class MjpegStreamReader(
         var inFrame = false
 
         while (true) {
-            val read = inputStream.read(chunk)
+            val read = withContext(Dispatchers.IO) {
+                inputStream.read(chunk)
+            }
             if (read == -1) break
 
             var i = 0

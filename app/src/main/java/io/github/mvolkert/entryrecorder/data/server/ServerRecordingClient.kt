@@ -124,7 +124,7 @@ class ServerRecordingClient(
                     Log.i(tag, "Started server recording for ${device.name}")
                     Result.success(true)
                 } else {
-                    val err = "HTTP ${response.code}: ${response.body?.string()}"
+                    val err = "HTTP ${response.code}: ${response.body.string()}"
                     Log.w(tag, "Server recording error: $err")
                     Result.failure(Exception(err))
                 }
@@ -183,12 +183,12 @@ class ServerRecordingClient(
             }
             client.newCall(requestBuilder.build()).execute().use { response ->
                 if (response.isSuccessful) {
-                    val body = response.body?.string() ?: "[]"
+                    val body = response.body.string()
                     val type = object : com.google.gson.reflect.TypeToken<List<ServerRecordingDto>>() {}.type
                     val list: List<ServerRecordingDto> = gson.fromJson(body, type)
                     Result.success(list)
                 } else {
-                    Result.failure(Exception("HTTP ${response.code}: ${response.body?.string()}"))
+                    Result.failure(Exception("HTTP ${response.code}: ${response.body.string()}"))
                 }
             }
         } catch (e: Exception) {

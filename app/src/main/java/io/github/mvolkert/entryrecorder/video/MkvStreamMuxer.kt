@@ -98,7 +98,7 @@ class MkvStreamMuxer(
         while (i < n) {
             val sc = startCodeLengthAt(data, i)
             if (sc > 0) {
-                if (nalStart >= 0 && i > nalStart) nals.add(data.copyOfRange(nalStart, i))
+                if (nalStart in 0..<i) nals.add(data.copyOfRange(nalStart, i))
                 i += sc
                 nalStart = i
             } else {

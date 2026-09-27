@@ -20,6 +20,7 @@ import io.github.mvolkert.entryrecorder.ui.incoming.IncomingCallActivity
 import io.github.mvolkert.entryrecorder.video.OnDeviceMotionAnalyzer
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.time.Duration.Companion.milliseconds
 
 class IntercomMonitorService : Service(), IntercomEventListener {
 
@@ -127,7 +128,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             this@IntercomMonitorService,
             activeDevices.size
         )
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        val manager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
         manager.notify(NotificationHelper.NOTIFICATION_ID_SERVICE, notification)
     }
 
@@ -206,7 +207,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     MonitorStatusHolder.update(device.id, MonitorStatus.MONITORING)
                     // Allow post-record time buffer then stop
                     serviceScope.launch {
-                        delay(device.motionPostRecordSeconds * 1000L)
+                        delay((device.motionPostRecordSeconds * 1000L).milliseconds)
                         recorder.stopRecording(device.id)
                     }
                 }
@@ -239,7 +240,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     Log.i(tag, "Noise ended on ${device.name}")
                     // Allow post-record time buffer then stop
                     serviceScope.launch {
-                        delay(device.noisePostRecordSeconds * 1000L)
+                        delay((device.noisePostRecordSeconds * 1000L).milliseconds)
                         recorder.stopRecording(device.id)
                     }
                 }
@@ -273,7 +274,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     Log.i(tag, "On-device motion analysis ended on ${device.name}")
                     MonitorStatusHolder.update(device.id, MonitorStatus.MONITORING)
                     serviceScope.launch {
-                        delay(device.motionPostRecordSeconds * 1000L)
+                        delay((device.motionPostRecordSeconds * 1000L).milliseconds)
                         recorder.stopRecording(device.id)
                     }
                 }
@@ -295,7 +296,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
 
     private fun acquireWakeAndWifiLocks() {
         try {
-            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            val powerManager = getSystemService(POWER_SERVICE) as PowerManager
             wakeLock = powerManager.newWakeLock(
                 PowerManager.PARTIAL_WAKE_LOCK,
                 "EntryRecorder::MonitorWakeLock"
@@ -303,7 +304,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                 acquire(24 * 60 * 60 * 1000L) // 24h
             }
 
-            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
             wifiLock = wifiManager.createWifiLock(
                 WifiManager.WIFI_MODE_FULL_HIGH_PERF,
                 "EntryRecorder::MonitorWifiLock"
@@ -350,11 +351,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         fun start(context: Context) {
             val intent = Intent(context, IntercomMonitorService::class.java)
             try {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
+                context.startForegroundService(intent)
             } catch (e: Exception) {
                 // Android 12+/14 may reject background FGS starts (e.g. from BOOT) with
                 // ForegroundServiceStartNotAllowedException. Log instead of crashing the receiver.

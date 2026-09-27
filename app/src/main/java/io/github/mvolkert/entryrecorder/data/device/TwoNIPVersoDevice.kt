@@ -7,10 +7,20 @@ import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.domain.device.IntercomDevice
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
-import kotlinx.coroutines.*
-import okhttp3.*
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.RequestBody.Companion.toRequestBody
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.Authenticator
+import okhttp3.Credentials
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.Route
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
@@ -18,6 +28,7 @@ import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.time.Duration.Companion.milliseconds
 
 class TwoNIPVersoDevice(
     override val deviceEntity: DeviceEntity
@@ -176,17 +187,15 @@ class TwoNIPVersoDevice(
                     val req = Request.Builder().url(motionUrl).get().build()
                     client.newCall(req).execute().use { response ->
                         if (response.isSuccessful) {
-                            val body = response.body?.string()
-                            if (body != null) {
-                                val json = JsonParser.parseString(body).asJsonObject
-                                val motion = json.getAsJsonObject("result")?.get("active")?.asBoolean ?: false
-                                if (motion && !lastMotionState) {
-                                    listener.onEvent(IntercomEvent.MotionStarted(deviceEntity))
-                                } else if (!motion && lastMotionState) {
-                                    listener.onEvent(IntercomEvent.MotionEnded(deviceEntity))
-                                }
-                                lastMotionState = motion
+                            val body = response.body.string()
+                            val json = JsonParser.parseString(body).asJsonObject
+                            val motion = json.getAsJsonObject("result")?.get("active")?.asBoolean ?: false
+                            if (motion && !lastMotionState) {
+                                listener.onEvent(IntercomEvent.MotionStarted(deviceEntity))
+                            } else if (!motion && lastMotionState) {
+                                listener.onEvent(IntercomEvent.MotionEnded(deviceEntity))
                             }
+                            lastMotionState = motion
                         }
                     }
                 } catch (e: Exception) {
@@ -199,31 +208,29 @@ class TwoNIPVersoDevice(
                     val req = Request.Builder().url(noiseUrl).get().build()
                     client.newCall(req).execute().use { response ->
                         if (response.isSuccessful) {
-                            val body = response.body?.string()
-                            if (body != null) {
-                                val json = JsonParser.parseString(body).asJsonObject
-                                val noise = json.getAsJsonObject("result")?.get("active")?.asBoolean ?: false
-                                if (noise && !lastNoiseState) {
-                                    listener.onEvent(IntercomEvent.NoiseStarted(deviceEntity))
-                                } else if (!noise && lastNoiseState) {
-                                    listener.onEvent(IntercomEvent.NoiseEnded(deviceEntity))
-                                }
-                                lastNoiseState = noise
+                            val body = response.body.string()
+                            val json = JsonParser.parseString(body).asJsonObject
+                            val noise = json.getAsJsonObject("result")?.get("active")?.asBoolean ?: false
+                            if (noise && !lastNoiseState) {
+                                listener.onEvent(IntercomEvent.NoiseStarted(deviceEntity))
+                            } else if (!noise && lastNoiseState) {
+                                listener.onEvent(IntercomEvent.NoiseEnded(deviceEntity))
                             }
+                            lastNoiseState = noise
                         }
                     }
                 } catch (e: Exception) {
                     Log.w(tag, "Noise polling error: ${e.message}")
                 }
 
-                delay(1500)
+                delay(1500.milliseconds)
             }
         }
     }
 
     private fun scheduleReconnect(listener: IntercomEventListener) {
         scope.launch {
-            delay(5000)
+            delay(5000.milliseconds)
             if (isMonitoring.get()) {
                 startSseEventListener(listener)
             }

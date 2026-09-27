@@ -103,8 +103,8 @@ class SipCallManager private constructor(private val context: Context) {
 
             newCore.addListener(coreListener)
             newCore.isMicEnabled = true
-            newCore.setEchoCancellationEnabled(true)
-            newCore.setEchoLimiterEnabled(true)
+            newCore.isEchoCancellationEnabled = true
+            newCore.isEchoLimiterEnabled = true
 
             // Setup audio device routing
             val audioDevice = newCore.audioDevices.firstOrNull { it.type == AudioDevice.Type.Speaker }
@@ -130,6 +130,10 @@ class SipCallManager private constructor(private val context: Context) {
     /**
      * Configure SIP settings based on device configuration (Peer-to-Peer vs PBX registrar)
      */
+    // TODO(sip): Core ProxyConfig APIs below (createProxyConfig/edit/done/addProxyConfig/
+    //   defaultProxyConfig/clearProxyConfig + address/register setters) and Factory.setDebugMode are
+    //   deprecated in Linphone 5.x in favor of the Account API. Migration deferred pending real
+    //   device/PBX validation (2Do Phase 2).
     fun configureDeviceSip(device: DeviceEntity) {
         val c = core ?: return
 
@@ -165,7 +169,7 @@ class SipCallManager private constructor(private val context: Context) {
                 proxyConfig.edit()
                 proxyConfig.identityAddress = factory.createAddress(identity)
                 proxyConfig.serverAddr = proxyServer
-                proxyConfig.setRegisterEnabled(true)
+                proxyConfig.isRegisterEnabled = true
                 proxyConfig.done()
 
                 c.addProxyConfig(proxyConfig)
@@ -181,7 +185,7 @@ class SipCallManager private constructor(private val context: Context) {
         val call = currentCall
         if (call != null && call.state == Call.State.IncomingReceived) {
             val params = core?.createCallParams(call)
-            params?.setVideoEnabled(false) // Audio intercom call
+            params?.isVideoEnabled = false // Audio intercom call
             call.acceptWithParams(params)
             routeAudioToSpeaker(true)
             Log.i(tag, "Accepted incoming SIP call")
@@ -200,6 +204,8 @@ class SipCallManager private constructor(private val context: Context) {
         _sessionState.value = _sessionState.value.copy(isMicMuted = muted)
     }
 
+    // TODO(audio): AudioManager.isSpeakerphoneOn is deprecated (API 31) in favor of
+    //   setCommunicationDevice. Kept for broad device support / reliable call-audio routing.
     fun routeAudioToSpeaker(speakerOn: Boolean) {
         try {
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION

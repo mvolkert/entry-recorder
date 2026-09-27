@@ -1,15 +1,15 @@
 package io.github.mvolkert.entryrecorder.video
 
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
+import androidx.core.graphics.scale
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
 import kotlinx.coroutines.*
 import java.net.HttpURLConnection
 import java.net.URL
-import kotlin.coroutines.coroutineContext
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Detects motion purely by periodically grabbing snapshot frames from a device's
@@ -52,7 +52,7 @@ class OnDeviceMotionAnalyzer(
     }
 
     private suspend fun runLoop() {
-        while (coroutineContext.isActive) {
+        while (currentCoroutineContext().isActive) {
             try {
                 val frame = fetchGrayscaleFrame()
                 if (frame != null) {
@@ -69,7 +69,7 @@ class OnDeviceMotionAnalyzer(
                 currentPollMs
             }
             recentActivity = false
-            delay(poll)
+            delay(poll.milliseconds)
         }
     }
 
@@ -121,7 +121,7 @@ class OnDeviceMotionAnalyzer(
 
         val bytes = connection.inputStream.use { it.readBytes() }
         val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
-        val scaled = Bitmap.createScaledBitmap(bitmap, ANALYSIS_WIDTH, ANALYSIS_HEIGHT, true)
+        val scaled = bitmap.scale(ANALYSIS_WIDTH, ANALYSIS_HEIGHT)
         if (scaled !== bitmap) bitmap.recycle()
 
         val pixels = IntArray(ANALYSIS_WIDTH * ANALYSIS_HEIGHT)
