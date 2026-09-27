@@ -11,8 +11,8 @@
         android:name="mark"
         android:pivotX="12"
         android:pivotY="12.2"
-        android:scaleX="0.8"
-        android:scaleY="0.8">
+        android:scaleX="0.65"
+        android:scaleY="0.65">
 
         <path
             android:fillColor="#FFFFFFFF"

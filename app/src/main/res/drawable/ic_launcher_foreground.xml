@@ -4,16 +4,15 @@
     android:viewportWidth="24"
     android:viewportHeight="24">
 
-    <!-- Owner-provided dome-camera artwork. Wrapped in a 0.8x scale group so the
-         full drawing stays inside the adaptive-icon safe zone (launchers only
-         reveal the central 72/108 of the canvas; the raw 24-unit span would
-         clip the housing corners on circular/squircle masks). -->
+    <!-- Owner-provided dome-camera artwork. Wrapped in a 0.65x scale group so the
+         drawing sits comfortably inside the adaptive-icon safe zone with margin
+         on every launcher mask shape (circle/squircle/rounded square). -->
     <group
         android:name="mark"
         android:pivotX="12"
         android:pivotY="12.2"
-        android:scaleX="0.8"
-        android:scaleY="0.8">
+        android:scaleX="0.65"
+        android:scaleY="0.65">
 
     <!-- The evenOdd fillType is used to seamlessly combine the solid camera body and the transparent cutouts into a single scalable path -->
     <path
