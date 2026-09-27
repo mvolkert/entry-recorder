@@ -120,21 +120,29 @@ async def start_recording(
     if recorder.is_recording(req.device_id):
         return {"status": "already_recording", "device_id": req.device_id}
 
+    # Fall back to credentials/URLs stored server-side for known devices, so a client no longer
+    # needs to receive the device password (GET /api/devices redacts it).
+    stored = get_device_by_id(req.device_id)
+    rtsp_url = req.rtsp_url or (stored.get("rtsp_url") if stored else None)
+    snapshot_url = req.snapshot_url or (stored.get("snapshot_url") if stored else None)
+    username = req.username if req.username is not None else (stored.get("username") if stored else None)
+    password = req.password if req.password is not None else (stored.get("password") if stored else None)
+
     started = await recorder.start_recording(
         device_id=req.device_id,
         device_name=req.device_name,
         event_type=req.event_type,
         duration_seconds=req.duration_seconds,
-        rtsp_url=req.rtsp_url,
-        snapshot_url=req.snapshot_url,
-        username=req.username,
-        password=req.password,
+        rtsp_url=rtsp_url,
+        snapshot_url=snapshot_url,
+        username=username,
+        password=password,
         source_mode=req.source_mode or "auto",
         note=req.note
     )
 
     if not started:
-        if req.rtsp_url and not req.snapshot_url and not shutil.which(settings.FFMPEG_PATH):
+        if rtsp_url and not snapshot_url and not shutil.which(settings.FFMPEG_PATH):
             detail = (
                 "Could not start recording: ffmpeg is not installed or not on the server's PATH. "
                 "Install ffmpeg, or add a Snapshot URL to this camera as a fallback."
@@ -281,7 +289,9 @@ def _to_device_response(d: dict) -> DeviceResponse:
         rtsp_url=d.get("rtsp_url"),
         snapshot_url=d.get("snapshot_url"),
         username=d.get("username"),
-        password=d.get("password"),
+        # Never return the stored password over the API. The web edit form treats a blank
+        # password as "keep the existing one" (see the PUT handler), so redaction is non-breaking.
+        password=None,
         live_mode=d.get("live_mode") or "rtsp",
         live_url=f"/api/live/{d['id']}/mjpeg"
     )
@@ -322,13 +332,19 @@ async def edit_device(
             status_code=400,
             detail="Provide at least an RTSP or a Snapshot URL."
         )
+    existing = get_device_by_id(device_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Device not found")
+    # Blank/unset password in the edit form means "keep the stored one" (the API no longer
+    # returns secrets, so the form can't pre-fill it).
+    new_password = req.password if req.password else existing.get("password")
     updated = update_device(
         device_id=device_id,
         name=req.name,
         rtsp_url=req.rtsp_url,
         snapshot_url=req.snapshot_url,
-        username=req.username,
-        password=req.password,
+        username=req.username if req.username is not None else existing.get("username"),
+        password=new_password,
         live_mode=req.live_mode
     )
     if not updated:

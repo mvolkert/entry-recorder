@@ -145,22 +145,27 @@ User-facing extras, independent of the pipeline work.
 ## Phase 6 — Battery, performance & security hardening
 Ongoing-cost items; heaviest design work, tackle after features are stable.
 
-- [ ] **Always-on wake/wifi locks.** Verified: `PARTIAL_WAKE_LOCK` (24h) + `WIFI_MODE_FULL_HIGH_PERF`
+- [~] **Always-on wake/wifi locks.** Verified: `PARTIAL_WAKE_LOCK` (24h) + `WIFI_MODE_FULL_HIGH_PERF`
       `WifiLock` acquired at service start and held continuously → heavy battery drain (this is the answer to
       the standing "Active writing on disk 24/7?" note — it's the locks, not disk I/O).
       Keep locks only during active recording/ring, not idle monitoring. File: `service/IntercomMonitorService.kt:265-285`
-- [ ] **MjpegStreamReader efficiency.** Reads one byte at a time and calls `runBlocking` per frame inside a
-      coroutine collector → inefficient, can block the dispatcher. File: `data/network/MjpegStreamReader.kt:119-153`
-- [ ] **Motion-analyzer polling.** `OnDeviceMotionAnalyzer` polls a snapshot every 500ms per device indefinitely
-      while monitoring — add backoff/adaptive rate when idle.
-- [ ] **Credential storage.** Device HTTP passwords, SIP passwords, server API key stored **plaintext** in Room;
+      **(DEFERRED — owner: app runs on a dedicated, detection-first device; battery is secondary to never missing a ring. Revisit as a later optimization.)**
+- [x] **MjpegStreamReader efficiency.** Reads one byte at a time and calls `runBlocking` per frame inside a
+      coroutine collector → inefficient, can block the dispatcher. Now buffered chunk reads + direct suspend `onFrame`. File: `data/network/MjpegStreamReader.kt:119-153`
+- [x] **Motion-analyzer polling.** `OnDeviceMotionAnalyzer` polls a snapshot every 500ms per device indefinitely
+      while monitoring — added adaptive idle backoff (500ms→1500ms) that snaps straight back to the fast interval on any pixel change, so detection latency is unchanged.
+- [~] **Credential storage.** Device HTTP passwords, SIP passwords, server API key stored **plaintext** in Room;
       migrate to EncryptedSharedPreferences / Keystore-backed encryption.
-- [ ] **Network transport.** `network_security_config` permits global cleartext **and trusts user CAs** (MITM risk) —
+      **(DEFERRED — owner: Keystore-backed Room TypeConverter + migration is a large, device-unverifiable change; revisit in a dedicated security pass.)**
+- [~] **Network transport.** `network_security_config` permits global cleartext **and trusts user CAs** (MITM risk) —
       scope cleartext to local subnet only, drop user-CA trust.
-- [ ] **Credential leakage in RTSP URLs.** `rtsp://user:pass@host` embedded URLs get logged/persisted —
+      **(DEFERRED — owner: dropping user-CA trust would break self-signed HTTPS on 2N devices; revisit as a security optimization.)**
+- [~] **Credential leakage in RTSP URLs.** `rtsp://user:pass@host` embedded URLs get logged/persisted —
       redact in logs, auth via header where possible. File: `DeviceEntity.rtspStreamUrl`
-- [ ] **Server: stop returning credentials.** `GET /api/devices` returns username/password in clear.
-      File: `server/entry_recorder_server/main.py:265+`
+      **(No app-side log statement emits this URL today; Media3/ffmpeg logging is outside our control — left as-is.)**
+- [x] **Server: stop returning credentials.** `GET /api/devices` no longer returns the password; the web edit form
+      treats a blank password as "keep existing" and `/api/recordings/start` falls back to server-stored credentials.
+      File: `server/entry_recorder_server/main.py:265+`, `static/index.html`
 
 ---
 

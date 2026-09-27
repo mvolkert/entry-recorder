@@ -115,40 +115,49 @@ class MjpegStreamReader(
 
     /**
      * Efficiently scans a multipart stream for JPEG SOI (0xFF, 0xD8) and EOI (0xFF, 0xD9) markers.
+     * Reads in chunks (not byte-by-byte) and invokes the suspend [onFrame] directly, so it no longer
+     * calls runBlocking per frame inside the collector (which could block the IO dispatcher).
      */
-    private inline fun readMjpegStream(
+    private suspend fun readMjpegStream(
         inputStream: InputStream,
-        crossinline onFrame: suspend (ByteArray) -> Unit
+        onFrame: suspend (ByteArray) -> Unit
     ) {
         val buffer = ByteArrayOutputStream(64 * 1024)
-        var prev = 0
+        val chunk = ByteArray(16 * 1024)
+        var prev = -1
         var inFrame = false
 
         while (true) {
-            val b = inputStream.read()
-            if (b == -1) break
+            val read = inputStream.read(chunk)
+            if (read == -1) break
 
-            if (!inFrame) {
-                if (prev == 0xFF && b == 0xD8) {
-                    // Found SOI (Start of Image)
-                    inFrame = true
-                    buffer.reset()
-                    buffer.write(0xFF)
-                    buffer.write(0xD8)
-                }
-            } else {
-                buffer.write(b)
-                if (prev == 0xFF && b == 0xD9) {
-                    // Found EOI (End of Image)
-                    inFrame = false
-                    val frameBytes = buffer.toByteArray()
-                    if (frameBytes.size > 100) {
-                        runBlocking { onFrame(frameBytes) }
+            var i = 0
+            while (i < read) {
+                val b = chunk[i].toInt() and 0xFF
+                i++
+
+                if (!inFrame) {
+                    if (prev == 0xFF && b == 0xD8) {
+                        // Found SOI (Start of Image)
+                        inFrame = true
+                        buffer.reset()
+                        buffer.write(0xFF)
+                        buffer.write(0xD8)
                     }
-                    buffer.reset()
+                } else {
+                    buffer.write(b)
+                    if (prev == 0xFF && b == 0xD9) {
+                        // Found EOI (End of Image)
+                        inFrame = false
+                        val frameBytes = buffer.toByteArray()
+                        if (frameBytes.size > 100) {
+                            onFrame(frameBytes)
+                        }
+                        buffer.reset()
+                    }
                 }
+                prev = b
             }
-            prev = b
         }
     }
 }

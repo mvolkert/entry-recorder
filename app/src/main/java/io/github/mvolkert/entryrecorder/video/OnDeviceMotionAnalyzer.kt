@@ -29,6 +29,12 @@ class OnDeviceMotionAnalyzer(
     private var consecutiveMotionFrames = 0
     private var consecutiveClearFrames = 0
 
+    // Adaptive idle polling: back off while the scene is static to save CPU/network, but snap
+    // straight back to the fast base interval the moment any change is seen, so detection stays
+    // responsive (this app runs on a dedicated detection-first device).
+    private var currentPollMs = POLL_INTERVAL_MS
+    @Volatile private var recentActivity = false
+
     fun start() {
         if (job?.isActive == true) return
         job = scope.launch { runLoop() }
@@ -41,6 +47,8 @@ class OnDeviceMotionAnalyzer(
         isMotionActive = false
         consecutiveMotionFrames = 0
         consecutiveClearFrames = 0
+        currentPollMs = POLL_INTERVAL_MS
+        recentActivity = false
     }
 
     private suspend fun runLoop() {
@@ -53,7 +61,15 @@ class OnDeviceMotionAnalyzer(
             } catch (e: Exception) {
                 Log.w(tag, "Frame grab/analysis failed for ${device.name}: ${e.message}")
             }
-            delay(POLL_INTERVAL_MS)
+            val poll = if (recentActivity) {
+                currentPollMs = POLL_INTERVAL_MS
+                POLL_INTERVAL_MS
+            } else {
+                currentPollMs = (currentPollMs + POLL_STEP_MS).coerceAtMost(MAX_IDLE_POLL_MS)
+                currentPollMs
+            }
+            recentActivity = false
+            delay(poll)
         }
     }
 
@@ -69,6 +85,11 @@ class OnDeviceMotionAnalyzer(
             }
         }
         val changedRatio = changedPixels.toFloat() / frame.size
+
+        // Any measurable pixel movement (well below the motion trigger) keeps polling at full speed.
+        if (changedRatio >= ACTIVITY_HINT_RATIO) {
+            recentActivity = true
+        }
 
         if (changedRatio >= MOTION_RATIO_THRESHOLD) {
             consecutiveMotionFrames++
@@ -118,9 +139,12 @@ class OnDeviceMotionAnalyzer(
 
     companion object {
         private const val POLL_INTERVAL_MS = 500L
+        private const val POLL_STEP_MS = 250L
+        private const val MAX_IDLE_POLL_MS = 1500L
         private const val ANALYSIS_WIDTH = 96
         private const val ANALYSIS_HEIGHT = 54
         private const val PIXEL_DIFF_THRESHOLD = 25
+        private const val ACTIVITY_HINT_RATIO = 0.01f   // below MOTION_RATIO_THRESHOLD; speeds polling back up
         private const val MOTION_RATIO_THRESHOLD = 0.03f
         private const val REQUIRED_MOTION_FRAMES = 2
         private const val REQUIRED_CLEAR_FRAMES = 4
