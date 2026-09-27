@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Standalone 24dp surveillance-camera mark (bullet camera on a ceiling mount,
-     lens tilted slightly upward). White artwork on transparent: reused directly
-     as the splash icon base and mirrored by ic_launcher_foreground. -->
+<!-- Surveillance-camera mark v2: ceiling plate, angled mount arm, bold bullet
+     body, lens ring (even-odd donut) with center dot. White on transparent;
+     reused by ic_launcher_foreground (scaled) and ic_splash_icon. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
@@ -9,27 +9,29 @@
     android:viewportHeight="24">
     <!-- Ceiling mount plate -->
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M6.6,2.6h5.8a1,1 0 0 1 0,2H6.6a1,1 0 0 1 0,-2z" />
-    <!-- Mount arm -->
+        android:pathData="M14.6,6.9H19.4"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round" />
+    <!-- Mount arm, angled down-left onto the camera body -->
+    <path
+        android:pathData="M16.8,8.1L14.2,11.9"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.9"
+        android:strokeLineCap="round" />
+    <!-- Bullet camera body (pill) -->
+    <path
+        android:pathData="M10,14.9H16.4"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round" />
+    <!-- Lens ring: outer disc minus inner disc via even-odd fill -->
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M9,4.6h2v3.4H9z" />
-    <!-- Pivot ball -->
+        android:fillType="evenOdd"
+        android:pathData="M2.3,14.9a2.4,2.4 0 1,0 4.8,0a2.4,2.4 0 1,0 -4.8,0z M3.3,14.9a1.4,1.4 0 1,0 2.8,0a1.4,1.4 0 1,0 -2.8,0z" />
+    <!-- Lens center dot, visible through the ring's hole -->
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M10,6.7m-1.35,0a1.35,1.35 0 1,0 2.7,0a1.35,1.35 0 1,0 -2.7,0" />
-    <!-- Camera body + lens ring, tilted -14° around the pivot -->
-    <group
-        android:name="camera"
-        android:pivotX="10"
-        android:pivotY="8"
-        android:rotation="-14">
-        <path
-            android:fillColor="#FFFFFFFF"
-            android:pathData="M7,8.8h8.4a1.4,1.4 0 0 1 1.4,1.4v1.6a1.4,1.4 0 0 1 -1.4,1.4H7a1.4,1.4 0 0 1 -1.4,-1.4v-1.6A1.4,1.4 0 0 1 7,8.8z" />
-        <path
-            android:fillColor="#FFFFFFFF"
-            android:pathData="M19.9,11m-1.75,0a1.75,1.75 0 1,0 3.5,0a1.75,1.75 0 1,0 -3.5,0" />
-    </group>
+        android:pathData="M4,14.9a0.7,0.7 0 1,0 1.4,0a0.7,0.7 0 1,0 -1.4,0z" />
 </vector>
