@@ -20,16 +20,25 @@ Legend: `[x]` implemented · `[~]` partially implemented / needs validation · `
 
 ---
 
-## Phase 0 — Validate the hybrid playback/export pipeline on a real device ⚠️
+##  Phase UI Quality
+- UI doesnt update immediately only on Screen Change -> StateFlow
+- Multi Select for export Recording
+- Update App Icon to M3 compliance and better surveillance camera
+- Update App Splash screen to be dark
+- Monitor Button maybe, Monitoring seems to go active after a minute of the app running and it only shows a notification. maybe a motion icon next to the record button to show status of each camera
+      - is motion detection global or could it be set per device?
+
+
+##  Phase 0 — Validate the hybrid playback/export pipeline on a real device ✅ (validated 2026-09-27)
 Everything already shipped (Bug #1 hybrid + #8 SAF export) is device-dependent and unverifiable from CI.
 Do this first — it gates Phase 4 (server MKV) and de-risks everything else.
 
-- [ ] In-app player: `JpegFramePlayer` + `MjpegMkvReader` (EBML parsing, offset index, scrubbing) on a real device.
-- [ ] Export: `ExportTranscoder` → `H264Encoder` + `MkvStreamMuxer` `avcC`/AVCC framing;
+- [x] In-app player: `JpegFramePlayer` + `MjpegMkvReader` (EBML parsing, offset index, scrubbing) on a real device.
+- [x] Export: `ExportTranscoder` → `H264Encoder` + `MkvStreamMuxer` `avcC`/AVCC framing;
       **re-export and confirm VLC plays** the previously black-screen recordings (AVCC length-prefix fix).
-- [ ] SAF export folder: grant persistence across reboots, overwrite-by-name behavior,
+- [x] SAF export folder: grant persistence across reboots, overwrite-by-name behavior,
       both `_h264.mkv` + raw MKV appear and play in the chosen folder.
-- [ ] Room migrations v4→v5 (`transcodeOnExport`) and v5→v6 (`exportFolderUri`) run cleanly over real data.
+- [x] Room migrations v4→v5 (`transcodeOnExport`) and v5→v6 (`exportFolderUri`) run cleanly over real data.
 
 **Done so far (freeze, don't rebuild):** capture stays JPEG-in-MKV no re-encode · thumbnails from
 first captured JPEG · in-app `JpegFramePlayer` routing in `VideoPlayerModal` · transcode-on-export +
@@ -193,7 +202,7 @@ Do at a natural break; some items (targetSdk) are hard requirements for Play upl
 
 ## Resolved log
 - ✅ Bug #1 — MJPEG-in-MKV playback: hybrid cheap-capture + `JpegFramePlayer` + transcode-on-export + toggle
-      (⚠️ Phase 0 on-device validation pending).
+      (✅ validated on device — Phase 0 complete).
 - ✅ Bug #2 — Export MIME/extension derived from actual file (`video/x-matroska`).
-- ✅ Bug #8 — SAF export folder + pure Share + "Save to Gallery" kept (⚠️ Phase 0 validation pending).
+- ✅ Bug #8 — SAF export folder + pure Share + "Save to Gallery" kept (✅ validated on device — Phase 0 complete).
 - ❌ WON'T DO — SAF live recording capture location (crash-resilience + CPU/battery reasons, see design intent).
