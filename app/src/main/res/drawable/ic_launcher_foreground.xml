@@ -17,7 +17,7 @@
 
     <!-- The evenOdd fillType is used to seamlessly combine the solid camera body and the transparent cutouts into a single scalable path -->
     <path
-        android:fillColor="#000000"
+        android:fillColor="#FFFFFFFF"
         android:fillType="evenOdd"
         android:pathData="
             M 4,6 H 20 A 1,1 0 0 1 21,7 V 10.2 H 3 V 7 A 1,1 0 0 1 4,6 Z
