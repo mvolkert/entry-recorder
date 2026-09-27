@@ -4,6 +4,20 @@ on:
   push:
     branches:
       - main
+  # Manual trigger so a release bundle can be built/uploaded from any branch (e.g. dev)
+  # without making routine development pushes auto-publish to Play.
+  workflow_dispatch:
+    inputs:
+      track:
+        description: "Play track to upload to"
+        required: false
+        default: "beta"
+        type: choice
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
 
 jobs:
   build:
@@ -61,7 +75,7 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           packageName: io.github.mvolkert.entryrecorder
           releaseFiles: app/build/outputs/bundle/release/app-release.aab
-          track: beta
+          track: ${{ github.event.inputs.track || 'beta' }}
           status: completed
 
       - name: Upload App Bundle on Failure

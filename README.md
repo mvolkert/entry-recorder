@@ -113,7 +113,7 @@ app/src/main/java/io/github/mvolkert/entryrecorder/
 │   ├── MainActivity.kt                # Bottom Navigation (Live, Aufnahmen, Einstellungen)
 │   ├── components/
 │   │   ├── RtspVideoPlayer.kt         # Media3 ExoPlayer RTSP Composable
-│   │   └── VideoPlayerModal.kt        # MP4 Wiedergabedialog
+│   │   └── VideoPlayerModal.kt        # Video-Wiedergabedialog (MJPEG-MKV & H.264)
 │   ├── incoming/
 │   │   └── IncomingCallActivity.kt    # Sperrbildschirm-Aufwecken & Gegensprechen
 │   ├── live/
@@ -128,7 +128,7 @@ app/src/main/java/io/github/mvolkert/entryrecorder/
 ├── util/
 │   └── ExportHelper.kt                # SAF & MediaStore Export / Share
 ├── video/
-│   ├── RtspStreamRecorder.kt          # Aufnahme-Engine (Snapshot/RTSP to MP4)
+│   ├── RtspStreamRecorder.kt          # Aufnahme-Engine (Snapshot/RTSP zu crash-sicherem MKV)
 │   └── ThumbnailUtil.kt               # Thumbnail-Extraktion
 └── worker/
     └── RetentionCleanupWorker.kt      # Automatischer Speicher- & Zeit-Bereiniger

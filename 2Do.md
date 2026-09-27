@@ -172,20 +172,22 @@ Ongoing-cost items; heaviest design work, tackle after features are stable.
 ## Phase 7 — Build, CI & platform hygiene
 Do at a natural break; some items (targetSdk) are hard requirements for Play uploads.
 
-- [ ] **`targetSdk = 34` while `compileSdk = 37`** — Google Play requires targetSdk 35+ for updates;
+- [~] **`targetSdk = 34` while `compileSdk = 37`** — Google Play requires targetSdk 35+ for updates;
       plan the 35/36 behavior-change migration (esp. FGS types, photo picker, edge-to-edge). File: `app/build.gradle.kts`
-- [ ] **`googleplay.yml` builds on `main`** but active development is on `dev`; Play upload uses `track: beta` —
-      align branches/tracks.
-- [ ] **`python-server.yml` `on.push.branches: [none]`** effectively disables push builds (only tags/PR/manual);
-      README claims "automatically built on GitHub Actions" — fix trigger or docs. `.github/workflows/python-server.yml:4-6`
-- [ ] **Linphone ABI coverage.** Only `jni/arm64-v8a/liblinphone.so` committed, no `abiFilters`/packaging config —
+      **(DEFERRED — bumping to 35 enforces edge-to-edge on Android 15+ and changes FGS/photo-picker behavior that can't be validated without a real device; plan a dedicated migration + on-device test.)**
+- [x] **`googleplay.yml` builds on `main`** but active development is on `dev`; Play upload uses `track: beta` —
+      kept `push: main` as the release gate and added a `workflow_dispatch` trigger with a selectable track, so a dev/other-branch release can be published manually without auto-publishing every dev push.
+- [x] **`python-server.yml` `on.push.branches: [none]`** effectively disabled push builds (only tags/PR/manual);
+      README claims "automatically built on GitHub Actions" — enabled push on `main` + `dev` (release publishing stays tag/dispatch-gated). `.github/workflows/python-server.yml:4-6`
+- [~] **Linphone ABI coverage.** Only `jni/arm64-v8a/liblinphone.so` committed, no `abiFilters`/packaging config —
       non-arm64 devices/emulators depend entirely on the Maven artifact providing other ABIs.
+      **(DEFERRED — the top-level `jni/` dir isn't wired into a `sourceSets`/`jniLibs.srcDir`, so its packaging is unclear; adding `abiFilters` blindly could exclude devices or is unverifiable here. Needs a release-bundle ABI inspection first.)**
 
 ---
 
 ## Docs
-- [ ] `README.md` + `RtspStreamRecorder` class name/comments still say **MP4**; after the deliberate MP4→MKV
-      pivot they should document MKV (also reflects Bug #1's resolved state).
+- [x] `README.md` + `RtspStreamRecorder` class name/comments still say **MP4**; after the deliberate MP4→MKV
+      pivot they should document MKV (also reflects Bug #1's resolved state). `RtspStreamRecorder` already read MKV; fixed the two stale README references (app + server).
 
 ---
 

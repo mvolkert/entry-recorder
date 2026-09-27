@@ -3,7 +3,8 @@ name: Build & Package Python Server
 on:
   push:
     branches:
-      - none
+      - main
+      - dev
     paths:
       - "server/**"
       - ".github/workflows/python-server.yml"

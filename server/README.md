@@ -9,7 +9,7 @@ Centralized video recording server with Web UI for Entry Recorder intercoms (2N 
   - Video gallery with auto-generated thumbnails.
   - In-browser HTML5 video player.
   - Filter by intercom device name and event type (Doorbell Ring, Motion, Noise, Manual).
-  - Download MP4 files and protect recordings from auto-cleanup.
+  - Download MKV files and protect recordings from auto-cleanup.
 - **REST API**: Seamless communication with the Entry Recorder Android App.
 - **Automatic Storage Retention**: Configurable retention period in days and maximum storage quota limit.
 
