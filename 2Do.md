@@ -29,9 +29,16 @@ Legend: `[x]` implemented · `[~]` partially implemented / needs validation · `
 - [x] Multi Select for export Recording — selection mode now also exports: Share / Save to Gallery /
       Export to Folder, reusing the lazy transcode-on-export policy with a "k of n" progress dialog
       (`RecordingsScreen.runBatchExport`, `ExportHelper.shareFiles` + silent `saveFileToGallery`).
-- [] Update App Icon to M3 compliance and better surveillance camera
-- [] Update App Splash screen to be dark
-- [] Monitor Button maybe, Monitoring seems to go active after a minute of the app running and it only shows a notification. maybe a motion icon next to the record button to show status of each camera
+- [x] Update App Icon to M3 compliance and better surveillance camera — hand-authored CCTV bullet-camera
+      adaptive icon (`ic_launcher_cctv`/`ic_launcher_foreground`) with monochrome layer for themed icons,
+      dark #0B141A background; manifest no longer points at `@android:drawable/ic_menu_camera`.
+- [x] Update App Splash screen to be dark — black `windowBackground` (pre-12) + `values-v31`
+      `windowSplashScreenBackground`/`windowSplashScreenAnimatedIcon` with the CCTV mark. Files:
+      `res/values/themes.xml`, `res/values-v31/themes.xml`, `res/drawable/ic_splash_icon.xml`
+- [x] Monitor Button maybe, Monitoring seems to go active after a minute of the app running and it only shows a notification. maybe a motion icon next to the record button to show status of each camera
+      — `MonitorStatusHolder` StateFlow (written only by `IntercomMonitorService`) drives a fixed 12dp dot
+      next to the record button: grey = not monitored (yet), teal = monitoring, amber = motion.
+      Files: `service/MonitorStatusHolder.kt`, `data/model/Enums.kt`, `ui/live/LiveViewModel.kt`, `ui/live/LiveCamerasScreen.kt`
  
 ## To Check
 - [] is motion detection global or could it be set per device?
