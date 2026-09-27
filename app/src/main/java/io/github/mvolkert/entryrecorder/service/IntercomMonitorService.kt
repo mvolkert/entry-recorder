@@ -159,7 +159,10 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                         vibrate = settings.vibrateOnRing
                     )
 
-                    // 3. Launch IncomingCallActivity directly for immediate lockscreen display
+                    // 3. Launch IncomingCallActivity directly for immediate lockscreen display.
+                    // NOTE (targetSdk 36+): background Activity Launch is restricted, so this
+                    // direct startActivity is best-effort. The doorbell path stays reliable because
+                    // NotificationHelper attaches a full-screen intent to the ring notification.
                     if (settings.wakeOnRing) {
                         val callIntent = Intent(this@IntercomMonitorService, IncomingCallActivity::class.java).apply {
                             putExtra(IncomingCallActivity.EXTRA_DEVICE_ID, device.id)

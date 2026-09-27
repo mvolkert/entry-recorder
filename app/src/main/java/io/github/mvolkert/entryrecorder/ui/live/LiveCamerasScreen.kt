@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -57,6 +58,10 @@ fun LiveCamerasScreen(
     val state by viewModel.uiState.collectAsState()
 
     Scaffold(
+        // Top inset is handled by the TopAppBar below; bottom system inset is applied by the
+        // host NavigationBar in MainActivity, so this nested Scaffold must not re-add system-bar
+        // insets (that would double-count them).
+        contentWindowInsets = WindowInsets(0),
         topBar = {
             TopAppBar(
                 title = { Text("Live Intercom View", fontWeight = FontWeight.Bold) }

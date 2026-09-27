@@ -200,11 +200,17 @@ fun RecordingsScreen(
     }
 
     Scaffold(
+        // Top inset is applied manually on the custom Column topBar below (this is not a
+        // TopAppBar, so it does not self-consume the status bar); bottom system inset comes from
+        // the host NavigationBar in MainActivity. Nested Scaffold stays inset-free to avoid
+        // double-counting.
+        contentWindowInsets = WindowInsets(0),
         topBar = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface)
+                    .windowInsetsPadding(WindowInsets.statusBars)
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 Row(

@@ -5,8 +5,10 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -44,6 +46,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
 
         requestRequiredPermissions()
         IntercomMonitorService.start(this)
@@ -82,6 +85,11 @@ class MainActivity : ComponentActivity() {
         val settingsViewModel: SettingsViewModel = viewModel()
 
         Scaffold(
+            // Outer scaffold only hosts the bottom NavigationBar. Insets are set to zero so the
+            // system bars (status + navigation) are NOT added here; each destination's own
+            // Scaffold/TopAppBar consumes the top inset, and the NavigationBar applies the bottom
+            // inset itself. This avoids double-counting insets when nesting per-screen Scaffold(s).
+            contentWindowInsets = WindowInsets(0),
             bottomBar = {
                 NavigationBar {
                     items.forEach { screen ->

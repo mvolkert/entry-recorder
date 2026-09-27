@@ -41,13 +41,20 @@ Legend: `[x]` implemented · `[~]` partially implemented / needs validation · `
       Files: `service/MonitorStatusHolder.kt`, `data/model/Enums.kt`, `ui/live/LiveViewModel.kt`, `ui/live/LiveCamerasScreen.kt`
  
 ## To Check
-- [] is motion detection global or could it be set per device?
+- [x] is motion detection global or could it be set per device?
 
   
 ## Features
 - [x] Recording finishes → copy the complete file to the exposed folder as a one-shot event
 - [] broadcast intent to trigger export
 
+
+## UX
+- [] Tab swiping
+
+## UI
+- M3 Expressive Motion
+- Pickable Accent Colors primary, secondary, tertiary all the same palette
 
 ##  Phase 0 — Validate the hybrid playback/export pipeline on a real device ✅ (validated 2026-09-27)
 Everything already shipped (Bug #1 hybrid + #8 SAF export) is device-dependent and unverifiable from CI.
@@ -208,9 +215,19 @@ Ongoing-cost items; heaviest design work, tackle after features are stable.
 ## Phase 7 — Build, CI & platform hygiene
 Do at a natural break; some items (targetSdk) are hard requirements for Play uploads.
 
-- [~] **`targetSdk = 34` while `compileSdk = 37`** — Google Play requires targetSdk 35+ for updates;
-      plan the 35/36 behavior-change migration (esp. FGS types, photo picker, edge-to-edge). File: `app/build.gradle.kts`
-      **(DEFERRED — bumping to 35 enforces edge-to-edge on Android 15+ and changes FGS/photo-picker behavior that can't be validated without a real device; plan a dedicated migration + on-device test.)**
+- [~] **`targetSdk` 34 → 37 + edge-to-edge migration** — DONE (build green): bumped `targetSdk` to 37 and
+      `tools:targetApi` in the manifest; added `enableEdgeToEdge()` to `MainActivity`/`IncomingCallActivity`;
+      outer `Scaffold` set inset-free (`contentWindowInsets = WindowInsets(0)`) with per-screen nested `Scaffold`s
+      also inset-free to avoid double-counting; `RecordingsScreen` custom `Column` top bar gets explicit
+      `windowInsetsPadding(statusBars)`; `IncomingCallActivity` overlays now use `statusBars`/`navigationBars`
+      instead of hardcoded `40dp`/`32dp`. Motion/noise intentionally kept as high-priority heads-up
+      notifications (no full-screen alarm); doorbell keeps its full-screen intent. Service `startActivity`
+      noted as best-effort under targetSdk 36+ background-activity-launch rules.
+      Files: `app/build.gradle.kts`, `AndroidManifest.xml`, `ui/MainActivity.kt`,
+      `ui/live/LiveCamerasScreen.kt`, `ui/recordings/RecordingsScreen.kt`, `ui/settings/SettingsScreen.kt`,
+      `ui/incoming/IncomingCallActivity.kt`, `service/IntercomMonitorService.kt`.
+      **Remaining:** the behavior changes below are device-dependent and unverifiable from CI → see
+      "On-device validation — targetSdk 37 / edge-to-edge".
 - [x] **`googleplay.yml` builds on `main`** but active development is on `dev`; Play upload uses `track: beta` —
       kept `push: main` as the release gate and added a `workflow_dispatch` trigger with a selectable track, so a dev/other-branch release can be published manually without auto-publishing every dev push.
 - [x] **`python-server.yml` `on.push.branches: [none]`** effectively disabled push builds (only tags/PR/manual);
@@ -218,6 +235,25 @@ Do at a natural break; some items (targetSdk) are hard requirements for Play upl
 - [~] **Linphone ABI coverage.** Only `jni/arm64-v8a/liblinphone.so` committed, no `abiFilters`/packaging config —
       non-arm64 devices/emulators depend entirely on the Maven artifact providing other ABIs.
       **(DEFERRED — the top-level `jni/` dir isn't wired into a `sourceSets`/`jniLibs.srcDir`, so its packaging is unclear; adding `abiFilters` blindly could exclude devices or is unverifiable here. Needs a release-bundle ABI inspection first.)**
+
+---
+
+## On-device validation — targetSdk 37 / edge-to-edge 🔄 (pending, needs an Android 15/16 device)
+The 34→37 bump forces edge-to-edge (Android 15) and tightens background-activity-launch (Android 16);
+none of this is verifiable from the build. Run each on a real Android 15/16 device before shipping.
+
+- [x] Compiles & installs with `targetSdk 37` (assembleDebug green).
+- [ ] Edge-to-edge layout: status bar no longer overlaps the top of Live / Recordings / Settings; nav bar
+      doesn't cover content or the Settings FAB.
+- [ ] `RecordingsScreen` custom top bar ("Recordings Archive" + search/filter chips) sits below the status bar,
+      not behind the clock.
+- [ ] Incoming-call screen: header and call controls (mute/speaker/hangup) clear the status & gesture/nav bars
+      on a punch-hole / gesture-nav device; video still renders fullscreen behind the bars.
+- [ ] Locked-screen doorbell ring → full-screen intent still fires and shows `IncomingCallActivity` over the keyguard.
+- [ ] Motion/noise → high-priority heads-up notification appears (screen may NOT wake directly from the service on
+      Android 15/16 due to BAL rules); tapping it opens `IncomingCallActivity`.
+- [ ] Reboot → `BootReceiver` autostart of the `connectedDevice` foreground service still succeeds
+      (`ForegroundServiceStartNotAllowedException` regression check).
 
 ---
 

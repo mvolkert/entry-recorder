@@ -90,6 +90,9 @@ fun SettingsScreen(
     }
 
     Scaffold(
+        // Top inset handled by TopAppBar; bottom system inset by the host NavigationBar in
+        // MainActivity. Nested Scaffold stays inset-free to avoid double-counting.
+        contentWindowInsets = WindowInsets(0),
         topBar = {
             TopAppBar(
                 title = { Text("Settings & Devices", fontWeight = FontWeight.Bold) }

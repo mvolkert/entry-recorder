@@ -5,16 +5,21 @@ import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -60,6 +65,7 @@ class IncomingCallActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setupLockscreenFlags()
 
         val deviceId = intent.getLongExtra(EXTRA_DEVICE_ID, -1L)
@@ -170,7 +176,8 @@ fun IncomingCallContent(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 40.dp, start = 16.dp, end = 16.dp),
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(top = 8.dp, start = 16.dp, end = 16.dp),
             shape = RoundedCornerShape(16.dp),
             color = Color.Black.copy(alpha = 0.65f)
         ) {
@@ -224,7 +231,8 @@ fun IncomingCallContent(
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter)
                 .background(Color.Black.copy(alpha = 0.7f))
-                .padding(horizontal = 24.dp, vertical = 32.dp)
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .padding(horizontal = 24.dp, vertical = 24.dp)
         ) {
             when (sipState.state) {
                 CallUiState.CONNECTED -> {
