@@ -2,7 +2,9 @@ package io.github.mvolkert.entryrecorder.sip
 
 import android.app.Application
 import android.content.Context
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.os.Build
 import android.util.Log
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.SipMode
@@ -207,12 +209,25 @@ class SipCallManager private constructor(private val app: Application) {
         _sessionState.value = _sessionState.value.copy(isMicMuted = muted)
     }
 
-    // TODO(audio): AudioManager.isSpeakerphoneOn is deprecated (API 31) in favor of
-    //   setCommunicationDevice. Kept for broad device support / reliable call-audio routing.
     fun routeAudioToSpeaker(speakerOn: Boolean) {
         try {
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-            audioManager.isSpeakerphoneOn = speakerOn
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // API 31+ : the speakerphone flags are deprecated; route through the communication
+                // device (built-in speaker for hands-free, cleared back to the default/earpiece off).
+                if (speakerOn) {
+                    val speaker = audioManager.availableCommunicationDevices
+                        .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                    if (speaker != null) audioManager.setCommunicationDevice(speaker)
+                } else {
+                    audioManager.clearCommunicationDevice()
+                }
+            } else {
+                // Pre-31 fallback: isSpeakerphoneOn is the only speaker-routing API below API 31 while
+                // minSdk = 26, so its deprecation warning is intentionally left visible (see 2Do
+                // "Lint & deprecation debt"). Fully clearing it would require raising minSdk to 31.
+                audioManager.isSpeakerphoneOn = speakerOn
+            }
             _sessionState.value = _sessionState.value.copy(isSpeakerOn = speakerOn)
         } catch (e: Exception) {
             Log.e(tag, "Failed to toggle speakerphone", e)

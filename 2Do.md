@@ -267,8 +267,10 @@ in a way we can't validate from CI stays listed here until a real-device pass.
       singleton already only ever gets `applicationContext`. File: `sip/SipCallManager.kt:30,234`
 - [x] `H264Encoder.drainOutputs` uses deprecated `MediaCodec.BUFFER_FLAG_SYNC_FRAME` for keyframe detection
       → drop it and rely on the existing `containsIdr(bytes)` (already OR-ed in today). File: `video/H264Encoder.kt:175`
-- [ ] `AudioManager.isSpeakerphoneOn` deprecated (API 31) → use `setCommunicationDevice(TYPE_SPEAKER)` on
-      API 31+ (and `AudioManager communicated devices` list), keep the legacy call as fallback. File: `sip/SipCallManager.kt:206`
+- [x] `AudioManager.isSpeakerphoneOn` deprecated (API 31) → migrated to `setCommunicationDevice(TYPE_BUILTIN_SPEAKER)`
+      on API 31+ (`clearCommunicationDevice()` for off). Pre-31 fallback still uses `isSpeakerphoneOn` and its
+      deprecation warning is **intentionally left visible** (only speaker API below 31 while minSdk = 26); fully
+      clearing it requires raising `minSdk` to 31. File: `sip/SipCallManager.kt:routeAudioToSpeaker`
 
 **Deferred (device-unverifiable / large — need a real 2N device / PBX before touching):**
 - [ ] `WifiManager.WIFI_MODE_FULL_HIGH_PERF` — no non-deprecated int constant below API 29; plan the
