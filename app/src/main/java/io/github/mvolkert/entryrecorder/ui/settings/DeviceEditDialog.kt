@@ -2,6 +2,7 @@ package io.github.mvolkert.entryrecorder.ui.settings
 
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -62,6 +63,18 @@ fun DeviceEditDialog(
     var recordOnNoise by remember { mutableStateOf(initialDevice?.recordOnNoise ?: true) }
     var recordOnMotionOnDevice by remember { mutableStateOf(initialDevice?.recordOnMotionOnDevice ?: false) }
 
+    // Network / HTTPS
+    var useHttps by remember { mutableStateOf(initialDevice?.useHttps ?: false) }
+    var httpsPort by remember { mutableStateOf(initialDevice?.httpsPort?.toString() ?: "443") }
+
+    // Per-event recording durations
+    var ringRecordSeconds by remember { mutableStateOf((initialDevice?.ringRecordSeconds ?: 60).toString()) }
+    var motionPostRecordSeconds by remember { mutableStateOf((initialDevice?.motionPostRecordSeconds ?: 20).toString()) }
+    var noisePostRecordSeconds by remember { mutableStateOf((initialDevice?.noisePostRecordSeconds ?: 20).toString()) }
+
+    // Enabled toggle
+    var isEnabled by remember { mutableStateOf(initialDevice?.isEnabled ?: true) }
+
     var isTestingConnection by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<String?>(null) }
     var isTestSuccess by remember { mutableStateOf(false) }
@@ -101,6 +114,31 @@ fun DeviceEditDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
 
+                    // Device Type selector
+                    Text("Device Type", fontWeight = FontWeight.Bold)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { deviceType = DeviceType.TWO_N_VERSO }
+                        ) {
+                            RadioButton(
+                                selected = deviceType == DeviceType.TWO_N_VERSO,
+                                onClick = { deviceType = DeviceType.TWO_N_VERSO }
+                            )
+                            Text("2N IP Verso (intercom events, SIP, ring/noise/motion)")
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { deviceType = DeviceType.GENERIC_RTSP_ONVIF }
+                        ) {
+                            RadioButton(
+                                selected = deviceType == DeviceType.GENERIC_RTSP_ONVIF,
+                                onClick = { deviceType = DeviceType.GENERIC_RTSP_ONVIF }
+                            )
+                            Text("Generic RTSP / ONVIF camera")
+                        }
+                    }
+
                     // IP Address
                     OutlinedTextField(
                         value = ipAddress,
@@ -124,6 +162,25 @@ fun DeviceEditDialog(
                             onValueChange = { rtspPort = it },
                             label = { Text("RTSP Port") },
                             modifier = Modifier.weight(1f),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
+                    }
+
+                    // HTTPS toggle + port
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Use HTTPS for HTTP API/snapshot", fontWeight = FontWeight.Medium)
+                        Switch(checked = useHttps, onCheckedChange = { useHttps = it })
+                    }
+                    if (useHttps) {
+                        OutlinedTextField(
+                            value = httpsPort,
+                            onValueChange = { httpsPort = it },
+                            label = { Text("HTTPS Port") },
+                            modifier = Modifier.fillMaxWidth(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                         )
                     }
@@ -314,6 +371,48 @@ fun DeviceEditDialog(
                         )
                     }
 
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        thickness = DividerDefaults.Thickness,
+                        color = DividerDefaults.color
+                    )
+
+                    // Per-event recording durations
+                    Text("Recording Durations (seconds)", fontWeight = FontWeight.Bold)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = ringRecordSeconds,
+                            onValueChange = { ringRecordSeconds = it },
+                            label = { Text("Ring") },
+                            modifier = Modifier.weight(1f),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
+                        OutlinedTextField(
+                            value = motionPostRecordSeconds,
+                            onValueChange = { motionPostRecordSeconds = it },
+                            label = { Text("Motion post") },
+                            modifier = Modifier.weight(1f),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
+                        OutlinedTextField(
+                            value = noisePostRecordSeconds,
+                            onValueChange = { noisePostRecordSeconds = it },
+                            label = { Text("Noise post") },
+                            modifier = Modifier.weight(1f),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
+                    }
+
+                    // Device enabled toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Device Enabled (monitored)", fontWeight = FontWeight.Medium)
+                        Switch(checked = isEnabled, onCheckedChange = { isEnabled = it })
+                    }
+
                     // Test Connection Button
                     Button(
                         onClick = {
@@ -399,6 +498,8 @@ fun DeviceEditDialog(
                                 deviceType = deviceType,
                                 ipAddress = ipAddress.trim(),
                                 httpPort = httpPort.toIntOrNull() ?: 80,
+                                useHttps = useHttps,
+                                httpsPort = httpsPort.toIntOrNull() ?: 443,
                                 rtspPort = rtspPort.toIntOrNull() ?: 554,
                                 rtspPath = rtspPath.trim(),
                                 username = username.trim(),
@@ -416,7 +517,11 @@ fun DeviceEditDialog(
                                 recordOnMotion = recordOnMotion,
                                 recordOnRing = recordOnRing,
                                 recordOnNoise = recordOnNoise,
-                                recordOnMotionOnDevice = recordOnMotionOnDevice
+                                recordOnMotionOnDevice = recordOnMotionOnDevice,
+                                ringRecordSeconds = ringRecordSeconds.toIntOrNull() ?: 60,
+                                motionPostRecordSeconds = motionPostRecordSeconds.toIntOrNull() ?: 20,
+                                noisePostRecordSeconds = noisePostRecordSeconds.toIntOrNull() ?: 20,
+                                isEnabled = isEnabled
                             )
                             onSave(updated)
                         }

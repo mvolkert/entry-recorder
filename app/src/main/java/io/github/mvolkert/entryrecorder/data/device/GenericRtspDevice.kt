@@ -34,7 +34,11 @@ class GenericRtspDevice(
     }
 
     override suspend fun startMonitoring(listener: IntercomEventListener) {
-        // Generic RTSP devices provide live stream; monitoring state is active
+        // Generic RTSP/ONVIF cameras expose no vendor event bus, so there is no push source for
+        // ring/noise events (those are 2N-specific SSE features). Motion for these devices is still
+        // auto-recorded through the device-agnostic app-side OnDeviceMotionAnalyzer (enabled per
+        // device via recordOnMotionOnDevice), plus manual recording from the Live view. This is a
+        // documented limitation rather than a bug.
         listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, true, "RTSP Ready"))
     }
 

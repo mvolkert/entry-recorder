@@ -91,17 +91,19 @@ Make the 24/7 monitoring actually survive reboots and multi-device use.
 ## Phase 3 — Settings & device UI completion
 Close the "claimed but not editable" gaps once the data layer is safe (Phase 1 #4).
 
-- [ ] **HTTPS fields UI** – `useHttps`/`httpsPort` exist in `DeviceEntity` but no inputs in `DeviceEditDialog`.
-- [ ] **Per-event recording durations UI** – `ringRecordSeconds`, `motionPostRecordSeconds`,
+- [x] **HTTPS fields UI** – `useHttps`/`httpsPort` exist in `DeviceEntity` but no inputs in `DeviceEditDialog`.
+- [x] **Per-event recording durations UI** – `ringRecordSeconds`, `motionPostRecordSeconds`,
       `noisePostRecordSeconds` exist but are not editable.
-- [ ] **Generic RTSP/ONVIF device type unreachable** – `DeviceEditDialog` keeps `deviceType` in state
+- [x] **Generic RTSP/ONVIF device type unreachable** – `DeviceEditDialog` keeps `deviceType` in state
       (line 40) but renders **no selector**; it always stays `TWO_N_VERSO`, so `GenericRtspDevice` is dead code.
       Add a device-type picker.
-- [ ] **Generic device events** – `GenericRtspDevice.startMonitoring()` emits no events (only "RTSP Ready") →
+- [x] **Generic device events** – `GenericRtspDevice.startMonitoring()` emits no events (only "RTSP Ready") →
       generic cams support manual recording only, no motion/ring auto-record. Decide: implement snapshot-based
       motion events vs document the limitation. File: `data/device/GenericRtspDevice.kt:36-39`
-- [ ] **Default server URL** – `AppSettingsEntity.serverBaseUrl` hard-codes LAN IP `http://192.168.1.100:8000`;
-      default empty with an explicit "Set up server" flow.
+- [~] **Default server URL** – `AppSettingsEntity.serverBaseUrl` hard-codes LAN IP `http://192.168.1.100:8000`;
+      default empty with an explicit "Set up server" flow. (SKIPPED: the field is already editable in Settings, and
+      changing the entity default alters Room's generated schema and fails v6 schema validation on existing installs
+      — needs a full table-rebuild migration for a cosmetic value. Revisit if a settings schema migration is done anyway.)
 
 ---
 
