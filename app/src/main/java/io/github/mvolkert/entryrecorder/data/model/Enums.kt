@@ -29,3 +29,10 @@ enum class RecordingMode {
     APP_LOCAL,       // Recorded directly by the Android app on local device storage
     PYTHON_SERVER    // Recorded centrally by external Python server
 }
+
+/** Runtime monitoring state of a device as tracked by IntercomMonitorService (transient, not persisted). */
+enum class MonitorStatus {
+    DISABLED,     // Device disabled, or the service does not monitor it (yet)
+    MONITORING,   // Events are being monitored, no motion right now
+    MOTION        // Motion currently detected
+}

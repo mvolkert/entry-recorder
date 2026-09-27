@@ -11,6 +11,7 @@ import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
+import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
 import io.github.mvolkert.entryrecorder.domain.device.IntercomDevice
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
@@ -85,6 +86,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         for (id in currentIds - newIds) {
             val device = activeDevices.remove(id)
             device?.stopMonitoring()
+            MonitorStatusHolder.remove(id)
         }
 
         // Add or update active devices
@@ -95,6 +97,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                 val newDevice = IntercomDeviceFactory.createDevice(entity)
                 activeDevices[entity.id] = newDevice
                 newDevice.startMonitoring(this@IntercomMonitorService)
+                MonitorStatusHolder.update(entity.id, MonitorStatus.MONITORING)
 
                 // Configure SIP for device
                 sipManager.configureDeviceSip(entity)
@@ -173,6 +176,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                 is IntercomEvent.MotionStarted -> {
                     val device = event.device
                     Log.i(tag, "Motion started on ${device.name}")
+                    MonitorStatusHolder.update(device.id, MonitorStatus.MOTION)
 
                     if (device.recordOnMotion) {
                         recorder.startRecording(
@@ -196,6 +200,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                 is IntercomEvent.MotionEnded -> {
                     val device = event.device
                     Log.i(tag, "Motion ended on ${device.name}")
+                    MonitorStatusHolder.update(device.id, MonitorStatus.MONITORING)
                     // Allow post-record time buffer then stop
                     serviceScope.launch {
                         delay(device.motionPostRecordSeconds * 1000L)
@@ -239,6 +244,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                 is IntercomEvent.MotionOnDeviceStarted -> {
                     val device = event.device
                     Log.i(tag, "On-device motion analysis started on ${device.name}")
+                    MonitorStatusHolder.update(device.id, MonitorStatus.MOTION)
 
                     if (device.recordOnMotionOnDevice) {
                         recorder.startRecording(
@@ -262,6 +268,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                 is IntercomEvent.MotionOnDeviceEnded -> {
                     val device = event.device
                     Log.i(tag, "On-device motion analysis ended on ${device.name}")
+                    MonitorStatusHolder.update(device.id, MonitorStatus.MONITORING)
                     serviceScope.launch {
                         delay(device.motionPostRecordSeconds * 1000L)
                         recorder.stopRecording(device.id)
@@ -321,6 +328,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             analyzer.stop()
         }
         activeMotionAnalyzers.clear()
+        MonitorStatusHolder.clear()
 
         try {
             wakeLock?.let { if (it.isHeld) it.release() }

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FiberManualRecord
@@ -36,11 +37,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
 import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -99,9 +103,12 @@ fun LiveCamerasScreen(
                 ) {
                     items(state.devices, key = { it.id }) { device ->
                         val isRecording = device.id in state.recordingDeviceIds
+                        val monitorStatus = if (!device.isEnabled) MonitorStatus.DISABLED
+                        else state.monitorStatuses[device.id] ?: MonitorStatus.DISABLED
                         LiveDeviceCard(
                             device = device,
                             isRecording = isRecording,
+                            monitorStatus = monitorStatus,
                             onToggleRecord = {
                                 if (isRecording) {
                                     viewModel.stopManualRecording(device)
@@ -121,6 +128,7 @@ fun LiveCamerasScreen(
 fun LiveDeviceCard(
     device: DeviceEntity,
     isRecording: Boolean,
+    monitorStatus: MonitorStatus,
     onToggleRecord: () -> Unit
 ) {
     Card(
@@ -208,14 +216,39 @@ fun LiveDeviceCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                IconButton(onClick = onToggleRecord) {
-                    Icon(
-                        imageVector = if (isRecording) Icons.Default.StopCircle else Icons.Default.FiberManualRecord,
-                        contentDescription = "Manual Record",
-                        tint = if (isRecording) Color.Red else MaterialTheme.colorScheme.primary
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    MonitorStatusDot(status = monitorStatus)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    IconButton(onClick = onToggleRecord) {
+                        Icon(
+                            imageVector = if (isRecording) Icons.Default.StopCircle else Icons.Default.FiberManualRecord,
+                            contentDescription = "Manual Record",
+                            tint = if (isRecording) Color.Red else MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+/**
+ * Live monitoring status of a device as published by IntercomMonitorService:
+ * teal = events are being monitored, amber = motion currently detected,
+ * grey = not monitored (device disabled or the service has not picked it up yet).
+ * Always rendered at a fixed size so state changes never shift the card layout.
+ */
+@Composable
+private fun MonitorStatusDot(status: MonitorStatus) {
+    val (color, description) = when (status) {
+        MonitorStatus.MONITORING -> MaterialTheme.colorScheme.primary to "Monitoring"
+        MonitorStatus.MOTION -> Color(0xFFFFB300) to "Motion detected"
+        MonitorStatus.DISABLED -> Color(0xFF5A6068) to "Not monitored"
+    }
+    Box(
+        modifier = Modifier
+            .size(12.dp)
+            .background(color, CircleShape)
+            .semantics { contentDescription = description }
+    )
 }
