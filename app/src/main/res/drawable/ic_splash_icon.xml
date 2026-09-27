@@ -1,6 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Splash variant of the owner's dome-camera artwork, inverted to white
-     because the Android 12+ splash backdrop (windowSplashScreenBackground) is black. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"

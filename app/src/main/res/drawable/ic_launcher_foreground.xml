@@ -4,9 +4,6 @@
     android:viewportWidth="24"
     android:viewportHeight="24">
 
-    <!-- Owner-provided dome-camera artwork. Wrapped in a 0.65x scale group so the
-         drawing sits comfortably inside the adaptive-icon safe zone with margin
-         on every launcher mask shape (circle/squircle/rounded square). -->
     <group
         android:name="mark"
         android:pivotX="12"
@@ -14,7 +11,6 @@
         android:scaleX="0.65"
         android:scaleY="0.65">
 
-    <!-- The evenOdd fillType is used to seamlessly combine the solid camera body and the transparent cutouts into a single scalable path -->
     <path
         android:fillColor="#FFFFFFFF"
         android:fillType="evenOdd"
