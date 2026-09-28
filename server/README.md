@@ -3,13 +3,16 @@
 Centralized video recording server with Web UI for Entry Recorder intercoms (2N IP Verso and generic RTSP/ONVIF devices).
 
 ## Features
-- **Centralized Video Recording**: Records RTSP H.264/AAC streams using FFmpeg or HTTP snapshot grabbing fallback.
+- **Centralized Video Recording**: Records RTSP H.264/AAC streams with FFmpeg, or grabs HTTP snapshots as a fallback.
+  Encoded captures are written as **fragmented MP4** (`+frag_keyframe+empty_moov+default_base_moof`) so they play
+  inline in any browser; the snapshot path encodes to H.264 MP4 when FFmpeg is available and otherwise falls back to a
+  crash-resilient raw-JPEG **MKV** dump (older server rows may also be MKV).
 - **Web UI**: Modern, responsive dashboard accessible directly in any web browser (`http://<server-ip>:8000`).
   - View live active recordings with stop controls.
   - Video gallery with auto-generated thumbnails.
   - In-browser HTML5 video player.
   - Filter by intercom device name and event type (Doorbell Ring, Motion, Noise, Manual).
-  - Download MKV files and protect recordings from auto-cleanup.
+  - Download recordings (MP4 for new encoded captures; MKV for legacy rows and the no-FFmpeg raw-JPEG fallback) and protect them from auto-cleanup.
 - **REST API**: Seamless communication with the Entry Recorder Android App.
 - **Automatic Storage Retention**: Configurable retention period in days and maximum storage quota limit.
 

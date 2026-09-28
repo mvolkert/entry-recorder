@@ -2,7 +2,9 @@
 
 
 ## To Check
-- Web UI mkv will probably not work maybe webm?
+- (resolved by the dual-container split below) Web UI MKV playback — new encoded recordings are now
+  fragmented MP4 and play inline in every browser; MKV remains only for raw-MJPEG / legacy rows via
+  the download-in-VLC fallback.
 
 Reorganized from the code & feature review, re-verified against the current codebase
 (`app/`, `server/`, `.github/`) on 2026-09-27; **task list re-sorted by invasiveness (minimal →
@@ -18,8 +20,17 @@ Legend: `[x]` implemented · `[~]` partially implemented / needs validation · `
 - The **primary target camera supports snapshot pulling only** – the app is intentionally built
   around snapshot/MJPEG capture. Missing RTSP/H.264 capture is **not a bug for the main use case**;
   it only matters for future/optional RTSP-only devices.
-- **MKV is the deliberate container everywhere** (crash resilience via incrementally-flushed
-  clusters; MP4's trailing `moov` atom is unrecoverable on abort).
+- **Dual-container strategy** (replaces the old "MKV is the deliberate container everywhere" rule):
+  **MKV is the private, crash-resilient raw-MJPEG capture buffer** on the phone — incrementally-flushed
+  clusters survive an abort (MP4's trailing `moov` is unrecoverable on abort), and Matroska is the more
+  reliable container for MJPEG (VLC/MX play it). **fragmented MP4 (fMP4) is the universal, playable
+  deliverable for encoded H.264** — the server encoded recording paths (RTSP H.264 copy, snapshot
+  libx264) and the phone export transcode emit `+frag_keyframe+empty_moov+default_base_moof` MP4,
+  playable in browsers / ExoPlayer / VLC / gallery, with the same append-only crash resilience (a crash
+  loses at most the current fragment — no trailing patch-up).
+  *Rejected alternative:* put the raw MJPEG into fMP4 too — MJPEG-in-fMP4 is less reliable for
+  third-party players than MJPEG-in-MKV and no browser gains playback; only re-encode-at-capture
+  (rejected below: CPU/battery) could fully unify the container.
 - **Cheap capture, lazy encoding**: no re-encode at record time (24/7 events → CPU/battery
   unacceptable). H.264 transcode happens only on explicit export/share.
 - Capture location stays a forward-only local `FileOutputStream` in `filesDir/recordings`;
@@ -38,13 +49,16 @@ Single-file, non-behavioral or config-only changes.
 - [x] **Docs: README server-API example** – payload example now mirrors the real `StartServerRecordingPayload`
       (`source_mode: "auto"`, `snapshot_url`, `note`) + credential-fallback and `X-API-Key` prose.
       Files: `README.md`, `server/README.md` (done 2026-09-28)
-- [~] **Server: MKV playback note in web UI** – note + download fallback implemented: static `#mkv-hint` in the
-      playback modal, `video.onerror` → `#playback-warn` with a "Download this recording" link.
+- [~] **Server: web UI playback note (dual-container aware)** – playback modal shows `#mkv-hint` and,
+      on `video.onerror`, a `#playback-warn` with a "Download this recording" link. Reworded for the
+      dual-container split: new recordings are fragmented MP4 and play inline everywhere; the warning
+      now targets legacy `.mkv` rows and the no-FFmpeg raw-MJPEG snapshot fallback only.
       Server run verified 2026-09-28 (`uvicorn` boots, updated HTML served with all fallback markers;
-      `/api/recordings/{id}/video` returns `video/x-matroska` + `Content-Disposition: attachment; filename=…mkv`
-      for a seeded recording — the exact data path the download link uses).
-      ⚠️ Remaining (needs a real GUI browser + a real capture, not reproducible headless): confirm Chrome/Edge
-      play an H.264 MKV inline and Firefox/Safari fire `onerror` → show the warning.
+      `/api/recordings/{id}/video` maps `.mkv` → `video/x-matroska`, otherwise → `video/mp4` via the
+      existing suffix branch — the new `.mp4` files are served inline).
+      ⚠️ Remaining (needs a real GUI browser + a real capture, not reproducible headless): confirm an
+      inline `<video>` plays the new fMP4 in Chrome/Edge/Firefox/Safari, and that a legacy MKV fires
+      `onerror` → the download/VLC warning.
       File: `server/entry_recorder_server/static/index.html`
 
 # Tier B — Localized one-file changes (small, isolated)
@@ -166,8 +180,8 @@ none of this is verifiable from the build.
       (`ForegroundServiceStartNotAllowedException` regression check).
 
 ## Pipeline note 🔄
-- [ ] After Tier F's color-format change (if/when done): exported H.264 MKV must play in strict
-      players like VLC (test spec) — same gate as the original Phase 0 export validation.
+- [ ] After Tier F's color-format change (if/when done): exported H.264 fragmented MP4 must play in
+      strict players like VLC (test spec) — same gate as the original Phase 0 export validation.
 
 ---
 
@@ -212,6 +226,14 @@ Compact record of everything completed in the former phases, re-verified 2026-09
   `setCommunicationDevice(TYPE_BUILTIN_SPEAKER)` on API 31+ (pre-31 fallback warning intentionally
   visible).
 - **Docs**: README/RtspStreamRecorder MP4→MKV wording fixed.
+- **Dual-container split (2026-09-28)**: phone export transcode emits fragmented MP4 via the new
+  pure-Kotlin `Fmp4StreamMuxer` (`${name}_h264.mp4`); `ExportHelper.mimeFor` maps mp4/m4v → `video/mp4`
+  (dropped the wrong m4v → `video/x-matroska` grouping). Server encoded recording paths (RTSP copy +
+  snapshot libx264) write fragmented MP4 (`+frag_keyframe+empty_moov+default_base_moof`); only the
+  no-FFmpeg raw-JPEG snapshot fallback stays MJPEG-in-MKV. Raw-MJPEG phone capture (`MkvStreamMuxer`)
+  unchanged. `main.py` `/video` maps non-`.mkv` → `video/mp4` (existing suffix logic). Web UI warning
+  reworded for the fMP4 default. Validated headless: `assembleDebug` green + JVM/ffprobe round-trip of
+  the phone muxer (mov,mp4 demuxer, decodable h264); exact server movflags through ffmpeg + ffprobe.
 - ✅ Bug #1 — MJPEG-in-MKV playback (hybrid cheap capture + player + transcode-on-export).
 - ✅ Bug #2 — export MIME/extension derived from actual file.
 - ✅ Bug #8 — SAF export folder + pure Share + Save-to-Gallery.
