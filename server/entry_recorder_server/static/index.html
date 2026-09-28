@@ -409,6 +409,19 @@
             border-radius: 0.5rem;
         }
 
+        .modal-hint {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .playback-warn {
+            border: 1px solid var(--card-border);
+            border-radius: 0.5rem;
+            padding: 1rem 1.25rem;
+            font-size: 0.875rem;
+            line-height: 1.5;
+        }
+
         .form-group {
             display: flex;
             flex-direction: column;
@@ -612,7 +625,17 @@
             </div>
             <div class="modal-body">
                 <video id="video-element" class="video-player" controls autoplay playsinline></video>
+                <div id="playback-warn" class="playback-warn" style="display: none;">
+                    This browser cannot play this Matroska (MKV) recording (Firefox/Safari do not decode MKV in
+                    &lt;video&gt;, and snapshot-mode MJPEG recordings are not playable in any browser).
+                    <div style="margin-top: 0.5rem;">
+                        <a id="playback-download-link" class="btn" href="#" download>⬇️ Download this recording</a>
+                        and open the file in VLC.
+                    </div>
+                </div>
                 <div id="modal-meta" style="font-size: 0.875rem; color: var(--text-muted);"></div>
+                <div id="mkv-hint" class="modal-hint">Recordings are stored as Matroska (MKV). Chrome/Edge play H.264 MKV inline;
+                    if playback fails in this browser, use the ⬇️ Download button on the card and open the file in VLC.</div>
             </div>
         </div>
     </div>
@@ -881,6 +904,18 @@
             `).join('');
         }
 
+        let currentVideoUrl = null;
+
+        function onVideoElementError() {
+            // Playback failed (codec/container not supported or missing file): show the download fallback.
+            const video = document.getElementById('video-element');
+            const warn = document.getElementById('playback-warn');
+            const link = document.getElementById('playback-download-link');
+            if (currentVideoUrl && link) link.href = currentVideoUrl;
+            if (video) video.style.display = 'none';
+            if (warn) warn.style.display = 'block';
+        }
+
         function openPlayerModal(recId) {
             const rec = allRecordings.find(r => r.id === recId);
             if (!rec) return;
@@ -888,14 +923,23 @@
             document.getElementById('modal-title').textContent = `${rec.device_name} - ${rec.event_type}`;
             document.getElementById('modal-meta').textContent = `${formatTimestamp(rec.timestamp)} &bull; ${rec.duration_seconds}s &bull; ${formatBytes(rec.file_size_bytes)}`;
             const video = document.getElementById('video-element');
+            const warn = document.getElementById('playback-warn');
+            currentVideoUrl = rec.video_url;
+            warn.style.display = 'none';
+            video.style.display = 'block';
+            video.onerror = onVideoElementError;
             video.src = rec.video_url;
             document.getElementById('player-modal').classList.add('open');
         }
 
         function closePlayerModal() {
             const video = document.getElementById('video-element');
+            video.onerror = null;
             video.pause();
             video.src = '';
+            video.style.display = 'block';
+            document.getElementById('playback-warn').style.display = 'none';
+            currentVideoUrl = null;
             document.getElementById('player-modal').classList.remove('open');
         }
 
