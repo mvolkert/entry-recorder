@@ -118,20 +118,7 @@ class StreamRecorder:
                 return False
 
             timestamp_str = time.strftime("%Y%m%d_%H%M%S")
-            filename = f"REC_{device_id}_{event_type.value}_{timestamp_str}.mkv"
-            output_file = settings.recordings_dir / filename
             start_time_ms = int(time.time() * 1000)
-
-            job = ActiveJob(
-                device_id=device_id,
-                device_name=device_name,
-                event_type=event_type,
-                max_duration_seconds=duration_seconds,
-                start_time_ms=start_time_ms,
-                output_file=output_file,
-                username=username,
-                password=password
-            )
 
             # Check if ffmpeg is available
             ffmpeg_bin = shutil.which(settings.FFMPEG_PATH) or os.path.isfile(settings.FFMPEG_PATH)
@@ -158,6 +145,25 @@ class StreamRecorder:
                     use_snapshot = True
                 else:
                     return False
+
+            # Dual-container split: encoded paths (RTSP H.264 copy, snapshot libx264) emit
+            # fragmented MP4 for universal playback; the no-ffmpeg raw-JPEG snapshot fallback
+            # stays a crash-resilient MJPEG-in-MKV dump.
+            encoded = (not use_snapshot) or bool(ffmpeg_bin)
+            ext = "mp4" if encoded else "mkv"
+            filename = f"REC_{device_id}_{event_type.value}_{timestamp_str}.{ext}"
+            output_file = settings.recordings_dir / filename
+
+            job = ActiveJob(
+                device_id=device_id,
+                device_name=device_name,
+                event_type=event_type,
+                max_duration_seconds=duration_seconds,
+                start_time_ms=start_time_ms,
+                output_file=output_file,
+                username=username,
+                password=password
+            )
 
             if use_snapshot:
                 task = asyncio.create_task(
@@ -202,7 +208,8 @@ class StreamRecorder:
             "-t", str(duration_sec),
             "-c:v", "copy",
             "-c:a", "aac",
-            "-f", "matroska",
+            "-f", "mp4",
+            "-movflags", "+frag_keyframe+empty_moov+default_base_moof",
             str(job.output_file)
         ]
         try:
@@ -253,7 +260,7 @@ class StreamRecorder:
         ffmpeg_bin = shutil.which(settings.FFMPEG_PATH) or os.path.isfile(settings.FFMPEG_PATH)
 
         if ffmpeg_bin:
-            # Encode incoming snapshots directly to H.264 MKV via FFmpeg image2pipe
+            # Encode incoming snapshots directly to H.264 fragmented MP4 via FFmpeg image2pipe
             cmd = [
                 settings.FFMPEG_PATH,
                 "-y",
@@ -263,7 +270,8 @@ class StreamRecorder:
                 "-i", "pipe:0",
                 "-c:v", "libx264",
                 "-pix_fmt", "yuv420p",
-                "-f", "matroska",
+                "-f", "mp4",
+                "-movflags", "+frag_keyframe+empty_moov+default_base_moof",
                 str(job.output_file)
             ]
             try:
