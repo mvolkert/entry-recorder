@@ -90,6 +90,18 @@
             </intent-filter>
         </receiver>
 
+        <!-- Export trigger for external automation (Tasker / adb). Exported by design so other
+             apps can fire the custom action; it only enqueues a background export to the user's
+             already-configured SAF folder and returns no data to the caller. -->
+        <receiver
+            android:name=".receiver.ExportTriggerReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="io.github.mvolkert.entryrecorder.action.EXPORT_RECORDINGS" />
+            </intent-filter>
+        </receiver>
+
         <!-- File Provider for Video Sharing/Export -->
         <provider
             android:name="androidx.core.content.FileProvider"

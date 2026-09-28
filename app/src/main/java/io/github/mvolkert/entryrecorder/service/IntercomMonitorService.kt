@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
@@ -305,10 +306,16 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             }
 
             val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
-            wifiLock = wifiManager.createWifiLock(
-                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
-                "EntryRecorder::MonitorWifiLock"
-            ).apply {
+            wifiLock = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // API 29+ exposes a tag-only factory; the int-mode overload is deprecated.
+                wifiManager.createWifiLock("EntryRecorder::MonitorWifiLock")
+            } else {
+                @Suppress("DEPRECATION") // Owner-approved legacy branch: pre-Q has no tag-only WifiLock API.
+                wifiManager.createWifiLock(
+                    WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                    "EntryRecorder::MonitorWifiLock"
+                )
+            }.apply {
                 acquire()
             }
         } catch (e: Exception) {

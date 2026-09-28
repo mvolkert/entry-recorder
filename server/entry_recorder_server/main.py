@@ -1,6 +1,7 @@
 import os
 import shutil
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional, List
@@ -42,15 +43,39 @@ from .live import stream_mjpeg, stream_mjpeg_snapshot, MJPEG_CONTENT_TYPE
 
 logger = logging.getLogger(__name__)
 
+def _api_key_file() -> Path:
+    return settings.DATA_DIR / ".api_key"
+
+def ensure_api_key() -> None:
+    """Make auth mandatory: guarantee settings.API_KEY is non-empty.
+
+    A key configured via .env wins. Otherwise a key is read from DATA_DIR/.api_key (so it stays
+    stable across restarts) or generated once and persisted there. The key is logged so the operator
+    can enter it into the app Settings and the web UI.
+    """
+    if settings.API_KEY:
+        return
+    key_file = _api_key_file()
+    if key_file.exists():
+        stored = key_file.read_text(encoding="utf-8").strip()
+        if stored:
+            settings.API_KEY = stored
+            logger.info("Loaded persisted API_KEY from %s", key_file)
+            return
+    generated = secrets.token_urlsafe(32)
+    key_file.write_text(generated, encoding="utf-8")
+    settings.API_KEY = generated
+    logger.warning(
+        "No API_KEY configured. Generated one and saved it to %s: %s\n"
+        "Enter this value in the app Settings and the web UI to authenticate.",
+        key_file, generated,
+    )
+
 # Initialize database on startup (FastAPI lifespan replaces the deprecated @app.on_event)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    if not settings.API_KEY:
-        logger.warning(
-            "API_KEY is not set: all endpoints (including device credentials, media and live "
-            "streams) are UNAUTHENTICATED. Set API_KEY in .env to enable access control."
-        )
+    ensure_api_key()
     yield
 
 app = FastAPI(
@@ -72,19 +97,20 @@ app.add_middleware(
 # API Key security.
 # The key may be supplied either via the X-API-Key header (APIs) or an `api_key` query
 # parameter so that media endpoints loaded directly by <img>/<video> tags in the web UI can
-# authenticate. When no API_KEY is configured the check stays permissive (self-hosted LAN use).
+# authenticate. Auth is mandatory: ensure_api_key() guarantees settings.API_KEY is set at startup.
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 def verify_api_key(
     key: Optional[str] = Security(api_key_header),
     api_key: Optional[str] = Query(None),
 ):
-    if settings.API_KEY and (key or api_key) != settings.API_KEY:
+    provided = key or api_key
+    if not settings.API_KEY or provided != settings.API_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API key"
         )
-    return key or api_key
+    return provided
 
 # Serve static web UI
 static_dir = Path(__file__).parent / "static"
