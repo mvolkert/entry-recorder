@@ -1,9 +1,16 @@
 # EntryRecorder – Implementation Phases
 
+
+## To Check
+- Web UI mkv will probably not work maybe webm?
+
 Reorganized from the code & feature review, re-verified against the current codebase
-(`app/`, `server/`, `.github/`) on 2026-09-27.
+(`app/`, `server/`, `.github/`) on 2026-09-27; **task list re-sorted by invasiveness (minimal →
+architectural) on 2026-09-28**, so small changes get done first and big ones later.
+Phase labels are kept on each item for traceability to the original plan.
 
 Legend: `[x]` implemented · `[~]` partially implemented / needs validation · `[ ]` missing
+     🔄 pending on-device validation · 🔭 long-term / not scheduled
 
 ---
 
@@ -18,229 +25,132 @@ Legend: `[x]` implemented · `[~]` partially implemented / needs validation · `
 - Capture location stays a forward-only local `FileOutputStream` in `filesDir/recordings`;
   playable output belongs in SAF only via export/transcode-on-demand. **(WON'T DO: SAF live capture)**
 
----
-
-##  Phase UI Quality
-- [x] UI keeps Stale most obvious in @LiveCameraScreen.kt — fixed via observable state:
-      `RtspStreamRecorder.activeDeviceIds` StateFlow (published at every recording start/stop) + new
-      `LiveViewModel` replacing the non-observable `isDeviceRecording` lambda; Settings storage now
-      combines the recordings flow. `activeDeviceIds` is also the hook for the future per-camera
-      REC/motion status badge idea below.
-- [x] Multi Select for export Recording — selection mode now also exports: Share / Save to Gallery /
-      Export to Folder, reusing the lazy transcode-on-export policy with a "k of n" progress dialog
-      (`RecordingsScreen.runBatchExport`, `ExportHelper.shareFiles` + silent `saveFileToGallery`).
-- [x] Update App Icon to M3 compliance and better surveillance camera — hand-authored CCTV bullet-camera
-      adaptive icon (`ic_launcher_cctv`/`ic_launcher_foreground`) with monochrome layer for themed icons,
-      dark #0B141A background; manifest no longer points at `@android:drawable/ic_menu_camera`.
-- [x] Update App Splash screen to be dark — black `windowBackground` (pre-12) + `values-v31`
-      `windowSplashScreenBackground`/`windowSplashScreenAnimatedIcon` with the CCTV mark. Files:
-      `res/values/themes.xml`, `res/values-v31/themes.xml`, `res/drawable/ic_splash_icon.xml`
-- [x] Monitor Button maybe, Monitoring seems to go active after a minute of the app running and it only shows a notification. maybe a motion icon next to the record button to show status of each camera
-      — `MonitorStatusHolder` StateFlow (written only by `IntercomMonitorService`) drives a fixed 12dp dot
-      next to the record button: grey = not monitored (yet), teal = monitoring, amber = motion.
-      Files: `service/MonitorStatusHolder.kt`, `data/model/Enums.kt`, `ui/live/LiveViewModel.kt`, `ui/live/LiveCamerasScreen.kt`
- 
-## To Check
-- [x] is motion detection global or could it be set per device?
-
-  
-## Features
-- [x] Recording finishes → copy the complete file to the exposed folder as a one-shot event
-- [] broadcast intent to trigger export
-
-
-## UX
-- [] Tab swiping
-
-## UI
-- M3 Expressive Motion
-- Pickable Accent Colors primary, secondary, tertiary all the same palette
-
-##  Phase 0 — Validate the hybrid playback/export pipeline on a real device ✅ (validated 2026-09-27)
-Everything already shipped (Bug #1 hybrid + #8 SAF export) is device-dependent and unverifiable from CI.
-Do this first — it gates Phase 4 (server MKV) and de-risks everything else.
-
-- [x] In-app player: `JpegFramePlayer` + `MjpegMkvReader` (EBML parsing, offset index, scrubbing) on a real device.
-- [x] Export: `ExportTranscoder` → `H264Encoder` + `MkvStreamMuxer` `avcC`/AVCC framing;
-      **re-export and confirm VLC plays** the previously black-screen recordings (AVCC length-prefix fix).
-- [x] SAF export folder: grant persistence across reboots, overwrite-by-name behavior,
-      both `_h264.mkv` + raw MKV appear and play in the chosen folder.
-- [x] Room migrations v4→v5 (`transcodeOnExport`) and v5→v6 (`exportFolderUri`) run cleanly over real data.
-- [x] Room migration v6→v7 (`autoExportOnFinalize`) runs cleanly over real data + auto-export mirror verified
-      (finish a recording with the toggle on → original MKV appears in the export folder).
-
-**Done so far (freeze, don't rebuild):** capture stays JPEG-in-MKV no re-encode · thumbnails from
-first captured JPEG · in-app `JpegFramePlayer` routing in `VideoPlayerModal` · transcode-on-export +
-settings toggle · VLC/AVCC fix · export MIME `video/x-matroska` (Bug #2 ✅) · Share/export split with
-SAF folder (Bug #8 ✅).
-
-Files: `video/MjpegMkvReader.kt`, `ui/components/JpegFramePlayer.kt`, `ui/components/VideoPlayerModal.kt`,
-`video/ExportTranscoder.kt`, `video/MkvStreamMuxer.kt`, `util/ExportHelper.kt`, `data/local/AppDatabase.kt`
+## Working convention
+Done work (all of former Phases 0–5, the finished parts of 6–7) is frozen — compacted into the
+**Resolved log**. Only **open** items are listed below, sorted from one-line/config changes to
+multi-module architectural refactors.
 
 ---
 
-## Phase 1 — Data-loss & correctness hotfixes (small, isolated)
-Silent data loss and dead UI come first — cheap fixes, immediate user impact.
+# Tier A — Trivial / config-level (minimal invasive)
+Single-file, non-behavioral or config-only changes.
 
-- [x] **Bug #4 – Device edit resets un-shown fields.** `DeviceEditDialog` rebuilds a full `DeviceEntity`
-      on save but omits `useHttps`, `httpsPort`, `ringRecordSeconds`, `motionPostRecordSeconds`,
-      `noisePostRecordSeconds`, `isEnabled` → each edit silently reverts them. Start from
-      `initialDevice` and copy-over only edited fields. File: `ui/settings/DeviceEditDialog.kt:392-417`
-- [x] **Bug #5 – Dead settings.** `wakeOnRing`/`vibrateOnRing`/`soundOnRing` are toggled in
-      `SettingsScreen` but never read by `IntercomMonitorService` (doorbell always wakes/rings) —
-      wire them into the DoorbellRung path or remove the toggles.
-      `maxStorageUsageMb` is used by the worker but has **no UI** despite README "configurable storage quota" → add one.
-      Files: `service/IntercomMonitorService.kt`, `ui/settings/SettingsScreen.kt`
-- [x] **Bug #7 – Notification-ID collisions.** Verified still present: `NOTIFICATION_ID_DOORBELL(1002)
-      + device.id`, `MOTION(1003) + id`, `NOISE(1004) + id` overlap across channels for different devices
-      (doorbell id=2 → 1004 == motion id=1 → 1004); `.toInt()` on a `Long` id can wrap.
-      Use a dedicated ID space per event type. File: `notification/NotificationHelper.kt:142,170,198`
-- [~] **Server: unconditional auth.** `verify_api_key` is a no-op when `API_KEY` is empty (`.env` ships none),
-      and `/api/recordings/{id}/video`, `/thumbnail`, `/api/live/{id}/mjpeg` have **no auth dependency at all**
-      (verified). Require a key (generate default on first run) and protect the media/live endpoints.
-      File: `server/entry_recorder_server/main.py:59-65,196-222`
-- [x] **Room: remove destructive fallback risk.** Verify `fallbackToDestructiveMigration` no longer active /
-      real migrations for every version bump — a v-bump must never wipe the recordings index.
-      File: `data/local/AppDatabase.kt`
+- [x] **Docs: README server-API example** – payload example now mirrors the real `StartServerRecordingPayload`
+      (`source_mode: "auto"`, `snapshot_url`, `note`) + credential-fallback and `X-API-Key` prose.
+      Files: `README.md`, `server/README.md` (done 2026-09-28)
+- [~] **Server: MKV playback note in web UI** – note + download fallback implemented: static `#mkv-hint` in the
+      playback modal, `video.onerror` → `#playback-warn` with a "Download this recording" link.
+      Server run verified 2026-09-28 (`uvicorn` boots, updated HTML served with all fallback markers;
+      `/api/recordings/{id}/video` returns `video/x-matroska` + `Content-Disposition: attachment; filename=…mkv`
+      for a seeded recording — the exact data path the download link uses).
+      ⚠️ Remaining (needs a real GUI browser + a real capture, not reproducible headless): confirm Chrome/Edge
+      play an H.264 MKV inline and Firefox/Safari fire `onerror` → show the warning.
+      File: `server/entry_recorder_server/static/index.html`
 
----
+# Tier B — Localized one-file changes (small, isolated)
+Confined to a single file/module; no cross-layer design decisions.
 
-## Phase 2 — Service reliability (foreground service & SIP)
-Make the 24/7 monitoring actually survive reboots and multi-device use.
+- [~] **Server: make auth mandatory** (former Phase 1) – auth deps now exist on **all** endpoints
+      incl. `/video`, `/thumbnail`, `/api/live/{id}/mjpeg` (re-verified 2026-09-28, more done than
+      previously claimed). Remaining: `verify_api_key` is still a no-op when `API_KEY` is empty
+      (`.env` ships none; startup only logs a warning) → require a key, generate a default on first run.
+      File: `server/entry_recorder_server/main.py:78-87`, `server/entry_recorder_server/config.py:61`
+- [ ] **Broadcast intent to trigger export** (former Features) – no `sendBroadcast`/export action
+      exists in the app today (verified). New exported action handled in a receiver → reuse
+      `ExportTranscoder`/`ExportHelper` on the latest/all finalized recordings; enables external
+      automation (Tasker etc.).
+      Files: new receiver + `AndroidManifest.xml`, hook into finalize path in `video/RtspStreamRecorder.kt`
+- [ ] **WifiLock SDK-version branch** (former Lint debt, safe part) – branch on
+      `Build.VERSION.SDK_INT >= Q (29)` → non-deprecated tag-only `createWifiLock("EntryRecorder::MonitorWifiLock")`;
+      pre-29 fallback keeps `WIFI_MODE_FULL_HIGH_PERF` with a single-line scoped `@Suppress("DEPRECATION")`
+      (owner-approved for that legacy branch only). Build green suffices for the modern path;
+      ring-poll latency check on device is covered in Tier G.
+      File: `service/IntercomMonitorService.kt:309` (`acquireWakeAndWifiLocks()`)
 
-- [x] **Bug #6 – FGS start blocked on Android 12+/14.** `BootReceiver`/background paths start the FGS with
-      `connectedDevice|phoneCall`; a `phoneCall`-type FGS from a BOOT broadcast is restricted →
-      `ForegroundServiceStartNotAllowedException`, autostart silently fails. `FOREGROUND_SERVICE_MEDIA_PLAYBACK`
-      permission is declared but the type unused. Rework the start path (e.g., `connectedDevice` for monitoring,
-      proper exceptions/exempted boot handling). Files: `AndroidManifest.xml:73-88`, `receiver/BootReceiver.kt`,
-      `service/IntercomMonitorService.kt:314-322`
-- [~] **Server-mode stop reconciliation.** Auto-stop uses a fixed `maxDurationSeconds+2` local timer with no
-      reconciliation of the actual server job; the app holds no server recording id, so stop/status can drift.
-      Return/persist the server recording id and reconcile via `/api/recordings/{id}`. File: `video/RtspStreamRecorder.kt:69-79`
-- [~] **SIP per-device cores.** (DEFERRED — owner chose to revisit with real device/PBX; large unverifiable refactor) One global Linphone core reconfigured per device in `updateMonitoredDevices` —
-      with multiple devices the last one wins; P2P vs PBX cannot coexist. File: `sip/SipCallManager.kt`
-- [~] **Replace global `UncaughtExceptionHandler`** that swallows Media3 RTSP NPEs — masks real crashes and can
-      leave the player broken; handle at the player error callback instead. File: `EntryRecorderApp.kt:63-79`
-- [x] **Digest auth robustness.** `parseDigestParams` splits on `,` (breaks on commas in `realm`/`nonce`),
-      MD5-only, gives up after one `Authorization` attempt. File: `data/device/TwoNIPVersoDevice.kt:320-332`
+# Tier C — Medium UI features (single-purpose, multi-file)
+Behavioral but self-contained UI work.
 
----
+- [ ] **Tab swiping** (former UX) – add a pager (e.g. `HorizontalPager`; none exists in the app
+      today, verified) to the Live/Recordings/Settings navigation in `ui/MainActivity.kt`, keeping
+      per-screen state. Medium size, but a behavior change of main navigation → test all three tabs
+      after wiring.
+- [ ] **Pickable accent colors** (former UI) – primary/secondary/tertiary currently one palette;
+      offer selectable seeds via a theme overlay applied from Settings. Contained to the theming
+      layer, but the Settings persistence + picker UI is a few files.
 
-## Phase 3 — Settings & device UI completion
-Close the "claimed but not editable" gaps once the data layer is safe (Phase 1 #4).
+# Tier D — Larger UI / cross-cutting features
+Multiple screens or cross-cutting behavior; design worth confirming before building.
 
-- [x] **HTTPS fields UI** – `useHttps`/`httpsPort` exist in `DeviceEntity` but no inputs in `DeviceEditDialog`.
-- [x] **Per-event recording durations UI** – `ringRecordSeconds`, `motionPostRecordSeconds`,
-      `noisePostRecordSeconds` exist but are not editable.
-- [x] **Generic RTSP/ONVIF device type unreachable** – `DeviceEditDialog` keeps `deviceType` in state
-      (line 40) but renders **no selector**; it always stays `TWO_N_VERSO`, so `GenericRtspDevice` is dead code.
-      Add a device-type picker.
-- [x] **Generic device events** – `GenericRtspDevice.startMonitoring()` emits no events (only "RTSP Ready") →
-      generic cams support manual recording only, no motion/ring auto-record. Decide: implement snapshot-based
-      motion events vs document the limitation. File: `data/device/GenericRtspDevice.kt:36-39`
-- [~] **Default server URL** – `AppSettingsEntity.serverBaseUrl` hard-codes LAN IP `http://192.168.1.100:8000`;
-      default empty with an explicit "Set up server" flow. (SKIPPED: the field is already editable in Settings, and
-      changing the entity default alters Room's generated schema and fails v6 schema validation on existing installs
-      — needs a full table-rebuild migration for a cosmetic value. Revisit if a settings schema migration is done anyway.)
-
----
-
-## Phase 4 — Server recordings in the app + MKV-everywhere
-The largest feature work; depends on Phase 0 validation (server output format) and Phase 2 (id handling).
-
-- [~] **Bug #3 – Surface server recordings in the app.** Data-layer foundation added: `ServerRecordingClient.listRecordings()`
-      + `ServerRecordingDto` (server-relative `/video` & `/thumbnail` URLs). Remaining: a unified/bridged gallery that
-      renders network thumbnails + streams remote playback needs a UI-model abstraction over the Room-only
-      `RecordingEntity` list (architectural change; confirm design before building).
+- [ ] **M3 Expressive Motion** (former UI) – spring specs/motion tokens across screens; touches
+      every screen's animation behavior without changing logic.
+- [ ] **Live view through the server** (former Phase 4) – consume `/api/live/{id}/mjpeg` in
+      `LiveCamerasScreen` (`LiveStreamPlayer`). Depends on server auth (Tier B) and is blocked for
+      app-managed cameras by the sync gap (Tier F) — works today only for server-UI-created devices.
+- [ ] **Surface server recordings in the app** (former Phase 4, Bug #3) – data layer done
+      (`ServerRecordingClient.listRecordings()` + `ServerRecordingDto`, server-relative URLs).
+      Remaining is architectural: a UI-model abstraction over the Room-only `RecordingEntity` list
+      for network thumbnails + remote playback. **Confirm design before building.**
       Files: `data/server/ServerRecordingClient.kt`, `ui/recordings/RecordingsViewModel.kt`, `ui/recordings/RecordingsScreen.kt`
-- [ ] **Live view through the server** (`/api/live/{id}/mjpeg`) in `LiveCamerasScreen`.
-- [x] **Server: MP4 → MKV.** `recorder.py` now writes `.mkv` (`-f matroska`, MP4 `+faststart` removed) for both
-      FFmpeg RTSP copy and snapshot/libx264 paths; `/video` derives `video/x-matroska`. ⚠️ Verify the web `index.html`
-      HTML5 `<video>` plays MKV in target browsers (some browsers won't); may need an in-page transcode/download note.
-- [ ] **Server ↔ app device sync.** Server `devices` table and app devices are independent; the app never
-      registers devices on the server, so `/api/live/{id}/mjpeg` only works for server-UI-created devices.
-- [x] **Server cleanup order.** `cleanup_recordings` now deletes files first and only removes the DB row when file
-      deletion succeeded (failed deletions keep the row so nothing is orphaned); same ordering applied to `delete_recording`.
-- [x] **Server: lifespan handler** – replaced deprecated `@app.on_event("startup")` with an `@asynccontextmanager` lifespan.
-- [~] **Docs/API payload parity** – app `StartServerRecordingPayload` now sends `source_mode` ("auto") and `note`,
-      matching the server model. `server/README.md` example update folded into the Docs section.
-- 🔭 Long-term: **RTSP H.264 passthrough** (demux→re-mux, zero re-encode/CPU) for stream-capable cameras.
+
+# Tier E — Service & data-layer refactors (larger blast radius)
+Touch the 24/7 monitoring/recording lifecycle or the capture pipeline.
+
+- [~] **Server-mode stop reconciliation** (former Phase 2) – auto-stop uses a fixed
+      `maxDurationSeconds+2` local timer with no reconciliation of the actual server job; the app
+      holds no server recording id, so stop/status can drift. Return/persist the server recording
+      id and reconcile via `/api/recordings/{id}` (also needs the server to return an id from start).
+      File: `video/RtspStreamRecorder.kt:69-79`
+- [ ] **Server ↔ app device sync** (former Phase 4) – server `devices` table and app devices are
+      independent; the app never registers devices on the server, so `/api/live/{id}/mjpeg` only
+      works for server-UI-created devices. New sync API + pairing flow + conflict handling.
+      Files: `data/server/ServerRecordingClient.kt`, `server/entry_recorder_server/main.py`
+- 🔭 Long-term: **RTSP H.264 passthrough** (demux→re-mux, zero re-encode/CPU) for stream-capable
+      cameras — capture-pipeline rewrite, only for future RTSP-only devices.
+
+# Tier F — Heavy / device-unverifiable refactorings (deferred backlog)
+Large, risky, or impossible to validate from CI; each needs a real device/PBX pass. Kept deferred
+per owner decisions — do NOT start these before Tiers A–E and the Tier G validation are done.
+
+- [ ] **MediaCodec color-format selection** (former Lint debt) – stop hardcoding deprecated
+      `COLOR_FormatYUV420Planar`; read `getCapabilitiesForType(MIMETYPE_VIDEO_AVC).colorFormats`,
+      prefer NV12 (`COLOR_FormatYUV420SemiPlanar`) → planar → flexible; replace `bitmapToI420()`
+      with a writer for the SELECTED layout; honor `COLOR_FORMAT_STRIDE`/`SLICE_HEIGHT` when packing
+      (even width/height for 4:2:0).
+      ⚠️ DEVICE GATE (test spec): re-export and verify the H.264 MKV still plays in strict players
+      like VLC before marking done. File: `video/H264Encoder.kt:78`
+- [ ] **Linphone `ProxyConfig` → `Account` API migration** (+ `createProxyConfig/edit/done/
+      addProxyConfig/defaultProxyConfig/clearProxyConfig`, `setDebugMode`) – large SIP refactor;
+      ties into the per-device-cores decision below. File: `sip/SipCallManager.kt`
+- [~] **SIP per-device cores** (former Phase 2, DEFERRED — owner: revisit with real device/PBX) –
+      one global Linphone core reconfigured per device in `updateMonitoredDevices`; with multiple
+      devices the last one wins; P2P vs PBX cannot coexist. File: `sip/SipCallManager.kt`
+- [~] **Always-on wake/wifi locks** (former Phase 6, DEFERRED — owner: dedicated, detection-first
+      device; never missing a ring beats battery) – `PARTIAL_WAKE_LOCK` (24h) + high-perf `WifiLock`
+      held continuously; keep locks only during active recording/ring, not idle monitoring.
+      File: `service/IntercomMonitorService.kt:265-285`
+- [~] **Credential storage** (former Phase 6, DEFERRED) – device HTTP passwords, SIP passwords,
+      server API key stored plaintext in Room → Keystore-backed Room TypeConverter + migration
+      (large, device-unverifiable; dedicated security pass).
+- [~] **Network transport** (former Phase 6, DEFERRED) – `network_security_config` permits global
+      cleartext + trusts user CAs (MITM risk) → scope cleartext to local subnet, drop user-CA trust.
+      ⚠️ Dropping user CAs breaks self-signed HTTPS on 2N devices; only after the auth work (Tier B)
+      makes the server HTTPS-first.
+- [~] **Credential leakage in RTSP URLs** (former Phase 6) – `rtsp://user:pass@host` embedded URLs
+      get logged/persisted by external libs. No app-side log statement emits this URL today
+      (verified); Media3/ffmpeg logging is outside our control — effectively **wont-fix** unless
+      auth-via-header on `GenericRtspDevice` is implemented with an RTSP-only device.
+- [ ] **Linphone ABI coverage** (former Phase 7, DEFERRED) – only `jni/arm64-v8a/liblinphone.so`
+      committed, `jni/` isn't wired into `sourceSets`/`jniLibs.srcDir` so packaging behavior is
+      unclear; blind `abiFilters` could exclude devices. Needs a release-bundle ABI inspection first.
 
 ---
 
-## Phase 5 — Gallery UX & feature requests
-User-facing extras, independent of the pipeline work.
+# Tier G — On-device validation gates (no code, but blocks marking things done)
+Compile-green ≠ done; run these on the owner's real hardware before closing the related tiers.
 
-- [x] **Bulk / multi-select delete** ("Löschen mehrerer Aufnahmen") — single delete only today.
-- [x] **Device filter chips + `MANUAL` filter chip** in `RecordingsScreen` (ViewModel already supports `deviceId`;
-      only 4 chips exist today).
-- [x] **Exit button in the expanded foreground notification** to stop monitoring
-      (`NotificationHelper.buildServiceNotification` has no stop action).
-- [x] **Backup function** – export/import all settings (devices + app settings) to a user file.
-- [x] **Auto-Export finished recordings** (merges the "raw MKV export noise" question with the exposed-folder idea):
-      opt-in `autoExportOnFinalize` mirrors each finalized local MJPEG MKV into the SAF export folder right after
-      capture (complete, sync-friendly lossless archive; never mid-write). Folder export (single & bulk) now writes
-      ONE file per recording — H.264 when transcoding, else original — resolving #1 by subtraction.
-      Files: `AppSettingsEntity.kt`, `AppDatabase.kt` (v6→v7), `video/RtspStreamRecorder.kt`, `SettingsScreen.kt`, `RecordingsScreen.kt`
-
----
-
-## Phase 6 — Battery, performance & security hardening
-Ongoing-cost items; heaviest design work, tackle after features are stable.
-
-- [~] **Always-on wake/wifi locks.** Verified: `PARTIAL_WAKE_LOCK` (24h) + `WIFI_MODE_FULL_HIGH_PERF`
-      `WifiLock` acquired at service start and held continuously → heavy battery drain (this is the answer to
-      the standing "Active writing on disk 24/7?" note — it's the locks, not disk I/O).
-      Keep locks only during active recording/ring, not idle monitoring. File: `service/IntercomMonitorService.kt:265-285`
-      **(DEFERRED — owner: app runs on a dedicated, detection-first device; battery is secondary to never missing a ring. Revisit as a later optimization.)**
-- [x] **MjpegStreamReader efficiency.** Reads one byte at a time and calls `runBlocking` per frame inside a
-      coroutine collector → inefficient, can block the dispatcher. Now buffered chunk reads + direct suspend `onFrame`. File: `data/network/MjpegStreamReader.kt:119-153`
-- [x] **Motion-analyzer polling.** `OnDeviceMotionAnalyzer` polls a snapshot every 500ms per device indefinitely
-      while monitoring — added adaptive idle backoff (500ms→1500ms) that snaps straight back to the fast interval on any pixel change, so detection latency is unchanged.
-- [~] **Credential storage.** Device HTTP passwords, SIP passwords, server API key stored **plaintext** in Room;
-      migrate to EncryptedSharedPreferences / Keystore-backed encryption.
-      **(DEFERRED — owner: Keystore-backed Room TypeConverter + migration is a large, device-unverifiable change; revisit in a dedicated security pass.)**
-- [~] **Network transport.** `network_security_config` permits global cleartext **and trusts user CAs** (MITM risk) —
-      scope cleartext to local subnet only, drop user-CA trust.
-      **(DEFERRED — owner: dropping user-CA trust would break self-signed HTTPS on 2N devices; revisit as a security optimization.)**
-- [~] **Credential leakage in RTSP URLs.** `rtsp://user:pass@host` embedded URLs get logged/persisted —
-      redact in logs, auth via header where possible. File: `DeviceEntity.rtspStreamUrl`
-      **(No app-side log statement emits this URL today; Media3/ffmpeg logging is outside our control — left as-is.)**
-- [x] **Server: stop returning credentials.** `GET /api/devices` no longer returns the password; the web edit form
-      treats a blank password as "keep existing" and `/api/recordings/start` falls back to server-stored credentials.
-      File: `server/entry_recorder_server/main.py:265+`, `static/index.html`
-
----
-
-## Phase 7 — Build, CI & platform hygiene
-Do at a natural break; some items (targetSdk) are hard requirements for Play uploads.
-
-- [~] **`targetSdk` 34 → 37 + edge-to-edge migration** — DONE (build green): bumped `targetSdk` to 37 and
-      `tools:targetApi` in the manifest; added `enableEdgeToEdge()` to `MainActivity`/`IncomingCallActivity`;
-      outer `Scaffold` set inset-free (`contentWindowInsets = WindowInsets(0)`) with per-screen nested `Scaffold`s
-      also inset-free to avoid double-counting; `RecordingsScreen` custom `Column` top bar gets explicit
-      `windowInsetsPadding(statusBars)`; `IncomingCallActivity` overlays now use `statusBars`/`navigationBars`
-      instead of hardcoded `40dp`/`32dp`. Motion/noise intentionally kept as high-priority heads-up
-      notifications (no full-screen alarm); doorbell keeps its full-screen intent. Service `startActivity`
-      noted as best-effort under targetSdk 36+ background-activity-launch rules.
-      Files: `app/build.gradle.kts`, `AndroidManifest.xml`, `ui/MainActivity.kt`,
-      `ui/live/LiveCamerasScreen.kt`, `ui/recordings/RecordingsScreen.kt`, `ui/settings/SettingsScreen.kt`,
-      `ui/incoming/IncomingCallActivity.kt`, `service/IntercomMonitorService.kt`.
-      **Remaining:** the behavior changes below are device-dependent and unverifiable from CI → see
-      "On-device validation — targetSdk 37 / edge-to-edge".
-- [x] **`googleplay.yml` builds on `main`** but active development is on `dev`; Play upload uses `track: beta` —
-      kept `push: main` as the release gate and added a `workflow_dispatch` trigger with a selectable track, so a dev/other-branch release can be published manually without auto-publishing every dev push.
-- [x] **`python-server.yml` `on.push.branches: [none]`** effectively disabled push builds (only tags/PR/manual);
-      README claims "automatically built on GitHub Actions" — enabled push on `main` + `dev` (release publishing stays tag/dispatch-gated). `.github/workflows/python-server.yml:4-6`
-- [~] **Linphone ABI coverage.** Only `jni/arm64-v8a/liblinphone.so` committed, no `abiFilters`/packaging config —
-      non-arm64 devices/emulators depend entirely on the Maven artifact providing other ABIs.
-      **(DEFERRED — the top-level `jni/` dir isn't wired into a `sourceSets`/`jniLibs.srcDir`, so its packaging is unclear; adding `abiFilters` blindly could exclude devices or is unverifiable here. Needs a release-bundle ABI inspection first.)**
-
----
-
-## On-device validation — targetSdk 37 / edge-to-edge 🔄 (pending, needs an Android 15/16 device)
+## targetSdk 37 / edge-to-edge 🔄 (needs an Android 15/16 device)
 The 34→37 bump forces edge-to-edge (Android 15) and tightens background-activity-launch (Android 16);
-none of this is verifiable from the build. Run each on a real Android 15/16 device before shipping.
+none of this is verifiable from the build.
 
 - [x] Compiles & installs with `targetSdk 37` (assembleDebug green).
 - [ ] Edge-to-edge layout: status bar no longer overlaps the top of Live / Recordings / Settings; nav bar
@@ -255,43 +165,54 @@ none of this is verifiable from the build. Run each on a real Android 15/16 devi
 - [ ] Reboot → `BootReceiver` autostart of the `connectedDevice` foreground service still succeeds
       (`ForegroundServiceStartNotAllowedException` regression check).
 
----
-
-## Lint & deprecation debt — post targetSdk 37 cleanup 🔄
-Deprecations surfaced by the compiler/IDE after the targetSdk 37 bump. Policy: fix them properly, **no
-`@Suppress`** (a suppression hides the signal and gets forgotten). Anything that changes runtime behavior
-in a way we can't validate from CI stays listed here until a real-device pass.
-
-**Safe fixes (no device-dependent behavior change):**
-- [x] `SipCallManager` static-field holds `Context` (StaticFieldLeak) → hold `Application` instead; the
-      singleton already only ever gets `applicationContext`. File: `sip/SipCallManager.kt:30,234`
-- [x] `H264Encoder.drainOutputs` uses deprecated `MediaCodec.BUFFER_FLAG_SYNC_FRAME` for keyframe detection
-      → drop it and rely on the existing `containsIdr(bytes)` (already OR-ed in today). File: `video/H264Encoder.kt:175`
-- [x] `AudioManager.isSpeakerphoneOn` deprecated (API 31) → migrated to `setCommunicationDevice(TYPE_BUILTIN_SPEAKER)`
-      on API 31+ (`clearCommunicationDevice()` for off). Pre-31 fallback still uses `isSpeakerphoneOn` and its
-      deprecation warning is **intentionally left visible** (only speaker API below 31 while minSdk = 26); fully
-      clearing it requires raising `minSdk` to 31. File: `sip/SipCallManager.kt:routeAudioToSpeaker`
-
-**Deferred (device-unverifiable / large — need a real 2N device / PBX before touching):**
-- [ ] `WifiManager.WIFI_MODE_FULL_HIGH_PERF` — no non-deprecated int constant below API 29; plan the
-      `createWifiLock(tag)` (API 29+) branch + legacy path. File: `service/IntercomMonitorService.kt:309`
-- [ ] `MediaCodecInfo...COLOR_FormatYUV420Planar` → SemiPlanar/model format changes the encoder input path;
-      MUST re-validate the exported H.264 MKV still plays in VLC (see test spec). File: `video/H264Encoder.kt:78`
-- [ ] Linphone `ProxyConfig` → `Account` API migration (+ `createProxyConfig/edit/done/addProxyConfig/` 
-      `defaultProxyConfig/clearProxyConfig`, `setDebugMode`) — large SIP refactor, ties into Phase 2
-      per-device-cores decision. File: `sip/SipCallManager.kt`
+## Pipeline note 🔄
+- [ ] After Tier F's color-format change (if/when done): exported H.264 MKV must play in strict
+      players like VLC (test spec) — same gate as the original Phase 0 export validation.
 
 ---
 
-## Docs
-- [x] `README.md` + `RtspStreamRecorder` class name/comments still say **MP4**; after the deliberate MP4→MKV
-      pivot they should document MKV (also reflects Bug #1's resolved state). `RtspStreamRecorder` already read MKV; fixed the two stale README references (app + server).
+## Resolved log (freeze, don't rebuild)
+Compact record of everything completed in the former phases, re-verified 2026-09-27/28.
 
----
-
-## Resolved log
-- ✅ Bug #1 — MJPEG-in-MKV playback: hybrid cheap-capture + `JpegFramePlayer` + transcode-on-export + toggle
-      (✅ validated on device — Phase 0 complete).
-- ✅ Bug #2 — Export MIME/extension derived from actual file (`video/x-matroska`).
-- ✅ Bug #8 — SAF export folder + pure Share + "Save to Gallery" kept (✅ validated on device — Phase 0 complete).
-- ❌ WON'T DO — SAF live recording capture location (crash-resilience + CPU/battery reasons, see design intent).
+- **Phase 0 — hybrid pipeline validated on device ✅**: `JpegFramePlayer` + `MjpegMkvReader`
+  (EBML/offset index/scrubbing) · `ExportTranscoder` → `H264Encoder` + `MkvStreamMuxer` AVCC/`avcC`
+  framing (VLC black-screen fix) · SAF export folder persists across reboot · Room v4→v5 (`transcodeOnExport`),
+  v5→v6 (`exportFolderUri`), v6→v7 (`autoExportOnFinalize`) clean over real data.
+- **UI quality**: live REC state via `RtspStreamRecorder.activeDeviceIds` StateFlow + `LiveViewModel` ·
+  multi-select export (Share/Gallery/Folder, "k of n") · CCTV adaptive launcher icon (monochrome layer) ·
+  dark splash (`values`/`values-v31` themes) · monitor-status dot via `MonitorStatusHolder` ·
+  motion detection confirmed global (setting checked per monitor cycle, no per-device field).
+- **Features**: auto-export complete file to the exposed SAF folder at finalization.
+- **Phase 1 hotfixes**: Bug #4 `DeviceEditDialog` copy-over from `initialDevice` (no more reset of
+  un-shown fields) · Bug #5 ring wake/vibrate/sound wired + `maxStorageUsageMb` UI · Bug #7 per-event-type
+  notification ID spaces · Room `fallbackToDestructiveMigration` removed · server auth deps added to
+  all endpoints incl. media/live (mandatory-key remainder moved to Tier B).
+- **Phase 2**: FGS start reworked for Android 12+/14 (`connectedDevice`, boot handling) · digest-auth
+  parsing fixed (quoted params with commas, retries) · global `UncaughtExceptionHandler` replaced with
+  player error callbacks.
+- **Phase 3**: HTTPS fields UI · per-event duration fields UI · device-type picker (Generic RTSP
+  reachable) · generic-device events documented as manual-record-only · server-URL default left as
+  editable field (SKIPPED: entity-default change would need a full table-rebuild migration for a
+  cosmetic value).
+- **Phase 4 (server, done parts)**: MP4→MKV in `recorder.py` (both FFmpeg copy + snapshot/libx264
+  paths, MIME `video/x-matroska`) · cleanup deletes files before rows · `@asynccontextmanager`
+  lifespan · `StartServerRecordingPayload` sends `source_mode`/`note`.
+- **Phase 5**: bulk delete · device filter chips + MANUAL chip · Exit action in foreground-service
+  notification · settings backup export/import · `autoExportOnFinalize` + one-file-per-recording
+  folder export.
+- **Phase 6 (done parts)**: `MjpegStreamReader` buffered reads + suspend `onFrame` ·
+  `OnDeviceMotionAnalyzer` adaptive idle backoff (500ms→1500ms, fast on change) ·
+  `GET /api/devices` no longer returns passwords (blank = keep existing, server-side credential
+  fallback on start).
+- **Phase 7 (done parts)**: `targetSdk` 34→37 + edge-to-edge code migration (build green, device
+  gate → Tier G) · `googleplay.yml` `workflow_dispatch` with selectable track ·
+  `python-server.yml` push builds on `main` + `dev`.
+- **Lint debt (safe fixes)**: `SipCallManager` StaticFieldLeak → holds `Application` ·
+  `BUFFER_FLAG_SYNC_FRAME` dropped (keyframe via `containsIdr`) · speakerphone →
+  `setCommunicationDevice(TYPE_BUILTIN_SPEAKER)` on API 31+ (pre-31 fallback warning intentionally
+  visible).
+- **Docs**: README/RtspStreamRecorder MP4→MKV wording fixed.
+- ✅ Bug #1 — MJPEG-in-MKV playback (hybrid cheap capture + player + transcode-on-export).
+- ✅ Bug #2 — export MIME/extension derived from actual file.
+- ✅ Bug #8 — SAF export folder + pure Share + Save-to-Gallery.
+- ❌ WON'T DO — SAF live recording capture location (crash-resilience + CPU/battery, see design intent).
