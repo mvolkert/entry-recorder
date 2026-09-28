@@ -10,11 +10,13 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Converts an app `V_MJPEG` MKV recording into a hardware-decodable H.264 MKV.
+ * Converts an app `V_MJPEG` MKV recording into a hardware-decodable H.264 fragmented MP4.
  *
  * This is intentionally run **only on export/share**, never during capture: it is the single place
  * where the app pays the CPU/battery cost of re-encoding, so the 24/7 monitor stays cheap. The
- * produced file plays in third-party players (WhatsApp, gallery, VLC, …), unlike the raw MJPEG MKV.
+ * produced file plays in third-party players (WhatsApp, gallery, VLC, browsers, …), unlike the
+ * raw MJPEG MKV. fMP4 is the encoded deliverable's container by design: H.264's most universally
+ * supported home, while Matroska remains the private crash-resilient capture buffer.
  */
 object ExportTranscoder {
     private const val TAG = "ExportTranscoder"
@@ -24,7 +26,7 @@ object ExportTranscoder {
     private const val MIN_DIM = 16
 
     /**
-     * Transcodes [recording]'s MKV to a temporary H.264 MKV under the app cache dir.
+     * Transcodes [recording]'s MKV to a temporary H.264 fMP4 under the app cache dir.
      * @return the produced file.
      * @throws IllegalStateException if there are no frames or the platform encoder is unavailable.
      */
@@ -43,13 +45,13 @@ object ExportTranscoder {
         val bitrate = estimateBitrate(w, h, fps)
 
         val outDir = File(context.cacheDir, "export").apply { mkdirs() }
-        val outFile = File(outDir, "${source.nameWithoutExtension}_h264.mkv")
+        val outFile = File(outDir, "${source.nameWithoutExtension}_h264.mp4")
 
         Log.i(TAG, "Transcoding ${refs.size} frames ${w}x$h @ ${fps}fps -> ${outFile.name}")
 
         H264Encoder(w, h, fps, bitrate).use { encoder ->
             encoder.start()
-            MkvStreamMuxer(outFile).use { muxer ->
+            Fmp4StreamMuxer(outFile, width = w, height = h, fps = fps).use { muxer ->
                 var configured = false
                 val firstTs = refs.first().timestampMs
 

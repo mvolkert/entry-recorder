@@ -19,12 +19,12 @@ object ExportHelper {
     private const val TAG = "ExportHelper"
 
     /**
-     * Derives the share/storage MIME type from the actual file extension so MKV recordings are
-     * no longer mislabelled as MP4 after the crash-resilient MKV pivot.
+     * Derives the share/storage MIME type from the actual file extension: MKV stays correctly
+     * labelled for the raw MJPEG capture files, MP4 (incl. the exported H.264 fMP4) is `video/mp4`.
      */
     private fun mimeFor(file: File): String = when (file.extension.lowercase()) {
-        "mp4" -> "video/mp4"
-        "mkv", "m4v" -> "video/x-matroska"
+        "mp4", "m4v" -> "video/mp4"
+        "mkv" -> "video/x-matroska"
         else -> "video/*"
     }
 
