@@ -133,8 +133,8 @@ per owner decisions — do NOT start these before Tiers A–E and the Tier G val
       prefer NV12 (`COLOR_FormatYUV420SemiPlanar`) → planar → flexible; replace `bitmapToI420()`
       with a writer for the SELECTED layout; honor `COLOR_FORMAT_STRIDE`/`SLICE_HEIGHT` when packing
       (even width/height for 4:2:0).
-      ⚠️ DEVICE GATE (test spec): re-export and verify the H.264 MKV still plays in strict players
-      like VLC before marking done. File: `video/H264Encoder.kt:78`
+      ⚠️ DEVICE GATE (test spec): re-export and verify the exported H.264 fragmented MP4 still plays in
+      strict players like VLC (same gate as the Tier G pipeline note) before marking done. File: `video/H264Encoder.kt:78`
 - [ ] **Linphone `ProxyConfig` → `Account` API migration** (+ `createProxyConfig/edit/done/
       addProxyConfig/defaultProxyConfig/clearProxyConfig`, `setDebugMode`) – large SIP refactor;
       ties into the per-device-cores decision below. File: `sip/SipCallManager.kt`

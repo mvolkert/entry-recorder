@@ -48,10 +48,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.mvolkert.entryrecorder.EntryRecorderApp
+import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.sip.CallUiState
@@ -189,12 +191,14 @@ fun IncomingCallContent(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column {
-                    val headerText = when (eventType) {
-                        EventType.RING -> "🔔 Doorbell Ringing"
-                        EventType.MOTION -> "👁 Motion Detected"
-                        EventType.NOISE -> "🔊 Noise Detected"
-                        EventType.MANUAL -> "⏺ Manual Recording"
-                    }
+                    val headerText = stringResource(
+                        when (eventType) {
+                            EventType.RING -> R.string.incoming_header_ring
+                            EventType.MOTION -> R.string.incoming_header_motion
+                            EventType.NOISE -> R.string.incoming_header_noise
+                            EventType.MANUAL -> R.string.incoming_header_manual
+                        }
+                    )
                     val headerColor = when (eventType) {
                         EventType.RING -> Color(0xFFFFD54F)
                         EventType.MOTION -> Color(0xFF81D4FA)
@@ -208,7 +212,7 @@ fun IncomingCallContent(
                         fontSize = 18.sp
                     )
                     Text(
-                        text = device?.name ?: "Intercom",
+                        text = device?.name ?: stringResource(R.string.incoming_device_fallback),
                         color = Color.White,
                         fontSize = 14.sp
                     )
@@ -218,7 +222,7 @@ fun IncomingCallContent(
                 IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Dismiss",
+                        contentDescription = stringResource(R.string.incoming_cd_dismiss),
                         tint = Color.White
                     )
                 }
@@ -254,7 +258,7 @@ fun IncomingCallContent(
                         ) {
                             Icon(
                                 imageVector = if (sipState.isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
-                                contentDescription = "Mute Microphone",
+                                contentDescription = stringResource(R.string.incoming_cd_mute),
                                 tint = if (sipState.isMicMuted) Color.Red else Color.White
                             )
                         }
@@ -269,7 +273,7 @@ fun IncomingCallContent(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.CallEnd,
-                                contentDescription = "Hang Up",
+                                contentDescription = stringResource(R.string.incoming_cd_hangup),
                                 modifier = Modifier.size(32.dp)
                             )
                         }
@@ -286,7 +290,7 @@ fun IncomingCallContent(
                         ) {
                             Icon(
                                 imageVector = if (sipState.isSpeakerOn) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeDown,
-                                contentDescription = "Speaker",
+                                contentDescription = stringResource(R.string.incoming_cd_speaker),
                                 tint = Color.White
                             )
                         }
@@ -309,7 +313,7 @@ fun IncomingCallContent(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.CallEnd,
-                                contentDescription = "Decline",
+                                contentDescription = stringResource(R.string.incoming_cd_decline),
                                 modifier = Modifier.size(30.dp)
                             )
                         }
@@ -324,7 +328,7 @@ fun IncomingCallContent(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Call,
-                                contentDescription = "Accept Call (Gegensprechen)",
+                                contentDescription = stringResource(R.string.incoming_cd_accept),
                                 modifier = Modifier.size(34.dp)
                             )
                         }

@@ -13,6 +13,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -24,6 +26,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import androidx.media3.ui.PlayerView
+import io.github.mvolkert.entryrecorder.R
 import java.net.ConnectException
 
 @OptIn(UnstableApi::class)
@@ -35,6 +38,7 @@ fun RtspVideoPlayer(
     autoPlay: Boolean = true
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
@@ -61,9 +65,14 @@ fun RtspVideoPlayer(
                     isLoading = false
                     val cause = error.cause
                     errorMessage = when {
-                        cause is ConnectException -> "Connection Timed Out. Check if the intercom is on the same Wi-Fi."
-                        error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "RTSP Error: 404 Not Found. Check your stream path."
-                        else -> "RTSP Error: ${error.localizedMessage ?: error.errorCodeName}"
+                        cause is ConnectException ->
+                            resources.getString(R.string.player_error_timeout)
+                        error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ->
+                            resources.getString(R.string.player_error_rtsp_not_found)
+                        else -> resources.getString(
+                            R.string.player_error_rtsp,
+                            error.localizedMessage ?: error.errorCodeName
+                        )
                     }
                 }
             })
@@ -87,7 +96,7 @@ fun RtspVideoPlayer(
             exoPlayer.playWhenReady = autoPlay
         } catch (e: Exception) {
             isLoading = false
-            errorMessage = "Setup Error: ${e.localizedMessage}"
+            errorMessage = resources.getString(R.string.player_error_setup, e.localizedMessage ?: "")
         }
     }
 
@@ -150,7 +159,7 @@ fun RtspVideoPlayer(
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Retry Connection", color = MaterialTheme.colorScheme.onErrorContainer)
+                        Text(stringResource(R.string.player_retry_connection), color = MaterialTheme.colorScheme.onErrorContainer)
                     }
                 }
             }

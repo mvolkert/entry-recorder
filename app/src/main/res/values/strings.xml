@@ -8,4 +8,266 @@
     <string name="channel_call_desc">Incoming video doorbell calls and rings</string>
     <string name="channel_service_name">Background Monitor Service</string>
     <string name="channel_service_desc">Persistent connection to intercom devices</string>
+
+    <!-- FileProvider authority (must match AndroidManifest <provider android:authorities>) -->
+    <string name="fileprovider_authority" translatable="false">io.github.mvolkert.entryrecorder.fileprovider</string>
+
+    <!-- Navigation -->
+    <string name="nav_live">Live View</string>
+    <string name="nav_recordings">Recordings</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Shared -->
+    <string name="action_cancel">Cancel</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_save">Save</string>
+
+    <!-- Live screen -->
+    <string name="live_title">Live Intercom View</string>
+    <string name="live_empty_title">No Intercoms Configured</string>
+    <string name="live_empty_body">Go to the Settings tab to add your 2N IP Verso intercom device.</string>
+    <string name="live_rec_badge">REC</string>
+    <string name="live_device_addr">%1$s (RTSP %2$d)</string>
+    <string name="live_cd_stop_recording">Stop manual recording</string>
+    <string name="live_cd_ring">Records on doorbell ring</string>
+    <string name="live_cd_motion_now">Motion detected</string>
+    <string name="live_cd_motion">Records on motion</string>
+    <string name="live_cd_noise">Records on noise</string>
+
+    <!-- Recordings screen -->
+    <string name="recordings_title">Recordings Archive</string>
+    <string name="recordings_selected_count">%1$d selected</string>
+    <string name="recordings_total_storage">Total storage: %1$s</string>
+    <string name="recordings_search_placeholder">Search by device name or note…</string>
+    <string name="recordings_filter_all_events">All Events</string>
+    <string name="recordings_filter_ring">🔔 Doorbell Rings</string>
+    <string name="recordings_filter_motion">👁 Motion</string>
+    <string name="recordings_filter_noise">🔊 Noise</string>
+    <string name="recordings_filter_manual">✋ Manual</string>
+    <string name="recordings_filter_all_devices">📷 All devices</string>
+    <string name="recordings_empty">No recordings found.</string>
+    <string name="recordings_duration_size">%1$s s • %2$s</string>
+    <string name="recordings_delete_title">Delete Recording?</string>
+    <string name="recordings_delete_body">Are you sure you want to delete this recording from %1$s?</string>
+    <plurals name="recordings_bulk_delete_title">
+        <item quantity="one">Delete %1$d recording?</item>
+        <item quantity="other">Delete %1$d recordings?</item>
+    </plurals>
+    <string name="recordings_bulk_delete_body">This permanently deletes the selected recordings and their files. This cannot be undone.</string>
+    <string name="recordings_export_progress_title">Preparing export…</string>
+    <string name="recordings_export_progress_body">Converting to H.264 for universal playback…  %1$d%%</string>
+    <string name="recordings_batch_progress_title">Exporting…</string>
+    <string name="recordings_batch_progress_body">Processing %1$d of %2$d recording(s)…</string>
+    <string name="recordings_export_folder_menu">Export to folder</string>
+    <string name="recordings_export_folder_batch">Export to Folder</string>
+    <string name="recordings_share_menu">Share</string>
+    <string name="recordings_share_batch">Share…</string>
+    <string name="recordings_save_gallery_menu">Save to Gallery</string>
+    <string name="recordings_protect">Protect against Auto-Cleanup</string>
+    <string name="recordings_unprotect">Unprotect</string>
+    <string name="recordings_toast_export_failed">Export failed: %1$s</string>
+    <string name="recordings_toast_set_folder_first">Set an export folder in Settings first.</string>
+    <string name="recordings_toast_file_not_found">Recording file not found</string>
+    <string name="recordings_toast_exported_to">Exported to %1$s</string>
+    <string name="recordings_toast_export_folder_failed">Export to folder failed</string>
+    <string name="recordings_toast_nothing_selected">Nothing selected</string>
+    <plurals name="recordings_toast_saved_gallery">
+        <item quantity="one">Saved %1$d of %2$d recording to Gallery</item>
+        <item quantity="other">Saved %1$d of %2$d recordings to Gallery</item>
+    </plurals>
+    <plurals name="recordings_toast_exported_folder">
+        <item quantity="one">Exported %1$d of %2$d recording to folder</item>
+        <item quantity="other">Exported %1$d of %2$d recordings to folder</item>
+    </plurals>
+    <string name="recordings_cd_select_all">Select all</string>
+    <string name="recordings_cd_export_selected">Export selected</string>
+    <string name="recordings_cd_delete_selected">Delete selected</string>
+    <string name="recordings_cd_exit_selection">Exit selection</string>
+    <string name="recordings_cd_select_multiple">Select multiple</string>
+    <string name="recordings_cd_search">Search</string>
+    <string name="recordings_cd_clear">Clear</string>
+    <string name="recordings_cd_thumbnail">Thumbnail</string>
+    <string name="recordings_cd_play">Play</string>
+    <string name="recordings_cd_options">Options</string>
+
+    <!-- Settings screen -->
+    <string name="settings_title">Settings &amp; Devices</string>
+    <string name="settings_add_device">Add Intercom</string>
+    <string name="settings_cd_add">Add</string>
+    <string name="settings_section_devices">Configured Intercom Devices</string>
+    <string name="settings_devices_empty">No devices added yet.</string>
+    <string name="settings_devices_empty_hint">Add your 2N IP Verso intercom with its local LAN IP address to start recording and receiving calls.</string>
+    <string name="settings_section_mode">Recording Mode &amp; Destination</string>
+    <string name="settings_mode_question">Where should video recordings be recorded and stored?</string>
+    <string name="settings_mode_local">📱 Local</string>
+    <string name="settings_mode_server">🌐 Remote Server</string>
+    <string name="settings_mode_server_hint">Videos will be recorded on the centralized server backend with web interface. If the server is unreachable, recording automatically falls back to in-app storage.</string>
+    <string name="settings_server_url_label">Server URL</string>
+    <string name="settings_server_url_placeholder" translatable="false">http://192.168.1.100:8000</string>
+    <string name="settings_server_api_key">API Key (Optional)</string>
+    <string name="settings_server_testing">Testing connection…</string>
+    <string name="settings_server_test">Test Server Connection</string>
+    <string name="settings_section_retention">Video Retention &amp; Auto-Cleanup</string>
+    <string name="settings_storage_usage">Current storage usage: %1$s</string>
+    <string name="settings_retention_period">Retention Period</string>
+    <string name="settings_retention_indefinite">Keep indefinitely</string>
+    <plurals name="settings_retention_days">
+        <item quantity="one">Keep videos for %1$d day</item>
+        <item quantity="other">Keep videos for %1$d days</item>
+    </plurals>
+    <string name="settings_retention_days_short" translatable="false">%1$dd</string>
+    <string name="settings_storage_quota">Storage Quota</string>
+    <string name="settings_quota_purge">Purge oldest recordings above %1$d GB</string>
+    <string name="settings_quota_gb" translatable="false">%1$dGB</string>
+    <string name="settings_auto_cleanup">Automatic Daily Cleanup</string>
+    <string name="settings_transcode_export">Transcode to H.264 on Export</string>
+    <string name="settings_transcode_export_hint">Converts recordings for universal playback when sharing/saving. Uses CPU &amp; battery only during export.</string>
+    <string name="settings_auto_export">Auto-Export Finished Recordings</string>
+    <string name="settings_auto_export_hint">Copies each recording\'s original MJPEG MKV into the export folder as soon as it finishes — a complete, sync-friendly archive (plays in VLC, not every gallery app). Best-effort; the app always keeps its own copy.</string>
+    <string name="settings_export_folder">Export Folder</string>
+    <string name="settings_export_folder_hint">Choose a folder where \"Export to folder\" saves a single file per recording (H.264 when transcoding is on) and where \"Auto-Export\" mirrors the original MKVs. The Share button only shares and never writes here.</string>
+    <string name="settings_export_folder_selected">Selected: %1$s</string>
+    <string name="settings_folder_choose">Choose folder</string>
+    <string name="settings_folder_change">Change folder</string>
+    <string name="settings_folder_remove">Remove</string>
+    <string name="settings_cleanup_now">Run Storage Cleanup Now</string>
+    <string name="settings_cd_decrease">Decrease</string>
+    <string name="settings_cd_increase">Increase</string>
+    <string name="settings_section_alerts">Alerts &amp; Lockscreen Behavior</string>
+    <string name="settings_wake_ring">Wake Lockscreen on Doorbell Ring</string>
+    <string name="settings_sound_ring">Play Sound on Doorbell Ring</string>
+    <string name="settings_vibrate_ring">Vibrate on Doorbell Ring</string>
+    <string name="settings_wake_motion">Wake Screen on Motion Detection</string>
+    <string name="settings_wake_noise">Wake Screen on Noise Detection</string>
+    <string name="settings_section_backup">Backup &amp; Restore</string>
+    <string name="settings_backup_hint">Export or import your app settings and configured devices as a single file. Recordings are not included. The file stores device/SIP credentials in plain text, so keep it somewhere private.</string>
+    <string name="settings_backup_export">Export backup</string>
+    <string name="settings_backup_restore">Restore from backup</string>
+    <string name="settings_toast_folder_permission_failed">Could not persist export folder permission</string>
+    <string name="settings_toast_cleanup_triggered">Storage cleanup triggered</string>
+    <string name="settings_server_connect_success">Connected to server successfully!</string>
+    <string name="settings_connection_failed">Connection failed</string>
+    <string name="settings_unknown_error">unknown error</string>
+    <string name="settings_backup_export_success">Backup exported (%1$d device(s))</string>
+    <string name="settings_backup_export_failed">Export failed: %1$s</string>
+    <string name="settings_backup_restore_success">Restored %1$d device(s) and settings</string>
+    <string name="settings_backup_restore_failed">Restore failed: %1$s</string>
+    <string name="settings_backup_open_write_failed">Could not open the selected file for writing</string>
+    <string name="settings_backup_open_read_failed">Could not read the selected file</string>
+    <string name="settings_backup_invalid_file">Not a valid backup file</string>
+    <string name="settings_backup_filename" translatable="false">entry-recorder-backup.json</string>
+    <string name="settings_device_ip_line">IP: %1$s (HTTP: %2$d, RTSP: %3$d)</string>
+    <string name="settings_device_sip_line">SIP: %1$s (Port %2$d)</string>
+    <string name="settings_cd_edit">Edit</string>
+    <string name="settings_cd_delete">Delete</string>
+
+    <!-- Device edit dialog -->
+    <string name="device_add_title">Add Intercom Device</string>
+    <string name="device_edit_title">Edit Device</string>
+    <string name="device_default_name">2N IP Verso</string>
+    <string name="device_name_label">Device Name</string>
+    <string name="device_type_label">Device Type</string>
+    <string name="device_type_verso">2N IP Verso (intercom events, SIP, ring/noise/motion)</string>
+    <string name="device_type_generic">Generic RTSP / ONVIF camera</string>
+    <string name="device_ip_label">Local IP Address (2N IP Verso)</string>
+    <string name="device_http_port">HTTP Port</string>
+    <string name="device_rtsp_port">RTSP Port</string>
+    <string name="device_https_toggle">Use HTTPS for HTTP API/snapshot</string>
+    <string name="device_https_port">HTTPS Port</string>
+    <string name="device_rtsp_path_label">RTSP Path (e.g. /live.sdp)</string>
+    <string name="device_username">Username</string>
+    <string name="device_password">Password</string>
+    <string name="device_protocol_label">Video Streaming Protocol</string>
+    <string name="device_protocol_auto">Auto (RTSP with MJPEG/Snapshot fallback)</string>
+    <string name="device_protocol_rtsp">RTSP Stream (Port %1$s)</string>
+    <string name="device_protocol_mjpeg">MJPEG Stream (HTTP multipart)</string>
+    <string name="device_protocol_snapshot">HTTP Snapshot Polling</string>
+    <string name="device_mjpeg_path_label">MJPEG Stream Path (e.g. /api/camera/mjpeg)</string>
+    <string name="device_snapshot_path_label">Snapshot Path</string>
+    <string name="device_snapshot_fps">FPS</string>
+    <string name="device_sip_section">SIP Intercom Configuration</string>
+    <string name="device_sip_p2p">Direct Peer-to-Peer (IP-to-IP)</string>
+    <string name="device_sip_pbx">SIP PBX Server (e.g. Fritz!Box / Asterisk)</string>
+    <string name="device_sip_pbx_host">PBX Host (e.g. 192.168.1.1 or fritz.box)</string>
+    <string name="device_sip_user">SIP User</string>
+    <string name="device_sip_password">SIP Password</string>
+    <string name="device_triggers_section">Recording Triggers</string>
+    <string name="device_trigger_ring">Record on Doorbell Ring</string>
+    <string name="device_trigger_motion">Record on Motion Detected</string>
+    <string name="device_trigger_noise">Record on Noise Detected</string>
+    <string name="device_trigger_motion_app">Record on Motion (Analyzed On-Device by App)</string>
+    <string name="device_trigger_motion_app_hint">App analyzes the live video stream itself instead of relying on the device\'s built-in motion detection</string>
+    <string name="device_durations_section">Recording Durations (seconds)</string>
+    <string name="device_duration_ring">Ring</string>
+    <string name="device_duration_motion_post">Motion post</string>
+    <string name="device_duration_noise_post">Noise post</string>
+    <string name="device_enabled_toggle">Device Enabled (monitored)</string>
+    <string name="device_test_connection">Test Connection to 2N IP Verso</string>
+    <string name="device_test_success">Connection Successful!</string>
+    <string name="device_test_failed">Failed: %1$s</string>
+    <string name="device_save">Save Device</string>
+    <string name="device_toast_name_ip_required">Please enter name and IP address</string>
+
+    <!-- Incoming call screen -->
+    <string name="incoming_header_ring">🔔 Doorbell Ringing</string>
+    <string name="incoming_header_motion">👁 Motion Detected</string>
+    <string name="incoming_header_noise">🔊 Noise Detected</string>
+    <string name="incoming_header_manual">⏺ Manual Recording</string>
+    <string name="incoming_device_fallback">Intercom</string>
+    <string name="incoming_cd_dismiss">Dismiss</string>
+    <string name="incoming_cd_mute">Mute Microphone</string>
+    <string name="incoming_cd_hangup">Hang Up</string>
+    <string name="incoming_cd_speaker">Speaker</string>
+    <string name="incoming_cd_decline">Decline</string>
+    <string name="incoming_cd_accept">Accept Call (Gegensprechen)</string>
+
+    <!-- Stream players -->
+    <string name="player_cd_live_feed">Live Camera Feed</string>
+    <string name="player_retry_connection">Retry Connection</string>
+    <string name="player_error_timeout">Connection Timed Out. Check if the intercom is on the same Wi-Fi.</string>
+    <string name="player_error_rtsp_not_found">RTSP Error: 404 Not Found. Check your stream path.</string>
+    <string name="player_error_rtsp">RTSP Error: %1$s</string>
+    <string name="player_error_rtsp_setup">RTSP Setup Error: %1$s</string>
+    <string name="player_error_setup">Setup Error: %1$s</string>
+    <string name="player_error_mjpeg_disconnected">MJPEG stream disconnected: %1$s</string>
+    <string name="player_error_snapshot">Snapshot fetch failed. Check network or credentials.</string>
+    <string name="player_no_frames">No playable frames.</string>
+    <string name="player_file_not_found">Recording file not found.</string>
+    <string name="player_cd_frame">Recording frame</string>
+    <string name="player_cd_pause">Pause</string>
+    <string name="player_cd_play">Play</string>
+    <plurals name="player_time_frames">
+        <item quantity="one">%1$d s / %2$d s  •  %3$d of %4$d frame</item>
+        <item quantity="other">%1$d s / %2$d s  •  %3$d of %4$d frames</item>
+    </plurals>
+    <string name="player_cd_close">Close</string>
+
+    <!-- Notifications -->
+    <string name="notif_service_title">EntryRecorder Active</string>
+    <plurals name="notif_service_text">
+        <item quantity="one">Monitoring %1$d intercom device on LAN</item>
+        <item quantity="other">Monitoring %1$d intercom devices on LAN</item>
+    </plurals>
+    <string name="notif_action_stop">Stop monitoring</string>
+    <string name="notif_doorbell_default_caller">Doorbell</string>
+    <string name="notif_doorbell_title">Doorbell Ringing: %1$s</string>
+    <string name="notif_doorbell_body">Incoming ring from %1$s</string>
+    <string name="notif_motion_title">Motion Detected: %1$s</string>
+    <string name="notif_motion_body">Movement registered at %1$s</string>
+    <string name="notif_noise_title">Noise Detected: %1$s</string>
+    <string name="notif_noise_body">Sound registered at %1$s</string>
+
+    <!-- Export helper -->
+    <string name="export_share_no_files">No files to share</string>
+    <string name="export_share_chooser">Share %1$d recording(s)</string>
+    <string name="export_share_failed">Failed to share files</string>
+    <string name="export_video_not_found">Video file not found</string>
+    <string name="export_subject_label">EntryRecorder: %1$s - %2$s</string>
+    <string name="export_text_label">Video recording from %1$s (%2$s)</string>
+    <string name="export_chooser_title">Export Recording via…</string>
+    <string name="export_source_not_found">Source file not found</string>
+    <string name="export_saved_gallery">Saved to Movies/EntryRecorder</string>
+    <string name="export_mediastore_failed">Failed to create MediaStore entry</string>
+    <string name="export_saved_path">Saved to %1$s</string>
+    <string name="export_save_failed">Save failed: %1$s</string>
 </resources>

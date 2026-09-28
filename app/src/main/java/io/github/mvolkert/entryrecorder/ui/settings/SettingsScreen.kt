@@ -57,9 +57,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.util.ExportHelper
@@ -73,6 +76,7 @@ fun SettingsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val backupFileName = stringResource(R.string.settings_backup_filename)
 
     var editingDevice by remember { mutableStateOf<DeviceEntity?>(null) }
     var showAddDeviceDialog by remember { mutableStateOf(false) }
@@ -93,7 +97,7 @@ fun SettingsScreen(
                 context.contentResolver.takePersistableUriPermission(uri, exportFolderFlags)
                 viewModel.updateSettings(state.appSettings.copy(exportFolderUri = uri.toString()))
             } catch (_: SecurityException) {
-                Toast.makeText(context, "Could not persist export folder permission", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, R.string.settings_toast_folder_permission_failed, Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -134,14 +138,14 @@ fun SettingsScreen(
         contentWindowInsets = WindowInsets(0),
         topBar = {
             TopAppBar(
-                title = { Text("Settings & Devices", fontWeight = FontWeight.Bold) }
+                title = { Text(stringResource(R.string.settings_title), fontWeight = FontWeight.Bold) }
             )
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { showAddDeviceDialog = true },
-                icon = { Icon(Icons.Default.Add, contentDescription = "Add") },
-                text = { Text("Add Intercom") }
+                icon = { Icon(Icons.Default.Add, contentDescription = stringResource(R.string.settings_cd_add)) },
+                text = { Text(stringResource(R.string.settings_add_device)) }
             )
         }
     ) { paddingValues ->
@@ -155,7 +159,7 @@ fun SettingsScreen(
             // Devices Section Header
             item {
                 Text(
-                    text = "Configured Intercom Devices",
+                    text = stringResource(R.string.settings_section_devices),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -173,10 +177,10 @@ fun SettingsScreen(
                             modifier = Modifier.padding(16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text("No devices added yet.")
+                            Text(stringResource(R.string.settings_devices_empty))
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                "Add your 2N IP Verso intercom with its local LAN IP address to start recording and receiving calls.",
+                                stringResource(R.string.settings_devices_empty_hint),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -196,7 +200,7 @@ fun SettingsScreen(
             // Recording Engine & Destination Section
             item {
                 Text(
-                    text = "Recording Mode & Destination",
+                    text = stringResource(R.string.settings_section_mode),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -213,7 +217,7 @@ fun SettingsScreen(
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text("Where should video recordings be recorded and stored?")
+                        Text(stringResource(R.string.settings_mode_question))
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -226,7 +230,7 @@ fun SettingsScreen(
                                         state.appSettings.copy(recordingMode = RecordingMode.APP_LOCAL)
                                     )
                                 },
-                                label = { Text("📱 In-App (Default)") },
+                                label = { Text(stringResource(R.string.settings_mode_local)) },
                                 leadingIcon = if (state.appSettings.recordingMode == RecordingMode.APP_LOCAL) {
                                     { Icon(Icons.Default.Check, contentDescription = null) }
                                 } else null
@@ -239,7 +243,7 @@ fun SettingsScreen(
                                         state.appSettings.copy(recordingMode = RecordingMode.PYTHON_SERVER)
                                     )
                                 },
-                                label = { Text("🐍 Python Server") },
+                                label = { Text(stringResource(R.string.settings_mode_server)) },
                                 leadingIcon = if (state.appSettings.recordingMode == RecordingMode.PYTHON_SERVER) {
                                     { Icon(Icons.Default.Check, contentDescription = null) }
                                 } else null
@@ -249,7 +253,7 @@ fun SettingsScreen(
                         if (state.appSettings.recordingMode == RecordingMode.PYTHON_SERVER) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Videos will be recorded on the centralized Python server backend with web interface. If the server is unreachable, recording automatically falls back to in-app storage.",
+                                text = stringResource(R.string.settings_mode_server_hint),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -259,8 +263,8 @@ fun SettingsScreen(
                                 onValueChange = {
                                     viewModel.updateSettings(state.appSettings.copy(serverBaseUrl = it))
                                 },
-                                label = { Text("Python Server URL") },
-                                placeholder = { Text("http://192.168.1.100:8000") },
+                                label = { Text(stringResource(R.string.settings_server_url_label)) },
+                                placeholder = { Text(stringResource(R.string.settings_server_url_placeholder)) },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true
                             )
@@ -270,7 +274,7 @@ fun SettingsScreen(
                                 onValueChange = {
                                     viewModel.updateSettings(state.appSettings.copy(serverApiKey = it))
                                 },
-                                label = { Text("API Key (Optional)") },
+                                label = { Text(stringResource(R.string.settings_server_api_key)) },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true
                             )
@@ -295,11 +299,11 @@ fun SettingsScreen(
                                         strokeWidth = 2.dp
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Testing connection...")
+                                    Text(stringResource(R.string.settings_server_testing))
                                 } else {
                                     Icon(Icons.Default.WifiTethering, contentDescription = null)
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Test Server Connection")
+                                    Text(stringResource(R.string.settings_server_test))
                                 }
                             }
                         }
@@ -310,7 +314,7 @@ fun SettingsScreen(
             // Storage & Retention Section
             item {
                 Text(
-                    text = "Video Retention & Auto-Cleanup",
+                    text = stringResource(R.string.settings_section_retention),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -328,7 +332,10 @@ fun SettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text(
-                            text = "Current storage usage: ${Formatter.formatFileSize(context, state.totalStorageBytes)}",
+                            text = stringResource(
+                                R.string.settings_storage_usage,
+                                Formatter.formatFileSize(context, state.totalStorageBytes)
+                            ),
                             fontWeight = FontWeight.SemiBold
                         )
 
@@ -339,9 +346,15 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                Text("Retention Period", fontWeight = FontWeight.Medium)
+                                Text(stringResource(R.string.settings_retention_period), fontWeight = FontWeight.Medium)
                                 Text(
-                                    text = if (state.appSettings.retentionDays == 0) "Keep indefinitely" else "Keep videos for ${state.appSettings.retentionDays} days",
+                                    text = if (state.appSettings.retentionDays == 0)
+                                        stringResource(R.string.settings_retention_indefinite)
+                                    else pluralStringResource(
+                                        R.plurals.settings_retention_days,
+                                        state.appSettings.retentionDays,
+                                        state.appSettings.retentionDays
+                                    ),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -353,10 +366,10 @@ fun SettingsScreen(
                                         viewModel.updateSettings(state.appSettings.copy(retentionDays = newDays))
                                     }
                                 ) {
-                                    Icon(Icons.Default.Remove, contentDescription = "Decrease")
+                                    Icon(Icons.Default.Remove, contentDescription = stringResource(R.string.settings_cd_decrease))
                                 }
                                 Text(
-                                    "${state.appSettings.retentionDays}d",
+                                    stringResource(R.string.settings_retention_days_short, state.appSettings.retentionDays),
                                     modifier = Modifier.align(Alignment.CenterVertically),
                                     fontWeight = FontWeight.Bold
                                 )
@@ -366,7 +379,7 @@ fun SettingsScreen(
                                         viewModel.updateSettings(state.appSettings.copy(retentionDays = newDays))
                                     }
                                 ) {
-                                    Icon(Icons.Default.Add, contentDescription = "Increase")
+                                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.settings_cd_increase))
                                 }
                             }
                         }
@@ -378,9 +391,12 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                Text("Storage Quota", fontWeight = FontWeight.Medium)
+                                Text(stringResource(R.string.settings_storage_quota), fontWeight = FontWeight.Medium)
                                 Text(
-                                    text = "Purge oldest recordings above ${state.appSettings.maxStorageUsageMb / 1024} GB",
+                                    text = stringResource(
+                                        R.string.settings_quota_purge,
+                                        state.appSettings.maxStorageUsageMb / 1024
+                                    ),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -392,10 +408,10 @@ fun SettingsScreen(
                                         viewModel.updateSettings(state.appSettings.copy(maxStorageUsageMb = newMb))
                                     }
                                 ) {
-                                    Icon(Icons.Default.Remove, contentDescription = "Decrease")
+                                    Icon(Icons.Default.Remove, contentDescription = stringResource(R.string.settings_cd_decrease))
                                 }
                                 Text(
-                                    "${state.appSettings.maxStorageUsageMb / 1024}GB",
+                                    stringResource(R.string.settings_quota_gb, state.appSettings.maxStorageUsageMb / 1024),
                                     modifier = Modifier.align(Alignment.CenterVertically),
                                     fontWeight = FontWeight.Bold
                                 )
@@ -405,7 +421,7 @@ fun SettingsScreen(
                                         viewModel.updateSettings(state.appSettings.copy(maxStorageUsageMb = newMb))
                                     }
                                 ) {
-                                    Icon(Icons.Default.Add, contentDescription = "Increase")
+                                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.settings_cd_increase))
                                 }
                             }
                         }
@@ -416,7 +432,7 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Automatic Daily Cleanup")
+                            Text(stringResource(R.string.settings_auto_cleanup))
                             Switch(
                                 checked = state.appSettings.autoCleanupEnabled,
                                 onCheckedChange = {
@@ -432,9 +448,9 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("Transcode to H.264 on Export", fontWeight = FontWeight.Medium)
+                                Text(stringResource(R.string.settings_transcode_export), fontWeight = FontWeight.Medium)
                                 Text(
-                                    text = "Converts recordings for universal playback when sharing/saving. Uses CPU & battery only during export.",
+                                    text = stringResource(R.string.settings_transcode_export_hint),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -454,12 +470,9 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("Auto-Export Finished Recordings", fontWeight = FontWeight.Medium)
+                                Text(stringResource(R.string.settings_auto_export), fontWeight = FontWeight.Medium)
                                 Text(
-                                    text = "Copies each recording's original MJPEG MKV into the export folder " +
-                                            "as soon as it finishes — a complete, sync-friendly archive " +
-                                            "(plays in VLC, not every gallery app). Best-effort; the app " +
-                                            "always keeps its own copy.",
+                                    text = stringResource(R.string.settings_auto_export_hint),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -477,19 +490,19 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text("Export Folder", fontWeight = FontWeight.Medium)
+                            Text(stringResource(R.string.settings_export_folder), fontWeight = FontWeight.Medium)
                             Text(
-                                text = "Choose a folder where \"Export to folder\" saves a single file " +
-                                        "per recording (H.264 when transcoding is on) and where " +
-                                        "\"Auto-Export\" mirrors the original MKVs. The Share button only " +
-                                        "shares and never writes here.",
+                                text = stringResource(R.string.settings_export_folder_hint),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             val folder = state.appSettings.exportFolderUri
                             if (folder.isNotBlank()) {
                                 Text(
-                                    text = "Selected: ${ExportHelper.safFolderDisplayName(folder.toUri())}",
+                                    text = stringResource(
+                                        R.string.settings_export_folder_selected,
+                                        ExportHelper.safFolderDisplayName(folder.toUri())
+                                    ),
                                     style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -504,11 +517,11 @@ fun SettingsScreen(
                                 ) {
                                     Icon(Icons.Default.FolderOpen, contentDescription = null)
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text(if (folder.isBlank()) "Choose folder" else "Change folder")
+                                    Text(stringResource(if (folder.isBlank()) R.string.settings_folder_choose else R.string.settings_folder_change))
                                 }
                                 if (folder.isNotBlank()) {
                                     TextButton(onClick = { clearExportFolder() }) {
-                                        Text("Remove", color = MaterialTheme.colorScheme.error)
+                                        Text(stringResource(R.string.settings_folder_remove), color = MaterialTheme.colorScheme.error)
                                     }
                                 }
                             }
@@ -518,13 +531,13 @@ fun SettingsScreen(
                         OutlinedButton(
                             onClick = {
                                 viewModel.triggerCleanupNow()
-                                Toast.makeText(context, "Storage cleanup triggered", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, R.string.settings_toast_cleanup_triggered, Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(Icons.Default.CleaningServices, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Run Storage Cleanup Now")
+                            Text(stringResource(R.string.settings_cleanup_now))
                         }
                     }
                 }
@@ -533,7 +546,7 @@ fun SettingsScreen(
             // Screen & Alert Notifications
             item {
                 Text(
-                    text = "Alerts & Lockscreen Behavior",
+                    text = stringResource(R.string.settings_section_alerts),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -555,7 +568,7 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Wake Lockscreen on Doorbell Ring")
+                            Text(stringResource(R.string.settings_wake_ring))
                             Switch(
                                 checked = state.appSettings.wakeOnRing,
                                 onCheckedChange = {
@@ -569,7 +582,7 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Play Sound on Doorbell Ring")
+                            Text(stringResource(R.string.settings_sound_ring))
                             Switch(
                                 checked = state.appSettings.soundOnRing,
                                 onCheckedChange = {
@@ -583,7 +596,7 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Vibrate on Doorbell Ring")
+                            Text(stringResource(R.string.settings_vibrate_ring))
                             Switch(
                                 checked = state.appSettings.vibrateOnRing,
                                 onCheckedChange = {
@@ -597,7 +610,7 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Wake Screen on Motion Detection")
+                            Text(stringResource(R.string.settings_wake_motion))
                             Switch(
                                 checked = state.appSettings.wakeOnMotion,
                                 onCheckedChange = {
@@ -611,7 +624,7 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Wake Screen on Noise Detection")
+                            Text(stringResource(R.string.settings_wake_noise))
                             Switch(
                                 checked = state.appSettings.wakeOnNoise,
                                 onCheckedChange = {
@@ -626,7 +639,7 @@ fun SettingsScreen(
             // Backup & Restore Section
             item {
                 Text(
-                    text = "Backup & Restore",
+                    text = stringResource(R.string.settings_section_backup),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -644,19 +657,17 @@ fun SettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text(
-                            text = "Export or import your app settings and configured devices as a single file. " +
-                                    "Recordings are not included. The file stores device/SIP credentials in " +
-                                    "plain text, so keep it somewhere private.",
+                            text = stringResource(R.string.settings_backup_hint),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         OutlinedButton(
-                            onClick = { backupExportLauncher.launch("entry-recorder-backup.json") },
+                            onClick = { backupExportLauncher.launch(backupFileName) },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(Icons.Default.Upload, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Export backup")
+                            Text(stringResource(R.string.settings_backup_export))
                         }
                         OutlinedButton(
                             onClick = { backupImportLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
@@ -664,7 +675,7 @@ fun SettingsScreen(
                         ) {
                             Icon(Icons.Default.Download, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Restore from backup")
+                            Text(stringResource(R.string.settings_backup_restore))
                         }
                     }
                 }
@@ -732,22 +743,28 @@ fun DeviceCard(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "IP: ${device.ipAddress} (HTTP: ${device.httpPort}, RTSP: ${device.rtspPort})",
+                    text = stringResource(
+                        R.string.settings_device_ip_line,
+                        device.ipAddress, device.httpPort, device.rtspPort
+                    ),
                     style = MaterialTheme.typography.bodySmall
                 )
                 Text(
-                    text = "SIP: ${device.sipMode.name} (Port ${device.sipLocalPort})",
+                    text = stringResource(
+                        R.string.settings_device_sip_line,
+                        device.sipMode.name, device.sipLocalPort
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
             IconButton(onClick = onEdit) {
-                Icon(Icons.Default.Edit, contentDescription = "Edit")
+                Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.settings_cd_edit))
             }
 
             IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.settings_cd_delete), tint = MaterialTheme.colorScheme.error)
             }
         }
     }

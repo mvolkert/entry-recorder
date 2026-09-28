@@ -17,22 +17,25 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.service.IntercomMonitorService
 import io.github.mvolkert.entryrecorder.ui.live.LiveCamerasScreen
 import io.github.mvolkert.entryrecorder.ui.recordings.RecordingsScreen
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsScreen
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsViewModel
 
-sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
-    object Live : Screen("live", "Live View", Icons.Default.Videocam)
-    object Recordings : Screen("recordings", "Recordings", Icons.Default.VideoLibrary)
-    object Settings : Screen("settings", "Settings", Icons.Default.Settings)
+sealed class Screen(val route: String, @StringRes val labelRes: Int, val icon: ImageVector) {
+    object Live : Screen("live", R.string.nav_live, Icons.Default.Videocam)
+    object Recordings : Screen("recordings", R.string.nav_recordings, Icons.Default.VideoLibrary)
+    object Settings : Screen("settings", R.string.nav_settings, Icons.Default.Settings)
 }
 
 class MainActivity : ComponentActivity() {
@@ -93,9 +96,10 @@ class MainActivity : ComponentActivity() {
             bottomBar = {
                 NavigationBar {
                     items.forEach { screen ->
+                        val label = stringResource(screen.labelRes)
                         NavigationBarItem(
-                            icon = { Icon(screen.icon, contentDescription = screen.title) },
-                            label = { Text(screen.title) },
+                            icon = { Icon(screen.icon, contentDescription = label) },
+                            label = { Text(label) },
                             selected = currentRoute == screen.route,
                             onClick = {
                                 if (currentRoute != screen.route) {

@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import io.github.mvolkert.entryrecorder.EntryRecorderApp
+import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.backup.AppBackup
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
@@ -68,9 +69,13 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             val result = serverClient.testConnection(url, apiKey.ifBlank { null })
             if (result.isSuccess) {
-                onResult(true, "Connected to Python server successfully!")
+                onResult(true, getApplication<Application>().getString(R.string.settings_server_connect_success))
             } else {
-                onResult(false, result.exceptionOrNull()?.localizedMessage ?: "Connection failed")
+                onResult(
+                    false,
+                    result.exceptionOrNull()?.localizedMessage
+                        ?: getApplication<Application>().getString(R.string.settings_connection_failed)
+                )
             }
         }
     }
@@ -94,10 +99,22 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 val json = com.google.gson.Gson().toJson(backup)
                 val resolver = getApplication<Application>().contentResolver
                 resolver.openOutputStream(uri)?.use { it.write(json.toByteArray(Charsets.UTF_8)) }
-                    ?: throw IllegalStateException("Could not open the selected file for writing")
-                onResult(true, "Backup exported (${backup.devices.size} device(s))")
+                    ?: throw IllegalStateException(
+                        getApplication<Application>().getString(R.string.settings_backup_open_write_failed)
+                    )
+                onResult(
+                    true,
+                    getApplication<Application>()
+                        .getString(R.string.settings_backup_export_success, backup.devices.size)
+                )
             } catch (e: Exception) {
-                onResult(false, "Export failed: ${e.localizedMessage ?: "unknown error"}")
+                onResult(
+                    false,
+                    getApplication<Application>().getString(
+                        R.string.settings_backup_export_failed,
+                        e.localizedMessage ?: getApplication<Application>().getString(R.string.settings_unknown_error)
+                    )
+                )
             }
         }
     }
@@ -112,16 +129,30 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 val resolver = getApplication<Application>().contentResolver
                 val json = resolver.openInputStream(uri)?.use {
                     String(it.readBytes(), Charsets.UTF_8)
-                } ?: throw IllegalStateException("Could not read the selected file")
+                } ?: throw IllegalStateException(
+                    getApplication<Application>().getString(R.string.settings_backup_open_read_failed)
+                )
                 val backup = com.google.gson.Gson().fromJson(json, AppBackup::class.java)
-                    ?: throw IllegalStateException("Not a valid backup file")
+                    ?: throw IllegalStateException(
+                        getApplication<Application>().getString(R.string.settings_backup_invalid_file)
+                    )
 
                 backup.appSettings?.let { repository.updateSettings(it.copy(id = 1)) }
                 backup.devices.forEach { repository.upsertDevice(it) }
 
-                onResult(true, "Restored ${backup.devices.size} device(s) and settings")
+                onResult(
+                    true,
+                    getApplication<Application>()
+                        .getString(R.string.settings_backup_restore_success, backup.devices.size)
+                )
             } catch (e: Exception) {
-                onResult(false, "Restore failed: ${e.localizedMessage ?: "unknown error"}")
+                onResult(
+                    false,
+                    getApplication<Application>().getString(
+                        R.string.settings_backup_restore_failed,
+                        e.localizedMessage ?: getApplication<Application>().getString(R.string.settings_unknown_error)
+                    )
+                )
             }
         }
     }

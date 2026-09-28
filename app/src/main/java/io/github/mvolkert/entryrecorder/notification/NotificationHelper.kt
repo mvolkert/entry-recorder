@@ -113,14 +113,18 @@ object NotificationHelper {
         )
 
         return NotificationCompat.Builder(context, CHANNEL_SERVICE)
-            .setContentTitle("EntryRecorder Active")
-            .setContentText("Monitoring $activeDevicesCount intercom device(s) on LAN")
+            .setContentTitle(context.getString(R.string.notif_service_title))
+            .setContentText(
+                context.resources.getQuantityString(
+                    R.plurals.notif_service_text, activeDevicesCount, activeDevicesCount
+                )
+            )
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .addAction(android.R.drawable.ic_media_pause, "Stop monitoring", stopPendingIntent)
+            .addAction(android.R.drawable.ic_media_pause, context.getString(R.string.notif_action_stop), stopPendingIntent)
             .build()
     }
 
@@ -135,7 +139,7 @@ object NotificationHelper {
         val fullScreenIntent = Intent(context, IncomingCallActivity::class.java).apply {
             putExtra(IncomingCallActivity.EXTRA_DEVICE_ID, device.id)
             putExtra(IncomingCallActivity.EXTRA_EVENT_TYPE, EventType.RING.name)
-            putExtra(IncomingCallActivity.EXTRA_CALLER, caller ?: "Doorbell")
+            putExtra(IncomingCallActivity.EXTRA_CALLER, caller ?: context.getString(R.string.notif_doorbell_default_caller))
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or
                     Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -151,8 +155,13 @@ object NotificationHelper {
         val ringUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
 
         val notification = NotificationCompat.Builder(context, CHANNEL_DOORBELL)
-            .setContentTitle("Doorbell Ringing: ${device.name}")
-            .setContentText("Incoming ring from ${caller ?: device.ipAddress}")
+            .setContentTitle(context.getString(R.string.notif_doorbell_title, device.name))
+            .setContentText(
+                context.getString(
+                    R.string.notif_doorbell_body,
+                    caller ?: device.ipAddress
+                )
+            )
             .setSmallIcon(android.R.drawable.ic_popup_sync)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
@@ -183,8 +192,8 @@ object NotificationHelper {
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_MOTION)
-            .setContentTitle("Motion Detected: ${device.name}")
-            .setContentText("Movement registered at ${device.ipAddress}")
+            .setContentTitle(context.getString(R.string.notif_motion_title, device.name))
+            .setContentText(context.getString(R.string.notif_motion_body, device.ipAddress))
             .setSmallIcon(android.R.drawable.ic_menu_view)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_EVENT)
@@ -211,8 +220,8 @@ object NotificationHelper {
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_NOISE)
-            .setContentTitle("Noise Detected: ${device.name}")
-            .setContentText("Sound registered at ${device.ipAddress}")
+            .setContentTitle(context.getString(R.string.notif_noise_title, device.name))
+            .setContentText(context.getString(R.string.notif_noise_body, device.ipAddress))
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_EVENT)

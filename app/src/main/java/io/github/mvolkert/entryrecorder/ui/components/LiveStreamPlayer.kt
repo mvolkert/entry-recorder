@@ -38,6 +38,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,6 +52,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import androidx.media3.ui.PlayerView
+import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
@@ -80,6 +83,7 @@ fun LiveStreamPlayer(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
     var latestBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    val resources = LocalResources.current
 
     // RTSP ExoPlayer instance
     val exoPlayer = remember {
@@ -130,9 +134,14 @@ fun LiveStreamPlayer(
                             } else {
                                 val cause = error.cause
                                 errorMessage = when {
-                                    cause is ConnectException -> "Connection Timed Out. Check if the intercom is on the same Wi-Fi."
-                                    error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "RTSP Error: 404 Not Found. Check your stream path."
-                                    else -> "RTSP Error: ${error.localizedMessage ?: error.errorCodeName}"
+                                    cause is ConnectException ->
+                                        resources.getString(R.string.player_error_timeout)
+                                    error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ->
+                                        resources.getString(R.string.player_error_rtsp_not_found)
+                                    else -> resources.getString(
+                                        R.string.player_error_rtsp,
+                                        error.localizedMessage ?: error.errorCodeName
+                                    )
                                 }
                             }
                         }
@@ -153,7 +162,7 @@ fun LiveStreamPlayer(
                     if (device.streamProtocol == StreamProtocol.AUTO) {
                         activeProtocol = StreamProtocol.MJPEG_STREAM
                     } else {
-                        errorMessage = "RTSP Setup Error: ${e.localizedMessage}"
+                        errorMessage = resources.getString(R.string.player_error_rtsp_setup, e.localizedMessage ?: "")
                     }
                 }
             }
@@ -175,7 +184,7 @@ fun LiveStreamPlayer(
                         activeProtocol = StreamProtocol.HTTP_SNAPSHOT
                     } else {
                         isLoading = false
-                        errorMessage = "MJPEG stream disconnected: ${e.localizedMessage}"
+                        errorMessage = resources.getString(R.string.player_error_mjpeg_disconnected, e.localizedMessage ?: "")
                     }
                 }
             }
@@ -192,7 +201,7 @@ fun LiveStreamPlayer(
                             errorMessage = null
                         } else if (latestBitmap == null) {
                             isLoading = false
-                            errorMessage = "Snapshot fetch failed. Check network or credentials."
+                            errorMessage = resources.getString(R.string.player_error_snapshot)
                         }
                         delay(delayMs.milliseconds)
                     }
@@ -226,7 +235,7 @@ fun LiveStreamPlayer(
             latestBitmap?.let { bmp ->
                 Image(
                     bitmap = bmp.asImageBitmap(),
-                    contentDescription = "Live Camera Feed",
+                    contentDescription = stringResource(R.string.player_cd_live_feed),
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -277,7 +286,7 @@ fun LiveStreamPlayer(
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Retry Connection", color = MaterialTheme.colorScheme.onErrorContainer)
+                        Text(stringResource(R.string.player_retry_connection), color = MaterialTheme.colorScheme.onErrorContainer)
                     }
                 }
             }

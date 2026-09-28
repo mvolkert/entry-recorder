@@ -41,10 +41,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
 import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
@@ -64,7 +66,7 @@ fun LiveCamerasScreen(
         contentWindowInsets = WindowInsets(0),
         topBar = {
             TopAppBar(
-                title = { Text("Live Intercom View", fontWeight = FontWeight.Bold) }
+                title = { Text(stringResource(R.string.live_title), fontWeight = FontWeight.Bold) }
             )
         }
     ) { paddingValues ->
@@ -90,12 +92,12 @@ fun LiveCamerasScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "No Intercoms Configured",
+                            text = stringResource(R.string.live_empty_title),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Go to the Settings tab to add your 2N IP Verso intercom device.",
+                            text = stringResource(R.string.live_empty_body),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -183,7 +185,7 @@ fun LiveDeviceCard(
                             )
                             Spacer(modifier = Modifier.width(3.dp))
                             Text(
-                                "REC",
+                                stringResource(R.string.live_rec_badge),
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 9.sp,
@@ -217,7 +219,7 @@ fun LiveDeviceCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "${device.ipAddress} (RTSP ${device.rtspPort})",
+                    text = stringResource(R.string.live_device_addr, device.ipAddress, device.rtspPort),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -229,7 +231,7 @@ fun LiveDeviceCard(
                         if (isRecording) {
                             Icon(
                                 imageVector = Icons.Default.StopCircle,
-                                contentDescription = "Stop manual recording",
+                                contentDescription = stringResource(R.string.live_cd_stop_recording),
                                 tint = Color.Red
                             )
                         } else {
@@ -273,7 +275,7 @@ private fun TriggerIndicators(device: DeviceEntity, monitorStatus: MonitorStatus
             Spacer(modifier = Modifier.width(8.dp))
             Icon(
                 imageVector = Icons.Default.Notifications,
-                contentDescription = "Records on doorbell ring",
+                contentDescription = stringResource(R.string.live_cd_ring),
                 modifier = Modifier.size(16.dp),
                 tint = idleTint
             )
@@ -282,7 +284,9 @@ private fun TriggerIndicators(device: DeviceEntity, monitorStatus: MonitorStatus
             Spacer(modifier = Modifier.width(8.dp))
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.DirectionsWalk,
-                contentDescription = if (motionNow) "Motion detected" else "Records on motion",
+                contentDescription = stringResource(
+                    if (motionNow) R.string.live_cd_motion_now else R.string.live_cd_motion
+                ),
                 modifier = Modifier.size(16.dp),
                 tint = if (motionNow) Color(0xFFFFB300) else idleTint
             )
@@ -291,7 +295,7 @@ private fun TriggerIndicators(device: DeviceEntity, monitorStatus: MonitorStatus
             Spacer(modifier = Modifier.width(8.dp))
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.VolumeUp,
-                contentDescription = "Records on noise",
+                contentDescription = stringResource(R.string.live_cd_noise),
                 modifier = Modifier.size(16.dp),
                 tint = idleTint
             )

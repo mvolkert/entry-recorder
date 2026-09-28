@@ -14,9 +14,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
+import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.video.MjpegMkvReader
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -84,14 +87,16 @@ fun JpegFramePlayer(
         val img = frame
         if (refs.isEmpty()) {
             Text(
-                text = if (file.exists()) "No playable frames." else "Recording file not found.",
+                text = stringResource(
+                    if (file.exists()) R.string.player_no_frames else R.string.player_file_not_found
+                ),
                 color = androidx.compose.ui.graphics.Color.White,
                 modifier = Modifier.align(Alignment.Center)
             )
         } else if (img != null) {
             Image(
                 bitmap = img,
-                contentDescription = "Recording frame",
+                contentDescription = stringResource(R.string.player_cd_frame),
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit
             )
@@ -115,7 +120,7 @@ fun JpegFramePlayer(
                 IconButton(onClick = { if (refs.size >= 2) playing = !playing }) {
                     Icon(
                         imageVector = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (playing) "Pause" else "Play",
+                        contentDescription = stringResource(if (playing) R.string.player_cd_pause else R.string.player_cd_play),
                         tint = androidx.compose.ui.graphics.Color.White
                     )
                 }
@@ -126,7 +131,10 @@ fun JpegFramePlayer(
                     modifier = Modifier.weight(1f)
                 )
                 Text(
-                    text = "${currentMs / 1000}s / ${totalMs / 1000}s  •  ${index + 1}/${refs.size}",
+                    text = pluralStringResource(
+                        R.plurals.player_time_frames, refs.size,
+                        currentMs / 1000, totalMs / 1000, index + 1, refs.size
+                    ),
                     color = androidx.compose.ui.graphics.Color.White,
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Medium,

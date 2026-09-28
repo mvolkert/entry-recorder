@@ -77,6 +77,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -84,6 +87,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.ui.components.VideoPlayerModal
@@ -102,6 +106,7 @@ fun RecordingsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val transcodeOnExport by viewModel.transcodeOnExport.collectAsState()
     val exportFolderUri by viewModel.exportFolderUri.collectAsState()
@@ -141,7 +146,11 @@ fun RecordingsScreen(
                 else ExportHelper.saveFileToGallery(context, out, recording)
             } catch (e: Exception) {
                 exportProgress = null
-                Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    context,
+                    resources.getString(R.string.recordings_toast_export_failed, e.message ?: ""),
+                    Toast.LENGTH_LONG
+                ).show()
             }
         }
     }
@@ -152,12 +161,12 @@ fun RecordingsScreen(
     // finalization), so the folder isn't cluttered with near-duplicate, hard-to-play files.
     fun exportToFolder(recording: RecordingEntity) {
         if (exportFolderUri.isBlank()) {
-            Toast.makeText(context, "Set an export folder in Settings first.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, R.string.recordings_toast_set_folder_first, Toast.LENGTH_LONG).show()
             return
         }
         val src = File(recording.filePath)
         if (!src.exists()) {
-            Toast.makeText(context, "Recording file not found", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, R.string.recordings_toast_file_not_found, Toast.LENGTH_SHORT).show()
             return
         }
         val isMjpegMkv = src.extension.equals("mkv", ignoreCase = true)
@@ -183,12 +192,17 @@ fun RecordingsScreen(
                 val label = ExportHelper.safFolderDisplayName(treeUri)
                 Toast.makeText(
                     context,
-                    if (saved) "Exported to $label" else "Export to folder failed",
+                    if (saved) resources.getString(R.string.recordings_toast_exported_to, label)
+                    else resources.getString(R.string.recordings_toast_export_folder_failed),
                     Toast.LENGTH_LONG
                 ).show()
             } catch (e: Exception) {
                 exportProgress = null
-                Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    context,
+                    resources.getString(R.string.recordings_toast_export_failed, e.message ?: ""),
+                    Toast.LENGTH_LONG
+                ).show()
             }
         }
     }
@@ -200,11 +214,11 @@ fun RecordingsScreen(
     fun runBatchExport(kind: String) {
         val targets = state.recordings.filter { it.id in selectedIds }
         if (targets.isEmpty()) {
-            Toast.makeText(context, "Nothing selected", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, R.string.recordings_toast_nothing_selected, Toast.LENGTH_SHORT).show()
             return
         }
         if (kind == "FOLDER" && exportFolderUri.isBlank()) {
-            Toast.makeText(context, "Set an export folder in Settings first.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, R.string.recordings_toast_set_folder_first, Toast.LENGTH_LONG).show()
             return
         }
         batchTotal = targets.size
@@ -239,11 +253,27 @@ fun RecordingsScreen(
 
                 when (kind) {
                     "SHARE" -> if (toShare.isNotEmpty()) ExportHelper.shareFiles(context, toShare)
-                    "GALLERY" -> Toast.makeText(context, "Saved $saved of ${targets.size} to Gallery", Toast.LENGTH_LONG).show()
-                    "FOLDER" -> Toast.makeText(context, "Exported $saved of ${targets.size} to folder", Toast.LENGTH_LONG).show()
+                    "GALLERY" -> Toast.makeText(
+                        context,
+                        context.resources.getQuantityString(
+                            R.plurals.recordings_toast_saved_gallery, targets.size, saved, targets.size
+                        ),
+                        Toast.LENGTH_LONG
+                    ).show()
+                    "FOLDER" -> Toast.makeText(
+                        context,
+                        context.resources.getQuantityString(
+                            R.plurals.recordings_toast_exported_folder, targets.size, saved, targets.size
+                        ),
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    context,
+                    resources.getString(R.string.recordings_toast_export_failed, e.message ?: ""),
+                    Toast.LENGTH_LONG
+                ).show()
             } finally {
                 batchTotal = null
                 batchDone = 0
@@ -272,28 +302,30 @@ fun RecordingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (selectionMode) "${selectedIds.size} selected" else "Recordings Archive",
+                        text = if (selectionMode)
+                            stringResource(R.string.recordings_selected_count, selectedIds.size)
+                        else stringResource(R.string.recordings_title),
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f)
                     )
                     if (selectionMode) {
                         IconButton(onClick = { viewModel.selectAllVisible() }) {
-                            Icon(Icons.Default.SelectAll, contentDescription = "Select all")
+                            Icon(Icons.Default.SelectAll, contentDescription = stringResource(R.string.recordings_cd_select_all))
                         }
                         Box {
                             IconButton(
                                 onClick = { showExportMenu = true },
                                 enabled = selectedIds.isNotEmpty()
                             ) {
-                                Icon(Icons.Default.Upload, contentDescription = "Export selected")
+                                Icon(Icons.Default.Upload, contentDescription = stringResource(R.string.recordings_cd_export_selected))
                             }
                             DropdownMenu(
                                 expanded = showExportMenu,
                                 onDismissRequest = { showExportMenu = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Share…") },
+                                    text = { Text(stringResource(R.string.recordings_share_batch)) },
                                     leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
                                     onClick = {
                                         showExportMenu = false
@@ -301,7 +333,7 @@ fun RecordingsScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Save to Gallery") },
+                                    text = { Text(stringResource(R.string.recordings_save_gallery_menu)) },
                                     leadingIcon = { Icon(Icons.Default.Download, contentDescription = null) },
                                     onClick = {
                                         showExportMenu = false
@@ -309,7 +341,7 @@ fun RecordingsScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Export to Folder") },
+                                    text = { Text(stringResource(R.string.recordings_export_folder_batch)) },
                                     leadingIcon = { Icon(Icons.Default.SaveAlt, contentDescription = null) },
                                     onClick = {
                                         showExportMenu = false
@@ -324,7 +356,7 @@ fun RecordingsScreen(
                         ) {
                             Icon(
                                 Icons.Default.Delete,
-                                contentDescription = "Delete selected",
+                                contentDescription = stringResource(R.string.recordings_cd_delete_selected),
                                 tint = MaterialTheme.colorScheme.error
                             )
                         }
@@ -332,16 +364,19 @@ fun RecordingsScreen(
                             selectionMode = false
                             viewModel.clearSelection()
                         }) {
-                            Icon(Icons.Default.Close, contentDescription = "Exit selection")
+                            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.recordings_cd_exit_selection))
                         }
                     } else {
                         IconButton(onClick = { selectionMode = true }) {
-                            Icon(Icons.Default.Checklist, contentDescription = "Select multiple")
+                            Icon(Icons.Default.Checklist, contentDescription = stringResource(R.string.recordings_cd_select_multiple))
                         }
                     }
                 }
                 Text(
-                    text = "Total storage: ${Formatter.formatFileSize(context, state.totalStorageBytes)}",
+                    text = stringResource(
+                        R.string.recordings_total_storage,
+                        Formatter.formatFileSize(context, state.totalStorageBytes)
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -353,12 +388,12 @@ fun RecordingsScreen(
                     value = state.searchQuery,
                     onValueChange = { viewModel.setSearchQuery(it) },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Search by device name or note...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                    placeholder = { Text(stringResource(R.string.recordings_search_placeholder)) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = stringResource(R.string.recordings_cd_search)) },
                     trailingIcon = {
                         if (state.searchQuery.isNotEmpty()) {
                             IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear")
+                                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.recordings_cd_clear))
                             }
                         }
                     },
@@ -376,35 +411,35 @@ fun RecordingsScreen(
                         FilterChip(
                             selected = state.selectedEventType == null,
                             onClick = { viewModel.selectEventTypeFilter(null) },
-                            label = { Text("All Events") }
+                            label = { Text(stringResource(R.string.recordings_filter_all_events)) }
                         )
                     }
                     item {
                         FilterChip(
                             selected = state.selectedEventType == EventType.RING,
                             onClick = { viewModel.selectEventTypeFilter(EventType.RING) },
-                            label = { Text("🔔 Doorbell Rings") }
+                            label = { Text(stringResource(R.string.recordings_filter_ring)) }
                         )
                     }
                     item {
                         FilterChip(
                             selected = state.selectedEventType == EventType.MOTION,
                             onClick = { viewModel.selectEventTypeFilter(EventType.MOTION) },
-                            label = { Text("👁 Motion") }
+                            label = { Text(stringResource(R.string.recordings_filter_motion)) }
                         )
                     }
                     item {
                         FilterChip(
                             selected = state.selectedEventType == EventType.NOISE,
                             onClick = { viewModel.selectEventTypeFilter(EventType.NOISE) },
-                            label = { Text("🔊 Noise") }
+                            label = { Text(stringResource(R.string.recordings_filter_noise)) }
                         )
                     }
                     item {
                         FilterChip(
                             selected = state.selectedEventType == EventType.MANUAL,
                             onClick = { viewModel.selectEventTypeFilter(EventType.MANUAL) },
-                            label = { Text("✋ Manual") }
+                            label = { Text(stringResource(R.string.recordings_filter_manual)) }
                         )
                     }
                 }
@@ -420,7 +455,7 @@ fun RecordingsScreen(
                             FilterChip(
                                 selected = state.selectedDeviceId == null,
                                 onClick = { viewModel.selectDeviceFilter(null) },
-                                label = { Text("📷 All devices") }
+                                label = { Text(stringResource(R.string.recordings_filter_all_devices)) }
                             )
                         }
                         items(state.devices, key = { "dev_${it.id}" }) { device ->
@@ -453,7 +488,7 @@ fun RecordingsScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "No recordings found.",
+                        text = stringResource(R.string.recordings_empty),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -495,8 +530,8 @@ fun RecordingsScreen(
     recordingToDelete?.let { rec ->
         AlertDialog(
             onDismissRequest = { recordingToDelete = null },
-            title = { Text("Delete Recording?") },
-            text = { Text("Are you sure you want to delete this recording from ${rec.deviceName}?") },
+            title = { Text(stringResource(R.string.recordings_delete_title)) },
+            text = { Text(stringResource(R.string.recordings_delete_body, rec.deviceName)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -504,12 +539,12 @@ fun RecordingsScreen(
                         recordingToDelete = null
                     }
                 ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { recordingToDelete = null }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.action_cancel))
                 }
             }
         )
@@ -519,20 +554,20 @@ fun RecordingsScreen(
     if (showBulkDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showBulkDeleteConfirm = false },
-            title = { Text("Delete ${selectedIds.size} recording(s)?") },
-            text = { Text("This permanently deletes the selected recordings and their files. This cannot be undone.") },
+            title = { Text(pluralStringResource(R.plurals.recordings_bulk_delete_title, selectedIds.size, selectedIds.size)) },
+            text = { Text(stringResource(R.string.recordings_bulk_delete_body)) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.deleteSelected()
                     showBulkDeleteConfirm = false
                     selectionMode = false
                 }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showBulkDeleteConfirm = false }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.action_cancel))
                 }
             }
         )
@@ -542,10 +577,10 @@ fun RecordingsScreen(
     exportProgress?.let { pct ->
         AlertDialog(
             onDismissRequest = {},
-            title = { Text("Preparing export…") },
+            title = { Text(stringResource(R.string.recordings_export_progress_title)) },
             text = {
                 Column {
-                    Text("Converting to H.264 for universal playback…  $pct%")
+                    Text(stringResource(R.string.recordings_export_progress_body, pct))
                     Spacer(modifier = Modifier.height(12.dp))
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
@@ -559,10 +594,10 @@ fun RecordingsScreen(
     batchTotal?.let { total ->
         AlertDialog(
             onDismissRequest = {},
-            title = { Text("Exporting…") },
+            title = { Text(stringResource(R.string.recordings_batch_progress_title)) },
             text = {
                 Column {
-                    Text("Processing $batchDone of $total recording(s)…")
+                    Text(stringResource(R.string.recordings_batch_progress_body, batchDone, total))
                     Spacer(modifier = Modifier.height(12.dp))
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
@@ -627,7 +662,7 @@ fun RecordingCardItem(
                 if (recording.thumbnailPath != null && File(recording.thumbnailPath).exists()) {
                     AsyncImage(
                         model = File(recording.thumbnailPath),
-                        contentDescription = "Thumbnail",
+                        contentDescription = stringResource(R.string.recordings_cd_thumbnail),
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
                     )
@@ -647,7 +682,7 @@ fun RecordingCardItem(
                 // Play icon overlay
                 Icon(
                     imageVector = Icons.Default.PlayCircle,
-                    contentDescription = "Play",
+                    contentDescription = stringResource(R.string.recordings_cd_play),
                     tint = Color.White.copy(alpha = 0.85f),
                     modifier = Modifier.size(32.dp)
                 )
@@ -699,7 +734,11 @@ fun RecordingCardItem(
                 )
 
                 Text(
-                    text = "${recording.durationSeconds}s • $sizeStr",
+                    text = stringResource(
+                        R.string.recordings_duration_size,
+                        recording.durationSeconds,
+                        sizeStr
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -710,7 +749,7 @@ fun RecordingCardItem(
 
             Box {
                 IconButton(onClick = { menuExpanded = true }) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "Options")
+                    Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.recordings_cd_options))
                 }
 
                 DropdownMenu(
@@ -718,7 +757,7 @@ fun RecordingCardItem(
                     onDismissRequest = { menuExpanded = false }
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Export to folder") },
+                        text = { Text(stringResource(R.string.recordings_export_folder_menu)) },
                         leadingIcon = { Icon(Icons.Default.SaveAlt, contentDescription = null) },
                         onClick = {
                             menuExpanded = false
@@ -726,7 +765,7 @@ fun RecordingCardItem(
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("Share") },
+                        text = { Text(stringResource(R.string.recordings_share_menu)) },
                         leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
                         onClick = {
                             menuExpanded = false
@@ -734,7 +773,7 @@ fun RecordingCardItem(
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("Save to Gallery") },
+                        text = { Text(stringResource(R.string.recordings_save_gallery_menu)) },
                         leadingIcon = { Icon(Icons.Default.Download, contentDescription = null) },
                         onClick = {
                             menuExpanded = false
@@ -742,7 +781,14 @@ fun RecordingCardItem(
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text(if (recording.isProtected) "Unprotect" else "Protect against Auto-Cleanup") },
+                        text = {
+                            Text(
+                                stringResource(
+                                    if (recording.isProtected) R.string.recordings_unprotect
+                                    else R.string.recordings_protect
+                                )
+                            )
+                        },
                         leadingIcon = {
                             Icon(
                                 if (recording.isProtected) Icons.Default.LockOpen else Icons.Default.Lock,
@@ -756,7 +802,7 @@ fun RecordingCardItem(
                     )
                     HorizontalDivider(Modifier, DividerDefaults.Thickness, DividerDefaults.color)
                     DropdownMenuItem(
-                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                        text = { Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error) },
                         leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
                         onClick = {
                             menuExpanded = false
