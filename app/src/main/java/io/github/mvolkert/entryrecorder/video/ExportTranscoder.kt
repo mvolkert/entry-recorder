@@ -51,7 +51,7 @@ object ExportTranscoder {
 
         H264Encoder(w, h, fps, bitrate).use { encoder ->
             encoder.start()
-            Fmp4StreamMuxer(outFile, width = w, height = h, fps = fps).use { muxer ->
+            Fmp4StreamMuxer(outFile, fps = fps).use { muxer ->
                 var configured = false
                 val firstTs = refs.first().timestampMs
 

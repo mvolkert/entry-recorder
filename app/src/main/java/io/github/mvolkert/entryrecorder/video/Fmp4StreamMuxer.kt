@@ -3,8 +3,7 @@ package io.github.mvolkert.entryrecorder.video
 import android.util.Log
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.FileOutputStream
-import java.io.OutputStream
+import java.io.RandomAccessFile
 
 /**
  * Pure Kotlin, crash-resilient fragmented-MP4 (fMP4) streaming muxer for H.264 (AVC) video.
@@ -13,8 +12,10 @@ import java.io.OutputStream
  * ExoPlayer, VLC and gallery apps read it, whereas Matroska plays only in lenient players. Like
  * [MkvStreamMuxer] for raw MJPEG capture, this writer is append-only: the `moov` is a template
  * written up front (empty sample tables + `mvex`), and samples live in self-contained
- * `moof`+`mdat` fragment pairs flushed at every keyframe (and forced ~1s without one). A crash
- * loses at most the fragment in progress — never the whole file (no trailing `moov` patch-up).
+ * `moof`+`mdat` fragment pairs flushed at every keyframe (and forced ~1 s without one). A crash
+ * loses at most the fragment in progress. On a clean [close] the file is finalized in place —
+ * `mvhd`/`tkhd`/`mdhd` durations patched and a trailing `mfra` seek table appended — so strict
+ * players (VLC) that rely on the declared timeline instead of showing 00:00 / a black screen.
  *
  * Byte layout mirrors ffmpeg's `-movflags +frag_keyframe+empty_moov+default_base_moof` output:
  * - Timescale 1000 (1 tick = 1 ms), so frame timestamps map 1:1; this pipeline is B-frame-free
@@ -29,27 +30,40 @@ import java.io.OutputStream
  */
 class Fmp4StreamMuxer(
     outputFile: File,
-    private val width: Int = 1280,
-    private val height: Int = 720,
     fps: Int = 5,
     private val trackId: Int = 1,
 ) : AutoCloseable {
 
     private val tag = "Fmp4StreamMuxer"
-    private var fos: FileOutputStream? = null
+    private val raf: RandomAccessFile
     private var isHeaderWritten = false
 
     private val defaultSampleDurationMs = (1000L / fps.coerceIn(1, 30)).coerceAtLeast(1L)
+
+    // Absolute file offsets of the u32 duration fields, recorded when the moov is laid out.
+    private var mvhdDurPos = -1L
+    private var tkhdDurPos = -1L
+    private var mdhdDurPos = -1L
+    private var moovStart = -1L
 
     // Current fragment: samples buffered in memory so moof+mdat land as one atomic pair.
     private val samplePayloads = ArrayList<ByteArray>()
     private val sampleFlags = ArrayList<Int>()
     private var fragmentStartMs = 0L
+    private var lastSamplePtsMs = 0L
     private var sequenceNumber = 0
+
+    // Per-fragment records for the trailing mfra/tfra seek table written at finalize.
+    private class FragmentRecord(val moofOffset: Long, val startMs: Long)
+    private val fragmentRecords = ArrayList<FragmentRecord>()
+    private var totalDurationMs = 0L
 
     init {
         outputFile.parentFile?.mkdirs()
-        fos = FileOutputStream(outputFile)
+        raf = RandomAccessFile(outputFile, "rw")
+        // "rw" does not truncate: clear any bytes from a previous (re-run) export so a shorter
+        // rewrite cannot leave stale trailing data after the finalized mfra.
+        raf.setLength(0)
         // Header is written on configureH264() because the avcC is only known then.
     }
 
@@ -60,11 +74,16 @@ class Fmp4StreamMuxer(
     @Synchronized
     fun configureH264(codecPrivate: ByteArray, width: Int, height: Int) {
         if (isHeaderWritten) return
-        val stream = fos ?: return
         try {
-            writeFull(stream, "ftyp", ftypPayload())
-            writeFull(stream, "moov", moovPayload(codecPrivate, width, height))
-            stream.flush()
+            writeFull(raf, "ftyp", ftypPayload())
+            moovStart = raf.length()
+            writeFull(raf, "moov", moovPayload(codecPrivate, width, height))
+            // The v0 duration fields sit at fixed intra-box offsets and the moov layout is static
+            // (mvhd is moov's first child; tkhd/mdhd are the first child of trak/mdia), so the
+            // absolute patch positions are derived once here from the recorded moov start.
+            mvhdDurPos = moovStart + MVHD_DURATION_OFF
+            tkhdDurPos = moovStart + TKHD_DURATION_OFF
+            mdhdDurPos = moovStart + MDHD_DURATION_OFF
             isHeaderWritten = true
         } catch (e: Exception) {
             Log.e(tag, "Failed to write fMP4 header", e)
@@ -78,16 +97,16 @@ class Fmp4StreamMuxer(
      */
     @Synchronized
     fun writeH264Frame(annexBByteStream: ByteArray, timestampMs: Long, isKeyframe: Boolean) {
-        val stream = fos ?: return
         if (!isHeaderWritten) return
         if (samplePayloads.isNotEmpty() && (isKeyframe || timestampMs - fragmentStartMs >= 1000L)) {
-            flushFragment(stream)
+            flushFragment(raf)
         }
         if (samplePayloads.isEmpty()) fragmentStartMs = timestampMs
 
         val avcc = annexBToLengthPrefixed(annexBByteStream)
         if (avcc.isEmpty()) return
         samplePayloads.add(avcc)
+        lastSamplePtsMs = timestampMs
         // sample_depends_on = 2 (intra/I) marks a sync sample, 1 (inter/P) a dependent one.
         // Carried per sample (trun flag 0x000400) so players seek on fragment-leading keyframes.
         sampleFlags.add(if (isKeyframe) SYNC_SAMPLE_FLAGS else DEPENDENT_SAMPLE_FLAGS)
@@ -96,19 +115,23 @@ class Fmp4StreamMuxer(
     /** Writes the buffered samples as one `moof`+`mdat` pair and clears the buffer. */
     @Synchronized
     fun flushFragment() {
-        val stream = fos ?: return
-        flushFragment(stream)
+        if (!isHeaderWritten) return
+        flushFragment(raf)
     }
 
     @Synchronized
-    private fun flushFragment(stream: OutputStream) {
+    private fun flushFragment(stream: RandomAccessFile) {
         if (samplePayloads.isEmpty()) return
         try {
             val payloadSize = samplePayloads.sumOf { it.size }
-            writeFull(stream, "moof", moofPayload(payloadSize))
+            val startMs = fragmentStartMs
+            val moofOffset = stream.filePointer               // absolute position of this moof (for mfra/tfra)
+            writeFull(stream, "moof", moofPayload())
             writeMdat(stream, payloadSize)
             samplePayloads.forEach { stream.write(it) }
-            stream.flush()
+            val durationMs = (lastSamplePtsMs + defaultSampleDurationMs - startMs).coerceAtLeast(0L)
+            fragmentRecords.add(FragmentRecord(moofOffset, startMs))
+            totalDurationMs = (startMs + durationMs).coerceAtLeast(totalDurationMs)
         } catch (e: Exception) {
             Log.e(tag, "Error flushing fragment to disk", e)
         } finally {
@@ -120,7 +143,7 @@ class Fmp4StreamMuxer(
 
     // ---- fragment payloads ----
 
-    private fun moofPayload(mdatPayloadSize: Int): ByteArray {
+    private fun moofPayload(): ByteArray {
         val mfhd = u32(sequenceNumber)                                  // fragment_sequence_number
 
         // tfhd: defaultBaseIsMoof + default_sample_duration + default_sample_size + default_sample_flags.
@@ -197,14 +220,14 @@ class Fmp4StreamMuxer(
             box("stco", fullBody(0, 0, u32(0)))
         )
         val minf = ba(box("vmhd", fullBody(0, 1, vmhd)), dinf, box("stbl", stbl))
-        val mdia = ba(
+        val mdiaContent = ba(
             box("mdhd", fullBody(0, 0, mdhd)),
             box("hdlr", fullBody(0, 0, hdlr)),
             box("minf", minf)
         )
         val trak = ba(
             box("tkhd", fullBody(0, TKHD_FLAGS_ENABLED, tkhd.toByteArray())),
-            mdia
+            box("mdia", mdiaContent)                                      // ISO requires mdia to wrap mdhd/hdlr/minf inside trak
         )
         val trex = ba(
             u32(trackId), u32(1),                                        // track_ID, default_sample_description_index (1-based -> stsd entry 1)
@@ -287,21 +310,15 @@ class Fmp4StreamMuxer(
 
     // ---- low-level ISO-BMFF box primitives (32-bit sizes; mdat falls back to 64-bit) ----
 
-    private fun writeFull(stream: OutputStream, type: String, payload: ByteArray) {
+    private fun writeFull(stream: RandomAccessFile, type: String, payload: ByteArray) {
         stream.write(uint32Bytes(8 + payload.size))
         stream.write(type.toByteArray(Charsets.US_ASCII))
         stream.write(payload)
     }
 
-    private fun writeMdat(stream: OutputStream, payloadSize: Int) {
-        if (payloadSize + 8L > 0xFFFFFFF0L) {
-            stream.write(uint32Bytes(1))
-            stream.write("mdat".toByteArray(Charsets.US_ASCII))
-            stream.write(uint64Bytes(16L + payloadSize))          // 64-bit size includes the 16-byte header
-        } else {
-            stream.write(uint32Bytes(8 + payloadSize))            // header size spans the payload that follows
-            stream.write("mdat".toByteArray(Charsets.US_ASCII))
-        }
+    private fun writeMdat(stream: RandomAccessFile, payloadSize: Int) {
+        stream.write(uint32Bytes(8 + payloadSize))            // header size spans the payload that follows
+        stream.write("mdat".toByteArray(Charsets.US_ASCII))
     }
 
     private fun box(type: String, payload: ByteArray): ByteArray =
@@ -311,7 +328,6 @@ class Fmp4StreamMuxer(
         ba(uint32Bytes((version shl 24) or (flags and 0xFFFFFF)), *parts)
 
     private fun u32(v: Int): ByteArray = uint32Bytes(v)
-    private fun u32(v: Long): ByteArray = uint32Bytes(v.toInt())
     private fun i32(v: Int): ByteArray = uint32Bytes(v)
     private fun u64(v: Long): ByteArray = uint64Bytes(v)
     private fun u16(v: Int): ByteArray = byteArrayOf(((v ushr 8) and 0xFF).toByte(), (v and 0xFF).toByte())
@@ -348,15 +364,84 @@ class Fmp4StreamMuxer(
 
     override fun close() {
         try {
-            flushFragment()
-            fos?.flush()
-            fos?.close()
-        } catch (_: Exception) {}
-        fos = null
+            if (isHeaderWritten) {
+                flushFragment()
+                finalizeTimeline()
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to finalize fMP4 timeline", e)
+        } finally {
+            runCatching { raf.close() }
+        }
+    }
+
+    /**
+     * Strict players (VLC) key off the declared `mvhd`/`tkhd`/`mdhd` durations and a trailing
+     * `mfra` seek table instead of reconstructing the timeline from fragments the way
+     * ffmpeg/ExoPlayer/browsers do. `+empty_moov` writes those durations as 0 and emits no `mfra`,
+     * so on a clean close we seek back to patch them and append the seek table. An interrupted
+     * export never reaches here and keeps the append-only fragment stream as-is — the tail
+     * metadata is purely additive on normal completion, so crash resilience of the writer is intact.
+     */
+    private fun finalizeTimeline() {
+        val duration = totalDurationMs.toInt()               // timescale 1000 => ticks == ms
+        patchDuration(mvhdDurPos, duration, guardAt = mvhdDurPos - 4, expect = TIMECODE_SCALE_MS)
+        patchDuration(mdhdDurPos, duration, guardAt = mdhdDurPos - 4, expect = TIMECODE_SCALE_MS)
+        patchDuration(tkhdDurPos, duration, guardAt = tkhdDurPos - 8, expect = trackId)
+        raf.seek(raf.length())
+        writeFull(raf, "mfra", mfraPayload())
+    }
+
+    /**
+     * Writes a u32 duration at [pos]. [guardAt] names a neighbouring field that must read back as
+     * [expect] before patching — a cheap self-check so a layout drift can never silently corrupt
+     * unrelated bytes (mvhd/mdhd precede their duration with the timescale; tkhd with its track_ID).
+     */
+    private fun patchDuration(pos: Long, duration: Int, guardAt: Long, expect: Int) {
+        if (pos < 0) return
+        raf.seek(guardAt)
+        if (raf.readInt() != expect) {
+            Log.w(tag, "Skipping duration patch at 0x%x: guard field mismatch".format(pos))
+            return
+        }
+        raf.seek(pos)
+        raf.writeInt(duration)
+    }
+
+    /**
+     * Mirrors ffmpeg's `mov_write_mfra_tag` byte-for-byte (the exact container form that plays in
+     * VLC): an `mfra` holding a single `tfra` (version 1: track_ID, a 32-bit zero length-size word,
+     * entry_count, then per fragment `time(64) + moof_offset(64) + traf/trun/sample numbers` as
+     * three single-byte fields) followed by an `mfro` whose payload carries the total `mfra` size.
+     * No `mfhd` — ffmpeg omits it too, and VLC accepts that form.
+     */
+    private fun mfraPayload(): ByteArray {
+        val entries = ByteArrayOutputStream(fragmentRecords.size * 20)
+        for (r in fragmentRecords) {
+            entries.write(u64(r.startMs))                    // time: fragment start in the 1000 media timescale
+            entries.write(u64(r.moofOffset))                 // moof_offset: absolute position of the moof box
+            entries.write(1); entries.write(1); entries.write(1)  // one traf, one trun, leading sample
+        }
+        val tfra = box(
+            "tfra",
+            fullBody(1, 0, ba(u32(trackId), u32(0), u32(fragmentRecords.size), entries.toByteArray()))
+        )
+        val mfraSize = 8 + tfra.size + 16                    // mfra header + tfra + mfro(16)
+        val mfro = box("mfro", fullBody(0, 0, u32(mfraSize)))
+        return ba(tfra, mfro)
     }
 
     companion object {
         private const val TIMECODE_SCALE_MS = 1000
+        // Absolute offset (from the moov box start) of the v0 duration u32 in each header box, for
+        // the finalize patch. mvhd is moov's first child and is the canonical 108 bytes, so its
+        // duration is at +32; trak then starts at +116, making tkhd (trak's first child, duration at
+        // boxStart+28) +152; mdhd (first child of mdia, after the 92-byte tkhd, duration at
+        // boxStart+24) is +248. These mirror ffmpeg's own canonical layout. Every patch is guarded
+        // in patchDuration against a neighbouring known field, so a drift cannot corrupt bytes.
+        private const val MVHD_DURATION_OFF = 32L
+        private const val TKHD_DURATION_OFF = 152L
+        private const val MDHD_DURATION_OFF = 248L
         // tfhd: default_base_is_moof(0x20000) | default_sample_duration(0x08) | default_sample_size(0x10)
         //        | default_sample_flags(0x20)
         private const val TFHD_FLAGS = 0x020000 or 0x000008 or 0x000010 or 0x000020

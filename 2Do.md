@@ -1,10 +1,8 @@
 # EntryRecorder – Implementation Phases
 
 
-## To Check
-- (resolved by the dual-container split below) Web UI MKV playback — new encoded recordings are now
-  fragmented MP4 and play inline in every browser; MKV remains only for raw-MJPEG / legacy rows via
-  the download-in-VLC fallback.
+## Bug
+- Notification is not the correct new Launcher icon
 
 Reorganized from the code & feature review, re-verified against the current codebase
 (`app/`, `server/`, `.github/`) on 2026-09-27; **task list re-sorted by invasiveness (minimal →
@@ -25,9 +23,14 @@ Legend: `[x]` implemented · `[~]` partially implemented / needs validation · `
   clusters survive an abort (MP4's trailing `moov` is unrecoverable on abort), and Matroska is the more
   reliable container for MJPEG (VLC/MX play it). **fragmented MP4 (fMP4) is the universal, playable
   deliverable for encoded H.264** — the server encoded recording paths (RTSP H.264 copy, snapshot
-  libx264) and the phone export transcode emit `+frag_keyframe+empty_moov+default_base_moof` MP4,
-  playable in browsers / ExoPlayer / VLC / gallery, with the same append-only crash resilience (a crash
-  loses at most the current fragment — no trailing patch-up).
+  libx264) and the phone export transcode emit fragmented MP4 (`+frag_keyframe+empty_moov+default_base_moof`
+  via ffmpeg on the server; the pure-Kotlin `Fmp4StreamMuxer` on the phone). **The phone muxer finalizes the
+  file in place on close** — it patches the `mvhd`/`tkhd`/`mdhd` durations and appends an `mfra` seek table —
+  because a bare `+empty_moov` fragment stream (durations 0, no `mfra`) shows 00:00/black in strict demuxers
+  (VLC) even though lenient players (browsers / ExoPlayer / MX) rebuild the timeline from the fragments.
+  *Caveat:* capture stays append-only, but this trailing finalize runs only on a normal close; a hard
+  crash/kill mid-export can leave that one file un-finalized (strict players show 00:00) — it self-heals on
+  the next completed export/share/transcode (whole-file re-encode).
   *Rejected alternative:* put the raw MJPEG into fMP4 too — MJPEG-in-fMP4 is less reliable for
   third-party players than MJPEG-in-MKV and no browser gains playback; only re-encode-at-capture
   (rejected below: CPU/battery) could fully unify the container.
@@ -180,8 +183,13 @@ none of this is verifiable from the build.
       (`ForegroundServiceStartNotAllowedException` regression check).
 
 ## Pipeline note 🔄
-- [ ] After Tier F's color-format change (if/when done): exported H.264 fragmented MP4 must play in
-      strict players like VLC (test spec) — same gate as the original Phase 0 export validation.
+- [x] Exported H.264 fragmented MP4 plays in strict players like VLC — device-validated 2026-09-28. This
+      required fixing the `Fmp4StreamMuxer` container first (in-place durations + `mfra` finalize, plus the
+      missing `mdia` wrapper inside `trak`), NOT just Tier F's color-format change. (Browser/Chrome inline
+      playback of the phone export not re-checked on a real browser; server fMP4 uses ffmpeg's own frag
+      writer, which already emits `mfra`.)
+- [ ] After Tier F's color-format change (if/when done): re-run the same exported-fMP4-in-VLC gate (the
+      color-format change could regress playback) — same spec as the original Phase 0 export validation.
 
 ---
 
@@ -234,6 +242,13 @@ Compact record of everything completed in the former phases, re-verified 2026-09
   unchanged. `main.py` `/video` maps non-`.mkv` → `video/mp4` (existing suffix logic). Web UI warning
   reworded for the fMP4 default. Validated headless: `assembleDebug` green + JVM/ffprobe round-trip of
   the phone muxer (mov,mp4 demuxer, decodable h264); exact server movflags through ffmpeg + ffprobe.
+- **fMP4 export VLC fix (2026-09-28)**: `Fmp4StreamMuxer.finalizeTimeline()` (called from `close()`) now
+  seeks back to patch the `mvhd`/`tkhd`/`mdhd` durations and appends an ffmpeg byte-compatible
+  `mfra`/`tfra` seek table; also fixed a structural defect where `mdhd/hdlr/minf` were written as direct
+  `trak` children instead of inside the required `mdia` box. A bare `+empty_moov` fragment stream (durations
+  0, no `mfra`) rendered 00:00/black in strict demuxers (VLC) while browsers/ExoPlayer/MX rebuilt the
+  timeline from the fragments. Off-device: `ffprobe` reports duration 2.0 (not 0.0) and full decode is
+  clean; on-device: exported `_h264.mp4` now plays in VLC (owner, 2026-09-28).
 - ✅ Bug #1 — MJPEG-in-MKV playback (hybrid cheap capture + player + transcode-on-export).
 - ✅ Bug #2 — export MIME/extension derived from actual file.
 - ✅ Bug #8 — SAF export folder + pure Share + Save-to-Gallery.
