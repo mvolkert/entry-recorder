@@ -79,7 +79,7 @@ docker compose up -d
 ```
 
 - **Web-Dashboard**: Erreichbar unter `http://<server-ip>:8000` im Webbrowser (Live-Aufnahmestatus, Videogalerie mit HTML5-Player, Download, Retention Cleanup und manuelle Aufnahmetrigger).
-- **REST API**: `/api/status`, `/api/recordings/start`, `/api/recordings/stop`, `/api/recordings`.
+- **REST API**: `/api/status`, `/api/recordings/start`, `/api/recordings/stop`, `/api/recordings`. Alle Endpunkte akzeptieren den API-Key im `X-API-Key`-Header (bzw. `api_key`-Query-Parameter für Media-/Live-Endpunkte), sobald auf dem Server ein `API_KEY` gesetzt ist.
 
 ---
 

@@ -69,19 +69,23 @@ When `API_KEY` is set in the server environment, enter the same value in the And
 
 ### Recording Request Example
 
-The Android app sends a JSON request like this to `POST /api/recordings/start`:
+The Android app sends a JSON request like this to `POST /api/recordings/start` (fields shown as the app's `StartServerRecordingPayload` sends them):
 
 ```json
 {
   "device_id": 1,
   "device_name": "Front Door 2N Verso",
   "rtsp_url": "rtsp://192.168.1.50:554/stream1",
+  "snapshot_url": "http://192.168.1.50:80/api/camera/snapshot",
   "username": "entry-recorder",
   "password": "replace-with-your-password",
-  "source_mode": "rtsp",
   "event_type": "RING",
-  "duration_seconds": 60
+  "duration_seconds": 60,
+  "source_mode": "auto",
+  "note": null
 }
 ```
+
+`source_mode` is always `"auto"` from the app (prefer RTSP, fall back to HTTP snapshots); `"rtsp"` or `"snapshot"` force one source — the Web UI trigger form offers all three. `note` is optional (`null` from the app today, settable via the Web UI). Omitting `username`/`password` makes the server fall back to the credentials stored for a known device, so clients never need to receive the device password.
 
 Send `{"device_id": 1}` to `POST /api/recordings/stop` to stop that device's active recording.
