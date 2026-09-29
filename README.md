@@ -89,7 +89,7 @@ docker compose up -d
 ```
 
 - **Web-Dashboard**: Erreichbar unter `http://<server-ip>:8000` im Webbrowser (Live-Aufnahmestatus, Videogalerie mit HTML5-Player, Download, Retention Cleanup und manuelle Aufnahmetrigger).
-- **REST API**: `/api/status`, `/api/recordings/start`, `/api/recordings/stop`, `/api/recordings`. Authentifizierung ist **verpflichtend**: jeder Endpunkt verlangt den API-Key im `X-API-Key`-Header (bzw. `api_key`-Query-Parameter für Media-/Live-Endpunkte). Ist auf dem Server kein `API_KEY` in der `.env` gesetzt, erzeugt der Server beim ersten Start automatisch einen, speichert ihn in `data/.api_key` und gibt ihn im Log aus — diesen Wert in den App-Einstellungen und im Web-UI eintragen. Bestehende Installationen ohne Key müssen entsprechend umgestellt werden.
+- **REST API**: `/api/status`, `/api/recordings/start`, `/api/recordings/stop`, `/api/recordings`. Authentifizierung ist **verpflichtend**: jeder Endpunkt verlangt den API-Key im `X-API-Key`-Header (bzw. `api_key`-Query-Parameter für Media-/Live-Endpunkte). Ist auf dem Server kein `API_KEY` in der `.env` gesetzt, erzeugt der Server beim ersten Start automatisch einen, speichert ihn in `data/.api_key` und gibt ihn im Log aus — diesen Wert in den App-Einstellungen und im Web-UI eintragen. Bestehende Installationen ohne Key müssen entsprechend umgestellt werden. Das Web-UI fragt den Key beim ersten Aufruf pro Browser ab (oder über `?api_key=` in der Adresszeile), legt ihn im `localStorage` ab und nutzt ihn als `X-API-Key`-Header sowie als `api_key`-Parameter für Thumbnail-, Live- und Player-URLs; der 🔑-Knopf in der Kopfzeile setzt ihn zurück. Achtung: ein per URL übertragener Key landet im Browserverlauf und in den Server-Access-Logs.
 
 ---
 

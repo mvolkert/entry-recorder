@@ -54,6 +54,25 @@ Single-file, non-behavioral or config-only changes.
 - [x] **Docs: README server-API example** – payload example now mirrors the real `StartServerRecordingPayload`
       (`source_mode: "auto"`, `snapshot_url`, `note`) + credential-fallback and `X-API-Key` prose.
       Files: `README.md`, `server/README.md` (done 2026-09-28)
+- [x] **Server: Web UI supplies the mandatory API key** – Tier B's always-reject auth broke the dashboard:
+      `index.html` had no key handling at all and the server returns bare `video_url`/`thumbnail_url`/`live_url`
+      without the `api_key` query parameter `verify_api_key` accepts, so every `fetch` and every media tag got a
+      401 — and the `<video>` 401 even masqueraded as "browser cannot play this file". Now: key prompted once per
+      browser (or taken from `?api_key=` in the page URL), kept in `localStorage`, sent as `X-API-Key` on every
+      API call (13 `apiFetch()` sites, incl. the new probe; it re-prompts once on 401, then locks with an alert
+      instead of re-prompting on the 5 s poll — the 🔑 header button resets), and appended via `apiUrl()` to
+      thumbnail / live / player / download URLs. `openPlayerModal` additionally probes the video URL with an
+      authenticated HEAD and reports `401/403/404` as `server returned HTTP <status>`, while a real container
+      failure now reports its `MediaError` code in `#playback-warn-detail` — the two cases are no longer
+      confusable, which was the point of the playback note below. Other probe statuses still attempt playback.
+      Verified off-browser: `node server/tests/webui_auth_harness.mjs server/entry_recorder_server/static/index.html`
+      → 26/26 (runs the real inline script in a VM with DOM/fetch stubs: header injection, `?api_key=` on
+      thumbnail/live/player/download URLs, the 401 re-prompt-once + lock rule, and the fallback wording).
+      Docs updated in both READMEs.
+      ⚠️ Not verified: the server was not booted (no `fastapi`/`uvicorn` in this environment); Starlette's
+      automatic HEAD-for-GET support is assumed.
+      Files: `server/entry_recorder_server/static/index.html`, `server/tests/webui_auth_harness.mjs` (new),
+      `README.md`, `server/README.md` (done 2026-09-29)
 - [~] **Server: web UI playback note (dual-container aware)** – playback modal shows `#mkv-hint` and,
       on `video.onerror`, a `#playback-warn` with a "Download this recording" link. Reworded for the
       dual-container split: new recordings are fragmented MP4 and play inline everywhere; the warning
@@ -61,14 +80,44 @@ Single-file, non-behavioral or config-only changes.
       Server run verified 2026-09-28 (`uvicorn` boots, updated HTML served with all fallback markers;
       `/api/recordings/{id}/video` maps `.mkv` → `video/x-matroska`, otherwise → `video/mp4` via the
       existing suffix branch — the new `.mp4` files are served inline).
-      ⚠️ Remaining (needs a real GUI browser + a real capture, not reproducible headless): confirm an
-      inline `<video>` plays the new fMP4 in Chrome/Edge/Firefox/Safari, and that a legacy MKV fires
-      `onerror` → the download/VLC warning.
+      ⚠️ Remaining (owner, real browser): the checklist below. Was previously blocked by the missing
+      Web-UI auth (fixed above), which made every recording look unplayable.
       File: `server/entry_recorder_server/static/index.html`
+
+  ### Owner checklist — Firefox (the one GUI-browser gate left in Tier A)
+  Prereq: server running (`cd server; entry-recorder-server`) and its key — `.env` `API_KEY` or the generated
+  one in `server/data/.api_key`. Open `http://<server>:8000/`, enter that key when prompted.
+  Data needed: one **fMP4** row (any recording made after the 2026-09-28 dual-container change) and one
+  **legacy `.mkv`** row (an old capture, or the no-FFmpeg snapshot fallback).
+
+  1. **Auth wiring** — stats, live cards and thumbnails all render (no empty grid, no console 401s, and no
+     "API key was rejected" alert). Fail = auth regression, stop here; the rest is meaningless.
+  2. **Key change** — click 🔑, enter a wrong key → expect exactly **one** alert plus a redacted retry, and the
+     poll must not keep prompting every 5 s. Re-enter the right key → page recovers.
+  3. **fMP4 inline** — click the MP4 card's thumbnail. Expect: player modal opens, video actually paints
+     frames, seekbar shows a non-zero duration, scrubbing works, and `#playback-warn` stays hidden.
+     Note roughly how long the first frame takes (frag files need one keyframe fetch before paint).
+  4. **No false warning** — while the MP4 plays, DevTools → Network: `/video` is `200`/`206` with
+     `Content-Type: video/mp4`; the earlier HEAD probe request is `200` too.
+  5. **Legacy MKV fallback** — click the `.mkv` card. Expect: the player is replaced by the
+     `#playback-warn` box whose detail suffix reads **`(player error 4: source not supported)`** (NOT
+     `server returned HTTP …`), and the ⬇️ link downloads the file. Download it and confirm it opens in VLC.
+  6. **Live view** — a server-created camera shows moving MJPEG. (Known pre-existing wart: the 5 s poll
+     re-renders the `<img>` each cycle, so the stream reconnects — see the Tier B item.)
+  7. **Safari** — cannot be covered on Windows; if you ever check it, the same steps 3 and 5 apply.
+
+  Mark this item `[x]` only when 1–5 pass in Firefox. Report which step failed and what the modal said.
+
 
 # Tier B — Localized one-file changes (small, isolated)
 Confined to a single file/module; no cross-layer design decisions.
 
+- [ ] **Live camera `<img>` reconnects every poll** – `loadData()` (5 s interval) calls `renderLiveCameras()`,
+      which rebuilds `live-cameras-grid`'s `innerHTML`, so every live MJPEG `<img>` is destroyed and recreated
+      ~every 5 s: constant reconnects, flicker and a new upstream connection per camera. Only touches
+      `server/entry_recorder_server/static/index.html` — keep the DOM nodes when the device set is unchanged and
+      refresh only the recording-state footer. Found while writing the Tier A Firefox checklist (step 6).
+      File: `server/entry_recorder_server/static/index.html` (`loadData()` / `renderLiveCameras()`)
 - [x] **Server: make auth mandatory** (former Phase 1) – auth deps exist on **all** endpoints incl.
       `/video`, `/thumbnail`, `/api/live/{id}/mjpeg`. `verify_api_key` now always rejects a missing/wrong
       key; a new `ensure_api_key()` generates a random key on first run, persists it to `data/.api_key`
