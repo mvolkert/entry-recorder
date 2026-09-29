@@ -2,7 +2,9 @@
 
 
 ## Bug
-- Notification is not the correct new Launcher icon
+- [x] Notification is not the correct new Launcher icon — replaced the four legacy `android.R.drawable`
+      small icons in `NotificationHelper` with a dedicated `drawable/ic_notification` (the CCTV launcher
+      mark as a white 24dp silhouette). `compileDebugKotlin` + `lintDebug` green (done 2026-09-29).
 
 Reorganized from the code & feature review, re-verified against the current codebase
 (`app/`, `server/`, `.github/`) on 2026-09-27; **task list re-sorted by invasiveness (minimal →

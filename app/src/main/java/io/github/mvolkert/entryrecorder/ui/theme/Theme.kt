@@ -98,7 +98,7 @@ private fun AccentPalette.toColorScheme(): ColorScheme = darkColorScheme(
     onTertiary = onTertiary,
 )
 
-/** Applies the persisted accent preset [index] (falling back to the baseline palette when unset). */
+/** Applies the persisted accent preset index (falling back to the baseline palette when unset). */
 @Composable
 fun AppTheme(
     accentIndex: Int,
