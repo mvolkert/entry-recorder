@@ -10,9 +10,13 @@ Reorganized from the code & feature review, re-verified against the current code
 (`app/`, `server/`, `.github/`) on 2026-09-27; **task list re-sorted by invasiveness (minimal →
 architectural) on 2026-09-28**, so small changes get done first and big ones later.
 Phase labels are kept on each item for traceability to the original plan.
+**Re-sorted by scope on 2026-09-29 (owner: "let's do the Android part first")**: Tiers A–F are
+Android-app work only, the server / web-UI work is grouped in **Tier S** just before the Tier G
+validation gates. The original `[~]` / `[x]` states and the Tier letters quoted inside item text
+(`former Phase …`, commit notes) are kept as-is for traceability.
 
 Legend: `[x]` implemented · `[~]` partially implemented / needs validation · `[ ]` missing
-     🔄 pending on-device validation · 🔭 long-term / not scheduled
+     🔄 pending on-device validation · 🔭 long-term / not scheduled · 🖥️ server-side scope
 
 ---
 
@@ -48,125 +52,61 @@ multi-module architectural refactors.
 
 ---
 
-# Tier A — Trivial / config-level (minimal invasive)
+## How to read the tiers now
+- **Tier A–F** — Android app (`app/`, Kotlin). Do these first.
+- **Tier S** — server + web UI (`server/`), grouped so the browser-validation session happens once.
+  Nothing here is scheduled to *start* before the Android tiers, but note that most of it is already
+  implemented and only waits on the owner's Firefox run.
+- **Tier G** — on-device validation gates; no code, but blocks marking the related items done.
+
+# Tier A — Trivial / config-level (Android, minimal invasive)
 Single-file, non-behavioral or config-only changes.
 
-- [x] **Docs: README server-API example** – payload example now mirrors the real `StartServerRecordingPayload`
-      (`source_mode: "auto"`, `snapshot_url`, `note`) + credential-fallback and `X-API-Key` prose.
-      Files: `README.md`, `server/README.md` (done 2026-09-28)
-- [x] **Server: Web UI supplies the mandatory API key** – Tier B's always-reject auth broke the dashboard:
-      `index.html` had no key handling at all and the server returns bare `video_url`/`thumbnail_url`/`live_url`
-      without the `api_key` query parameter `verify_api_key` accepts, so every `fetch` and every media tag got a
-      401 — and the `<video>` 401 even masqueraded as "browser cannot play this file". Now: key prompted once per
-      browser (or taken from `?api_key=` in the page URL), kept in `localStorage`, sent as `X-API-Key` on every
-      API call (13 `apiFetch()` sites, incl. the new probe; it re-prompts once on 401, then locks with an alert
-      instead of re-prompting on the 5 s poll — the 🔑 header button resets), and appended via `apiUrl()` to
-      thumbnail / live / player / download URLs. `openPlayerModal` additionally probes the video URL with an
-      authenticated HEAD and reports `401/403/404` as `server returned HTTP <status>`, while a real container
-      failure now reports its `MediaError` code in `#playback-warn-detail` — the two cases are no longer
-      confusable, which was the point of the playback note below. Other probe statuses still attempt playback.
-      Verified off-browser: `node server/tests/webui_auth_harness.mjs server/entry_recorder_server/static/index.html`
-      → 36/36 (runs the real inline script in a VM with DOM/fetch stubs: header injection, `?api_key=` on
-      thumbnail/live/player/download URLs, the 401 re-prompt-once + lock rule, the fallback wording, and the
-      Tier B live-card rules). Docs updated in both READMEs.
-      ⚠️ Not verified: the server was not booted (no `fastapi`/`uvicorn` in this environment); Starlette's
-      automatic HEAD-for-GET support is assumed.
-      Files: `server/entry_recorder_server/static/index.html`, `server/tests/webui_auth_harness.mjs` (new),
-      `README.md`, `server/README.md` (done 2026-09-29)
-- [~] **Server: web UI playback note (dual-container aware)** – playback modal shows `#mkv-hint` and,
-      on `video.onerror`, a `#playback-warn` with a "Download this recording" link. Reworded for the
-      dual-container split: new recordings are fragmented MP4 and play inline everywhere; the warning
-      now targets legacy `.mkv` rows and the no-FFmpeg raw-MJPEG snapshot fallback only.
-      Server run verified 2026-09-28 (`uvicorn` boots, updated HTML served with all fallback markers;
-      `/api/recordings/{id}/video` maps `.mkv` → `video/x-matroska`, otherwise → `video/mp4` via the
-      existing suffix branch — the new `.mp4` files are served inline).
-      ⚠️ Remaining (owner, real browser): the checklist below. Was previously blocked by the missing
-      Web-UI auth (fixed above), which made every recording look unplayable.
-      File: `server/entry_recorder_server/static/index.html`
+- [ ] *No open items.* The notification-icon fix is in the Bug block at the top; the two config-level
+      server/doc items live in **Tier S**.
 
-  ### Owner checklist — Firefox (the one GUI-browser gate left in Tier A)
-  Prereq: server running (`cd server; entry-recorder-server`) and its key — `.env` `API_KEY` or the generated
-  one in `server/data/.api_key`. Open `http://<server>:8000/`, enter that key when prompted.
-  Data needed: one **fMP4** row (any recording made after the 2026-09-28 dual-container change) and one
-  **legacy `.mkv`** row (an old capture, or the no-FFmpeg snapshot fallback).
-
-  1. **Auth wiring** — stats, live cards and thumbnails all render (no empty grid, no console 401s, and no
-     "API key was rejected" alert). Fail = auth regression, stop here; the rest is meaningless.
-  2. **Key change** — click 🔑, enter a wrong key → expect exactly **one** alert plus a redacted retry, and the
-     poll must not keep prompting every 5 s. Re-enter the right key → page recovers.
-  3. **fMP4 inline** — click the MP4 card's thumbnail. Expect: player modal opens, video actually paints
-     frames, seekbar shows a non-zero duration, scrubbing works, and `#playback-warn` stays hidden.
-     Note roughly how long the first frame takes (frag files need one keyframe fetch before paint).
-  4. **No false warning** — while the MP4 plays, DevTools → Network: `/video` is `200`/`206` with
-     `Content-Type: video/mp4`; the earlier HEAD probe request is `200` too.
-  5. **Legacy MKV fallback** — click the `.mkv` card. Expect: the player is replaced by the
-     `#playback-warn` box whose detail suffix reads **`(player error 4: source not supported)`** (NOT
-     `server returned HTTP …`), and the ⬇️ link downloads the file. Download it and confirm it opens in VLC.
-  6. **Live view** — a server-created camera shows moving MJPEG, and the Tier B no-rebuild fix holds:
-     watch one camera for ~15 s — the picture must not blank at each poll, and DevTools → Network must show
-     **one** long-lived `/api/live/<id>/mjpeg` request, not a new one every 5 s. Start/stop a recording on that
-     card: the footer label and ⏺/⏹ change without the picture restarting. Press ⛶ and wait 15 s: you must
-     still be in fullscreen (the old poll ejected you). Unplug a camera → the tile dims; plug it back and click
-     the tile → the stream reconnects.
-  7. **Safari** — cannot be covered on Windows; if you ever check it, the same steps 3 and 5 apply.
-
-  Mark this item `[x]` only when 1–5 pass in Firefox (step 6 closes the Tier B live-card item).
-  Report which step failed and what the modal said.
-
-
-# Tier B — Localized one-file changes (small, isolated)
+# Tier B — Localized one-file changes (Android, small, isolated)
 Confined to a single file/module; no cross-layer design decisions.
 
-- [x] **Live camera `<img>` reconnects every poll** – `loadData()` (5 s interval) called `renderLiveCameras()`,
-      which rebuilt `live-cameras-grid`'s `innerHTML`, so every live MJPEG `<img>` was destroyed and recreated
-      ~every 5 s: a new upstream connection per camera, constant flicker — and it also dropped the user out of
-      fullscreen every cycle, because the fullscreen element left the document. Now the cards are only rebuilt
-      when the *device set* or the *API key* changes (signature over `id:name:live_mode:live_url` + key, plus a
-      guard that the nodes still exist); otherwise the recording state is patched in place via
-      `updateLiveCardStates()` (footer text, `recording` class, icon, title) on the now-identified
-      `live-card-{id}` / `live-status-{id}` / `live-rec-btn-{id}` nodes. Since the rebuild was the accidental
-      reconnect mechanism, an explicit one replaces it: clicking a camera's image calls
-      `reloadLiveStream(id)`, which re-requests `live_url` with a fresh `&_=<ts>` cache-buster and restores the
-      opacity that `onerror` dims (and `onload` now restores it on its own when a frame arrives).
-      Verified: same harness → **36/36**, incl. "idle poll leaves the live grid untouched", "recording state
-      patched without a rebuild", "changed key/device set rebuilds", "empty → non-empty rebuilds" and the
-      reconnect URL/opacity assertions. Not verified: no real browser or live camera was attached (the harness
-      stubs the DOM), so the flicker-free reconnect behaviour still needs the Tier A Firefox checklist step 6.
-      File: `server/entry_recorder_server/static/index.html` (`renderLiveCameras()`, `updateLiveCardStates()`,
-      `reloadLiveStream()`) (done 2026-09-29)
-- [x] **Server: make auth mandatory** (former Phase 1) – auth deps exist on **all** endpoints incl.
-      `/video`, `/thumbnail`, `/api/live/{id}/mjpeg`. `verify_api_key` now always rejects a missing/wrong
-      key; a new `ensure_api_key()` generates a random key on first run, persists it to `data/.api_key`
-      and logs it (a `.env` `API_KEY` still wins). Server `py_compile` clean (done 2026-09-29, commit `0acd070`).
-      Files: `server/entry_recorder_server/main.py`
-- [x] **Broadcast intent to trigger export** (former Features) – exported `ExportTriggerReceiver`
-      (action `io.github.mvolkert.entryrecorder.action.EXPORT_RECORDINGS`, `--es scope latest|all`)
-      only enqueues a `WorkManager` `ExportTriggerWorker` that reuses `ExportTranscoder`/`ExportHelper`
-      to write the latest/all finalized recordings into the configured SAF folder; enables external
-      automation (Tasker/`adb`).
-      **Deviation (deliberate):** did NOT hook the 24/7 finalize path in `video/RtspStreamRecorder.kt` —
-      not needed for the automation case and avoids adding a broadcast to the capture lifecycle.
-      Files: new receiver + `AndroidManifest.xml` + new `worker/ExportTriggerWorker.kt` (done 2026-09-29, commit `0acd070`).
-- [x] **WifiLock SDK-version branch** (former Lint debt, safe part) – `acquireWakeAndWifiLocks()` now
-      branches on `Build.VERSION.SDK_INT >= Q (29)` → non-deprecated tag-only
-      `createWifiLock("EntryRecorder::MonitorWifiLock")`; the pre-29 fallback keeps
-      `WIFI_MODE_FULL_HIGH_PERF` under a single-line scoped `@Suppress("DEPRECATION")`.
-      `compileDebugKotlin` green (device ring-poll latency check covered in Tier G) (done 2026-09-29, commit `0acd070`).
-      File: `service/IntercomMonitorService.kt` (`acquireWakeAndWifiLocks()`)
+- [ ] *No open items.* The three originals (mandatory auth, export broadcast, `WifiLock` SDK branch)
+      closed in commit `0acd070`; the two server files moved to **Tier S**.
 
-# Tier C — Medium UI features (single-purpose, multi-file)
+# Tier C — Medium UI features (Android, single-purpose, multi-file)
 Behavioral but self-contained UI work.
 
-- [x] **Tab swiping** (former UX) – `MainActivity` now uses a `HorizontalPager` synced to the bottom
-      `NavigationBar` (swipe + tap both change pages); per-screen state persists via the Activity-scoped
-      ViewModels. NavHost removed. `compileDebugKotlin` + `lintDebug` green; swipe feel on device (Tier G) (done 2026-09-29, commit `6f51a5e`).
-      File: `ui/MainActivity.kt`
-- [x] **Pickable accent colors** (former UI) – curated dark-scheme presets in `ui/theme/Theme.kt`
-      applied from a Settings swatch picker; the choice persists in `AppSettingsEntity.themeAccentIndex`
-      (Room v7→v8 migration, default 0 = previous baseline look). `compileDebugKotlin` + `lintDebug` green (done 2026-09-29, commit `6f51a5e`).
-      Files: `ui/theme/Theme.kt`, `ui/MainActivity.kt`, `ui/settings/SettingsScreen.kt`, `data/local/entity/AppSettingsEntity.kt`, `data/local/AppDatabase.kt`
+- [ ] **Split the oversized UI files; lift export logic out of the composables** – added after the
+      2026-09-29 reordering (owner: "a file refactor splitting into components would be smart"). Facts from
+      the current tree: `SettingsScreen.kt` 848 lines / **one** 787-line composable, `RecordingsScreen.kt`
+      816 / one 509-line composable + a 206-line card, `DeviceEditDialog.kt` 548 / one composable. Measured
+      on `RecordingsScreen`: lines 129-284 are *not* UI — three local `fun`s (`runExport`, `exportToFolder`,
+      `runBatchExport`) driving `rememberCoroutineScope`, `ExportTranscoder`, `ExportHelper`, SAF URIs,
+      Toasts and broad `catch (e: Exception)`; the `RecordingsViewModel` next to it is 124 lines of pure
+      filtering. So the split is worth doing **with** the UDF fix, not instead of it. Ordered sub-steps,
+      each its own commit, behaviour-preserving, `compileDebugKotlin` + `lintDebug` between every one:
+      1. `RecordingsScreen`: move the three export functions into the ViewModel behind a
+         `RecordingExportKind` enum (`SHARE|GALLERY|FOLDER` magic strings today) and expose progress as UI
+         state + results as `Channel<UiEvent>` (Toasts/errors are data per AGENTS.md). Keep the existing
+         lazy transcode-on-export policy comments verbatim.
+      2. Then extract the UI seams already visible in the file: `RecordingsTopBar` (title + selection
+         actions + export `DropdownMenu` + storage line, 292-382), `RecordingsFilterRow(s)` (search field +
+         the two chip rows, 386-474), `RecordingsList` (loading/empty/`LazyColumn`, 483-517),
+         `RecordingsDialogs` (player, delete, bulk delete, export + batch progress, 521-607). Keep
+         `RecordingCardItem` in its own file and make it `private`-scope-correct (it takes **10** params
+         today — collapse the export callbacks).
+      3. `SettingsScreen`: cut at its own section comments — Devices (171), Recording Engine & Destination
+         (212), Storage & Retention (326), Backup & Restore (716) → one file per section composable.
+      4. Same pass fixes the convention gap: all five screens use `collectAsState()` where AGENTS.md
+         requires `collectAsStateWithLifecycle()` (`MainActivity:68`, `LiveCamerasScreen:60`,
+         `RecordingsScreen:107/111/112/119`, `SettingsScreen:89`, `IncomingCallActivity:87`).
+      ⚠️ No UI tests exist, so verification stops at compile + lint; the visual/interaction check rides on
+      the Tier G edge-to-edge gates. Do **not** apply the same treatment to `video/Fmp4StreamMuxer.kt` (454)
+      or `video/MkvStreamMuxer.kt` (384) — a box writer splits badly, the sequence of writes is the API.
+      `DeviceEditDialog.kt` is last and optional: its `initialDevice` copy-over (former Bug #4) is subtle, so
+      only split it once the four steps above are green.
+      Files: `ui/recordings/RecordingsScreen.kt`, `ui/recordings/RecordingsViewModel.kt`,
+      `ui/settings/SettingsScreen.kt`, `ui/MainActivity.kt`, `ui/live/LiveCamerasScreen.kt`
 
-# Tier D — Larger UI / cross-cutting features
+# Tier D — Larger UI / cross-cutting features (Android)
 Multiple screens or cross-cutting behavior; design worth confirming before building.
 
 - [x] **M3 Expressive Motion** (former UI) – centralized spring tokens in `ui/theme/Motion.kt` drive an
@@ -174,35 +114,45 @@ Multiple screens or cross-cutting behavior; design worth confirming before build
       the pager layer on purpose so distant pages (incl. live camera streams) are NOT force-composed
       (keeps capture cheap). `compileDebugKotlin` + `lintDebug` green; motion feel on device (Tier G) (done 2026-09-29, commit `94fcd2e`).
       Files: `ui/theme/Motion.kt`, `ui/MainActivity.kt`
-- [ ] **Live view through the server** (former Phase 4) – consume `/api/live/{id}/mjpeg` in
-      `LiveCamerasScreen` (`LiveStreamPlayer`). Depends on server auth (Tier B, now done) but is **still
-      blocked** for app-managed cameras by the sync gap (Tier F) — works today only for server-UI-created
-      devices. **DEFERRED** per owner Tier-D selection (2026-09-29).
+
+## Android items waiting on a design decision (still app-side, just not free to start)
+Kept in the Android tiers because the work is in `app/`, but both were **DEFERRED per owner Tier-D
+selection (2026-09-29)** — confirm the design before building.
+
 - [ ] **Surface server recordings in the app** (former Phase 4, Bug #3) – data layer done
       (`ServerRecordingClient.listRecordings()` + `ServerRecordingDto`, server-relative URLs).
       Remaining is architectural: a UI-model abstraction over the Room-only `RecordingEntity` list
-      for network thumbnails + remote playback. **Confirm design before building. DEFERRED** per owner
-      Tier-D selection (2026-09-29).
+      for network thumbnails + remote playback. `RecordingsScreen.kt` is 816 lines typed on
+      `RecordingEntity` (local `filePath`/`thumbnailPath`, Room ids, multi-select, SAF export) and
+      local + server ids are both `Long`, so a merged list needs composite keys. ExoPlayer can play
+      the server's fMP4 rows directly once `?api_key=` is on the URL (possible since the Tier S Web-UI
+      auth fix). **Confirm design before building.**
       Files: `data/server/ServerRecordingClient.kt`, `ui/recordings/RecordingsViewModel.kt`, `ui/recordings/RecordingsScreen.kt`
+- [ ] **Live view through the server** (former Phase 4) – consume `/api/live/{id}/mjpeg` in
+      `LiveCamerasScreen` (`LiveStreamPlayer`). Blocked for app-managed cameras by an identity gap,
+      not by the player: `LiveStreamPlayer` always dials the *device's own* IP from
+      `device.streamProtocol`, and `/api/live/{device_id}/mjpeg` takes a *server* device id that
+      app-managed devices never have (they are never registered server-side → Tier S sync item).
+      Works today only for server-UI-created devices, and needs the key as a query parameter on the
+      stream URL (Tier S auth). **DEFERRED** per owner Tier-D selection (2026-09-29).
+      Files: `ui/components/LiveStreamPlayer.kt`, `ui/live/LiveCamerasScreen.kt`
 
-# Tier E — Service & data-layer refactors (larger blast radius)
+# Tier E — Service & data-layer refactors (Android, larger blast radius)
 Touch the 24/7 monitoring/recording lifecycle or the capture pipeline.
 
 - [~] **Server-mode stop reconciliation** (former Phase 2) – auto-stop uses a fixed
       `maxDurationSeconds+2` local timer with no reconciliation of the actual server job; the app
       holds no server recording id, so stop/status can drift. Return/persist the server recording
-      id and reconcile via `/api/recordings/{id}` (also needs the server to return an id from start).
+      id and reconcile via `/api/recordings/{id}` — the app side is Tier E; the server returning an
+      id from *start* is a Tier S item.
       File: `video/RtspStreamRecorder.kt:69-79`
-- [ ] **Server ↔ app device sync** (former Phase 4) – server `devices` table and app devices are
-      independent; the app never registers devices on the server, so `/api/live/{id}/mjpeg` only
-      works for server-UI-created devices. New sync API + pairing flow + conflict handling.
-      Files: `data/server/ServerRecordingClient.kt`, `server/entry_recorder_server/main.py`
 - 🔭 Long-term: **RTSP H.264 passthrough** (demux→re-mux, zero re-encode/CPU) for stream-capable
       cameras — capture-pipeline rewrite, only for future RTSP-only devices.
 
-# Tier F — Heavy / device-unverifiable refactorings (deferred backlog)
+# Tier F — Heavy / device-unverifiable refactorings (Android, deferred backlog)
 Large, risky, or impossible to validate from CI; each needs a real device/PBX pass. Kept deferred
 per owner decisions — do NOT start these before Tiers A–E and the Tier G validation are done.
+The server block (Tier S) is scheduled behind this one as well, so Android work is never blocked by it.
 
 - [ ] **MediaCodec color-format selection** (former Lint debt) – stop hardcoding deprecated
       `COLOR_FormatYUV420Planar`; read `getCapabilitiesForType(MIMETYPE_VIDEO_AVC).colorFormats`,
@@ -226,8 +176,8 @@ per owner decisions — do NOT start these before Tiers A–E and the Tier G val
       (large, device-unverifiable; dedicated security pass).
 - [~] **Network transport** (former Phase 6, DEFERRED) – `network_security_config` permits global
       cleartext + trusts user CAs (MITM risk) → scope cleartext to local subnet, drop user-CA trust.
-      ⚠️ Dropping user CAs breaks self-signed HTTPS on 2N devices; only after the auth work (Tier B)
-      makes the server HTTPS-first.
+      ⚠️ Dropping user CAs breaks self-signed HTTPS on 2N devices; only after the server is
+      HTTPS-first (Tier S auth item).
 - [~] **Credential leakage in RTSP URLs** (former Phase 6) – `rtsp://user:pass@host` embedded URLs
       get logged/persisted by external libs. No app-side log statement emits this URL today
       (verified); Media3/ffmpeg logging is outside our control — effectively **wont-fix** unless
@@ -235,6 +185,126 @@ per owner decisions — do NOT start these before Tiers A–E and the Tier G val
 - [ ] **Linphone ABI coverage** (former Phase 7, DEFERRED) – only `jni/arm64-v8a/liblinphone.so`
       committed, `jni/` isn't wired into `sourceSets`/`jniLibs.srcDir` so packaging behavior is
       unclear; blind `abiFilters` could exclude devices. Needs a release-bundle ABI inspection first.
+
+# Tier S — Server & web UI (all scopes: `server/`, docs) 🖥️
+Grouped per the owner's "Android part first" decision (2026-09-29). Sorted minimal → architectural
+*within* the block. Headless verification is possible for most of it (Python `py_compile`, the Node
+harness), but the items marked ⚠️ need the server actually running in a real browser — that is one
+owner session covering the whole Firefox checklist below.
+Three items here are new `[ ]` entries created by splitting server-side obligations that were previously
+buried inside Android items (recording id from *start* ← Tier E stop reconciliation; HTTPS-first ← Tier F
+network transport; device sync ← Tier D live view). Prune or re-merge them if you disagree with the split.
+
+- [x] **Docs: README server-API example** – payload example now mirrors the real `StartServerRecordingPayload`
+      (`source_mode: "auto"`, `snapshot_url`, `note`) + credential-fallback and `X-API-Key` prose.
+      Files: `README.md`, `server/README.md` (done 2026-09-28)
+- [x] **Server: make auth mandatory** (former Phase 1) – auth deps exist on **all** endpoints incl.
+      `/video`, `/thumbnail`, `/api/live/{id}/mjpeg`. `verify_api_key` now always rejects a missing/wrong
+      key; a new `ensure_api_key()` generates a random key on first run, persists it to `data/.api_key`
+      and logs it (a `.env` `API_KEY` still wins). Server `py_compile` clean (done 2026-09-29, commit `0acd070`).
+      Files: `server/entry_recorder_server/main.py`
+- [x] **Server: Web UI supplies the mandatory API key** – the always-reject auth change above broke the dashboard:
+      `index.html` had no key handling at all and the server returns bare `video_url`/`thumbnail_url`/`live_url`
+      without the `api_key` query parameter `verify_api_key` accepts, so every `fetch` and every media tag got a
+      401 — and the `<video>` 401 even masqueraded as "browser cannot play this file". Now: key prompted once per
+      browser (or taken from `?api_key=` in the page URL), kept in `localStorage`, sent as `X-API-Key` on every
+      API call (13 `apiFetch()` sites, incl. the new probe; it re-prompts once on 401, then locks with an alert
+      instead of re-prompting on the 5 s poll — the 🔑 header button resets), and appended via `apiUrl()` to
+      thumbnail / live / player / download URLs. `openPlayerModal` additionally probes the video URL with an
+      authenticated HEAD and reports `401/403/404` as `server returned HTTP <status>`, while a real container
+      failure now reports its `MediaError` code in `#playback-warn-detail` — the two cases are no longer
+      confusable, which was the point of the playback note below. Other probe statuses still attempt playback.
+      Verified off-browser: `node server/tests/webui_auth_harness.mjs server/entry_recorder_server/static/index.html`
+      → 36/36 (runs the real inline script in a VM with DOM/fetch stubs: header injection, `?api_key=` on
+      thumbnail/live/player/download URLs, the 401 re-prompt-once + lock rule, the fallback wording, and the
+      live-card rules). Docs updated in both READMEs.
+      ⚠️ Not verified: the server was not booted (no `fastapi`/`uvicorn` in this environment); Starlette's
+      automatic HEAD-for-GET support is assumed.
+      Files: `server/entry_recorder_server/static/index.html`, `server/tests/webui_auth_harness.mjs` (new),
+      `README.md`, `server/README.md` (done 2026-09-29)
+- [x] **Live camera `<img>` reconnects every poll** – `loadData()` (5 s interval) called `renderLiveCameras()`,
+      which rebuilt `live-cameras-grid`'s `innerHTML`, so every live MJPEG `<img>` was destroyed and recreated
+      ~every 5 s: a new upstream connection per camera, constant flicker — and it also dropped the user out of
+      fullscreen every cycle, because the fullscreen element left the document. Now the cards are only rebuilt
+      when the *device set* or the *API key* changes (signature over `id:name:live_mode:live_url` + key, plus a
+      guard that the nodes still exist); otherwise the recording state is patched in place via
+      `updateLiveCardStates()` (footer text, `recording` class, icon, title) on the now-identified
+      `live-card-{id}` / `live-status-{id}` / `live-rec-btn-{id}` nodes. Since the rebuild was the accidental
+      reconnect mechanism, an explicit one replaces it: clicking a camera's image calls
+      `reloadLiveStream(id)`, which re-requests `live_url` with a fresh `&_=<ts>` cache-buster and restores the
+      opacity that `onerror` dims (and `onload` now restores it on its own when a frame arrives).
+      Verified: same harness → **36/36**, incl. "idle poll leaves the live grid untouched", "recording state
+      patched without a rebuild", "changed key/device set rebuilds", "empty → non-empty rebuilds" and the
+      reconnect URL/opacity assertions. Not verified: no real browser or live camera was attached (the harness
+      stubs the DOM), so the flicker-free reconnect behaviour still needs checklist step 6 below.
+      File: `server/entry_recorder_server/static/index.html` (`renderLiveCameras()`, `updateLiveCardStates()`,
+      `reloadLiveStream()`) (done 2026-09-29)
+- [~] **Server: web UI playback note (dual-container aware)** – playback modal shows `#mkv-hint` and,
+      on `video.onerror`, a `#playback-warn` with a "Download this recording" link. Reworded for the
+      dual-container split: new recordings are fragmented MP4 and play inline everywhere; the warning
+      now targets legacy `.mkv` rows and the no-FFmpeg raw-MJPEG snapshot fallback only.
+      Server run verified 2026-09-28 (`uvicorn` boots, updated HTML served with all fallback markers;
+      `/api/recordings/{id}/video` maps `.mkv` → `video/x-matroska`, otherwise → `video/mp4` via the
+      existing suffix branch — the new `.mp4` files are served inline).
+      ⚠️ Remaining (owner, real browser): the checklist below. Was previously blocked by the missing
+      Web-UI auth (fixed above), which made every recording look unplayable.
+      File: `server/entry_recorder_server/static/index.html`
+
+  ### Owner checklist — Firefox (the one GUI-browser gate in the server block)
+  Prereq: server running (`cd server; entry-recorder-server`) and its key — `.env` `API_KEY` or the generated
+  one in `server/data/.api_key`. Open `http://<server>:8000/`, enter that key when prompted.
+  Data needed: one **fMP4** row (any recording made after the 2026-09-28 dual-container change) and one
+  **legacy `.mkv`** row (an old capture, or the no-FFmpeg snapshot fallback).
+
+  1. **Auth wiring** — stats, live cards and thumbnails all render (no empty grid, no console 401s, and no
+     "API key was rejected" alert). Fail = auth regression, stop here; the rest is meaningless.
+  2. **Key change** — click 🔑, enter a wrong key → expect exactly **one** alert plus a redacted retry, and the
+     poll must not keep prompting every 5 s. Re-enter the right key → page recovers.
+  3. **fMP4 inline** — click the MP4 card's thumbnail. Expect: player modal opens, video actually paints
+     frames, seekbar shows a non-zero duration, scrubbing works, and `#playback-warn` stays hidden.
+     Note roughly how long the first frame takes (frag files need one keyframe fetch before paint).
+  4. **No false warning** — while the MP4 plays, DevTools → Network: `/video` is `200`/`206` with
+     `Content-Type: video/mp4`; the earlier HEAD probe request is `200` too.
+  5. **Legacy MKV fallback** — click the `.mkv` card. Expect: the player is replaced by the
+     `#playback-warn` box whose detail suffix reads **`(player error 4: source not supported)`** (NOT
+     `server returned HTTP …`), and the ⬇️ link downloads the file. Download it and confirm it opens in VLC.
+  6. **Live view** — a server-created camera shows moving MJPEG, and the no-rebuild fix holds:
+     watch one camera for ~15 s — the picture must not blank at each poll, and DevTools → Network must show
+     **one** long-lived `/api/live/<id>/mjpeg` request, not a new one every 5 s. Start/stop a recording on that
+     card: the footer label and ⏺/⏹ change without the picture restarting. Press ⛶ and wait 15 s: you must
+     still be in fullscreen (the old poll ejected you). Unplug a camera → the tile dims; plug it back and click
+     the tile → the stream reconnects.
+  7. **Safari** — cannot be covered on Windows; if you ever check it, the same steps 3 and 5 apply.
+
+  Mark the playback-note item `[x]` only when 1–5 pass in Firefox (step 6 closes the live-card item).
+  Report which step failed and what the modal said.
+
+- [ ] **Split `index.html` into static assets** – the dashboard is one 1368-line file: `<style>` 10-536
+      (527 lines), markup 537-800, one inline `<script>` 801-1366 (566 lines). Worth splitting into
+      `static/app.js` + `static/styles.css` only when the server block is actually picked up, because it is
+      **not** free: `server/tests/webui_auth_harness.mjs` extracts the script by regex over
+      `<script>…</script>` blocks in the HTML, so it must be repointed at the new `.js` file in the same
+      commit, and FastAPI currently serves the page by reading the file — serving sibling assets needs a
+      mount/static handler in `main.py` (check the existing route first).
+      Files: `server/entry_recorder_server/static/`, `server/entry_recorder_server/main.py`,
+      `server/tests/webui_auth_harness.mjs`
+- [ ] **Server ↔ app device sync** (former Phase 4) – server `devices` table and app devices are
+      independent; the app never registers devices on the server, so `/api/live/{id}/mjpeg` only
+      works for server-UI-created devices. New sync API + pairing flow + conflict handling. This is
+      the blocker for the app-side "Live view through the server" item in Tier D.
+      Files: `data/server/ServerRecordingClient.kt`, `server/entry_recorder_server/main.py`
+- [ ] **Server: return + expose the recording id** (feeds Tier E stop reconciliation) – the start
+      endpoint does not hand back a recording id the app can persist, so `/api/recordings/{id}` can't
+      be used to reconcile an auto-stop. Return the id from start and keep `GET /api/recordings/{id}`
+      available to the app.
+      Files: `server/entry_recorder_server/main.py`, `server/entry_recorder_server/recorder.py`
+- [ ] **Server: HTTPS-first** *(unlocks Tier F's network-transport cleanup)* – mandatory auth is in
+      place, but the server is still plain HTTP behind `network_security_config`'s global cleartext.
+      TLS (or an explicit decision to stay LAN-only HTTP) before dropping user-CA trust app-side.
+      Files: `server/entry_recorder_server/main.py`, `server/docker-compose.yml`, `server/Dockerfile`
+- 🔭 Long-term: **`GET /api/devices` credential handling review** – today it returns no passwords and
+      the server falls back to stored credentials on start (Resolved log, Phase 6). Revisit if the sync
+      API above starts round-tripping device credentials.
 
 ---
 
@@ -284,7 +354,7 @@ Compact record of everything completed in the former phases, re-verified 2026-09
 - **Phase 1 hotfixes**: Bug #4 `DeviceEditDialog` copy-over from `initialDevice` (no more reset of
   un-shown fields) · Bug #5 ring wake/vibrate/sound wired + `maxStorageUsageMb` UI · Bug #7 per-event-type
   notification ID spaces · Room `fallbackToDestructiveMigration` removed · server auth deps added to
-  all endpoints incl. media/live (mandatory-key remainder moved to Tier B).
+  all endpoints incl. media/live (mandatory-key remainder moved to Tier S).
 - **Phase 2**: FGS start reworked for Android 12+/14 (`connectedDevice`, boot handling) · digest-auth
   parsing fixed (quoted params with commas, retries) · global `UncaughtExceptionHandler` replaced with
   player error callbacks.
@@ -310,6 +380,20 @@ Compact record of everything completed in the former phases, re-verified 2026-09
   `setCommunicationDevice(TYPE_BUILTIN_SPEAKER)` on API 31+ (pre-31 fallback warning intentionally
   visible).
 - **Docs**: README/RtspStreamRecorder MP4→MKV wording fixed.
+- **Tab swiping + accent colors (2026-09-29, commit `6f51a5e`)**: `MainActivity` `HorizontalPager`
+  synced to the bottom `NavigationBar` (NavHost removed, per-screen state via the Activity-scoped
+  ViewModels) · curated dark-scheme presets in `ui/theme/Theme.kt` from a Settings swatch picker,
+  persisted in `AppSettingsEntity.themeAccentIndex` (Room v7→v8 migration, default 0 = the previous
+  baseline look). `compileDebugKotlin` + `lintDebug` green; swipe feel → Tier G.
+- **Export broadcast + WifiLock SDK branch (2026-09-29, commit `0acd070`)**: exported
+  `ExportTriggerReceiver` (action `io.github.mvolkert.entryrecorder.action.EXPORT_RECORDINGS`,
+  `--es scope latest|all`) only enqueues the new `worker/ExportTriggerWorker.kt`, which reuses
+  `ExportTranscoder`/`ExportHelper` to write the latest/all finalized recordings into the configured
+  SAF folder — external automation (Tasker/`adb`) without touching the capture lifecycle
+  (deliberate deviation: NOT hooked into `video/RtspStreamRecorder.kt`'s 24/7 finalize path).
+  `acquireWakeAndWifiLocks()` branches on `SDK_INT >= Q` → tag-only `createWifiLock()` with the
+  pre-29 `WIFI_MODE_FULL_HIGH_PERF` fallback under a scoped `@Suppress("DEPRECATION")`; device
+  ring-poll latency → Tier G.
 - **Dual-container split (2026-09-28)**: phone export transcode emits fragmented MP4 via the new
   pure-Kotlin `Fmp4StreamMuxer` (`${name}_h264.mp4`); `ExportHelper.mimeFor` maps mp4/m4v → `video/mp4`
   (dropped the wrong m4v → `video/x-matroska` grouping). Server encoded recording paths (RTSP copy +
