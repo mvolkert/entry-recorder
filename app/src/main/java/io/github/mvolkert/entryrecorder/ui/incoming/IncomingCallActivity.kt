@@ -8,35 +8,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeDown
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.CallEnd
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,16 +22,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mvolkert.entryrecorder.EntryRecorderApp
-import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
-import io.github.mvolkert.entryrecorder.sip.CallUiState
+import io.github.mvolkert.entryrecorder.sip.SipSessionState
 import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
 
 class IncomingCallActivity : ComponentActivity() {
@@ -146,7 +116,7 @@ class IncomingCallActivity : ComponentActivity() {
 fun IncomingCallContent(
     device: DeviceEntity?,
     eventType: EventType,
-    sipState: io.github.mvolkert.entryrecorder.sip.SipSessionState,
+    sipState: SipSessionState,
     onAcceptCall: () -> Unit,
     onDeclineCall: () -> Unit,
     onToggleMute: () -> Unit,
@@ -175,166 +145,19 @@ fun IncomingCallContent(
         }
 
         // 2. Top Header Overlay
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(top = 8.dp, start = 16.dp, end = 16.dp),
-            shape = RoundedCornerShape(16.dp),
-            color = Color.Black.copy(alpha = 0.65f)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    val headerText = stringResource(
-                        when (eventType) {
-                            EventType.RING -> R.string.incoming_header_ring
-                            EventType.MOTION -> R.string.incoming_header_motion
-                            EventType.NOISE -> R.string.incoming_header_noise
-                            EventType.MANUAL -> R.string.incoming_header_manual
-                        }
-                    )
-                    val headerColor = when (eventType) {
-                        EventType.RING -> Color(0xFFFFD54F)
-                        EventType.MOTION -> Color(0xFF81D4FA)
-                        EventType.NOISE -> Color(0xFFFFAB91)
-                        EventType.MANUAL -> Color(0xFFA5D6A7)
-                    }
-                    Text(
-                        text = headerText,
-                        color = headerColor,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-                    Text(
-                        text = device?.name ?: stringResource(R.string.incoming_device_fallback),
-                        color = Color.White,
-                        fontSize = 14.sp
-                    )
-                }
-
-                // Close / Dismiss button
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = stringResource(R.string.incoming_cd_dismiss),
-                        tint = Color.White
-                    )
-                }
-            }
-        }
+        IncomingCallHeader(
+            eventType = eventType,
+            deviceName = device?.name,
+            onDismiss = onDismiss
+        )
 
         // 3. Bottom Call Controls Overlay
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .background(Color.Black.copy(alpha = 0.7f))
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .padding(horizontal = 24.dp, vertical = 24.dp)
-        ) {
-            when (sipState.state) {
-                CallUiState.CONNECTED -> {
-                    // In-Call Controls
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Mute button
-                        IconButton(
-                            onClick = onToggleMute,
-                            modifier = Modifier
-                                .size(56.dp)
-                                .background(
-                                    if (sipState.isMicMuted) Color.DarkGray else Color.White.copy(alpha = 0.2f),
-                                    CircleShape
-                                )
-                        ) {
-                            Icon(
-                                imageVector = if (sipState.isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
-                                contentDescription = stringResource(R.string.incoming_cd_mute),
-                                tint = if (sipState.isMicMuted) Color.Red else Color.White
-                            )
-                        }
-
-                        // Hangup Button
-                        FloatingActionButton(
-                            onClick = onDeclineCall,
-                            containerColor = Color(0xFFE53935),
-                            contentColor = Color.White,
-                            shape = CircleShape,
-                            modifier = Modifier.size(68.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CallEnd,
-                                contentDescription = stringResource(R.string.incoming_cd_hangup),
-                                modifier = Modifier.size(32.dp)
-                            )
-                        }
-
-                        // Speaker toggle button
-                        IconButton(
-                            onClick = onToggleSpeaker,
-                            modifier = Modifier
-                                .size(56.dp)
-                                .background(
-                                    if (sipState.isSpeakerOn) Color(0xFF1E88E5) else Color.White.copy(alpha = 0.2f),
-                                    CircleShape
-                                )
-                        ) {
-                            Icon(
-                                imageVector = if (sipState.isSpeakerOn) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeDown,
-                                contentDescription = stringResource(R.string.incoming_cd_speaker),
-                                tint = Color.White
-                            )
-                        }
-                    }
-                }
-                else -> {
-                    // Incoming / Motion Alert Controls
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Decline / Dismiss
-                        FloatingActionButton(
-                            onClick = onDeclineCall,
-                            containerColor = Color(0xFFE53935),
-                            contentColor = Color.White,
-                            shape = CircleShape,
-                            modifier = Modifier.size(64.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CallEnd,
-                                contentDescription = stringResource(R.string.incoming_cd_decline),
-                                modifier = Modifier.size(30.dp)
-                            )
-                        }
-
-                        // Accept SIP Call
-                        FloatingActionButton(
-                            onClick = onAcceptCall,
-                            containerColor = Color(0xFF43A047),
-                            contentColor = Color.White,
-                            shape = CircleShape,
-                            modifier = Modifier.size(72.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Call,
-                                contentDescription = stringResource(R.string.incoming_cd_accept),
-                                modifier = Modifier.size(34.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        IncomingCallControls(
+            sipState = sipState,
+            onAcceptCall = onAcceptCall,
+            onDeclineCall = onDeclineCall,
+            onToggleMute = onToggleMute,
+            onToggleSpeaker = onToggleSpeaker
+        )
     }
 }

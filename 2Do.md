@@ -135,7 +135,7 @@ Behavioral but self-contained UI work.
       `DeviceEditDialog.kt` was gated on steps 1–4 being green; they are, so it went as step 5 below.
       Files: `ui/recordings/RecordingsScreen.kt`, `ui/recordings/RecordingsViewModel.kt`,
       `ui/settings/SettingsScreen.kt`, `ui/settings/DeviceEditDialog.kt`, `ui/MainActivity.kt`,
-      `ui/live/LiveCamerasScreen.kt`
+      `ui/live/LiveCamerasScreen.kt`, `ui/incoming/IncomingCallActivity.kt`
       5. ✅ `DeviceEditDialog.kt` (548 → 127 lines) split along its own section comments into
          `DeviceFormState.kt` (124), `DeviceFormComponents.kt` (64: `FormSectionLabel`, `FormDivider`,
          `FormRadioRow`, `FormEmphasizedSwitchRow`), `DeviceFormNetworkSection.kt` (108),
@@ -154,6 +154,19 @@ Behavioral but self-contained UI work.
          (same visual result), and the probe's `isTestingConnection` / `testResult` now live inside
          `DeviceFormTestSection`, so a test result no longer recomposes the whole form.
          (done 2026-09-29, `compileDebugKotlin` + `lintDebug` green; `testDebugUnitTest` still NO-SOURCE.)
+      6. ✅ Follow-up the owner asked for after 1–5: the last remaining Android UI monolith,
+         `ui/incoming/IncomingCallActivity.kt` (341 → **163** lines). Its 195-line `IncomingCallContent`
+         overlay became `IncomingCallHeader.kt` (91: event title + device name + dismiss) and
+         `IncomingCallControls.kt` (143: the in-call vs ringing action rows). `IncomingCallControls` is a
+         `BoxScope` **extension** because the bar anchors itself with `.align(BottomCenter)` — a plain
+         function could not keep that modifier. The Activity keeps the lockscreen flags, the SIP wiring and
+         the `collectAsStateWithLifecycle()` on `sipManager.sessionState`; `IncomingCallContent`'s public
+         signature is unchanged. Verified mechanically rather than by eye: the multisets of
+         `R.string.incoming_*`, `Color(0x…)`, `Icons.*` and every `N.dp` value are identical before/after
+         (16 dp values each). One fix on the way: the `sipState` parameter was spelled as a fully qualified
+         `io.github…SipSessionState` instead of using an import.
+         (done 2026-09-29, `compileDebugKotlin` + `lintDebug` green; lint findings are the same 25
+         pre-existing ones, none in the touched package.)
 
 # Tier D — Larger UI / cross-cutting features (Android)
 Multiple screens or cross-cutting behavior; design worth confirming before building.
