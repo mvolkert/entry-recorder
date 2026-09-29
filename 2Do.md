@@ -5,13 +5,21 @@
 - [x] Notification is not the correct new Launcher icon — replaced the four legacy `android.R.drawable`
       small icons in `NotificationHelper` with a dedicated `drawable/ic_notification` (the CCTV launcher
       mark as a white 24dp silhouette). `compileDebugKotlin` + `lintDebug` green (done 2026-09-29).
-- [ ] Top bar inconsistent size across tabs — diagnosed 2026-09-29: Live and Settings use an M3
+- [x] Top bar inconsistent size across tabs — diagnosed 2026-09-29: Live and Settings use an M3
       `TopAppBar` (title `titleLarge` ≈22 sp, fixed 64 dp band that applies the status-bar inset itself),
-      while Recordings hand-rolls a Column whose title is `headlineMedium` (32 sp) plus the storage line
-      and the pinned filter row. So the Recordings heading is ~10 sp larger and its band is much taller.
-      Two ways out, owner's call: match the typography/height only, or rebuild Recordings on a real
-      `TopAppBar` and keep the filter row as the bar's second content row — the latter re-opens the
-      edge-to-edge gate that was just passed on device.
+      while Recordings hand-rolled a Column whose title was `headlineMedium` (32 sp) plus the storage line
+      and the pinned filter row. Fixed 2026-09-29 on the owner's choice (**rebuild on a real `TopAppBar`**):
+      `RecordingsHeader.kt` became `RecordingsTopBar.kt` — `RecordingsTopBar` is a `TopAppBar` (title with
+      `FontWeight.Bold` like the other two tabs, the four selection actions in its `actions` row) and the
+      storage line moved out as `RecordingsStorageLine`. `RecordingsScreen`'s topBar is now
+      `Column { RecordingsTopBar; Column(padding(horizontal = 16.dp)) { storage; 8 dp; filter bar; 8 dp } }`:
+      the padded inner Column deliberately does **not** wrap the bar, because `TopAppBar` already applies
+      its own 16 dp content padding and its own status-bar inset (so the old manual
+      `.windowInsetsPadding(WindowInsets.statusBars)` is gone — leaving it would double the inset).
+      Net layout change: heading 32 sp → 22 sp, band becomes the standard 64 dp, the 8 dp above the old
+      header row is gone. `compileDebugKotlin` + `lintDebug` green (same 25 pre-existing findings);
+      string/icon/dp literal multisets identical to the old header.
+      ⚠️ **Re-opens the edge-to-edge gate below** — the pass recorded on device belonged to the custom bar.
 - [x] Export Video not working: The saved MJPEG.mkv is moved after finish correctly to the Export folder
       but the encoding export shows a toast "Select Export folder". But save to gallery works. Encoded
       video playable — fixed 2026-09-29. **This was a regression from commit `1e89b92` (step 1 of the
@@ -119,7 +127,8 @@ Behavioral but self-contained UI work.
          `FLAG_ACTIVITY_NEW_TASK`, so it needs the Activity context — moving it to `getApplication()`
          would crash.)
       2. ✅ Extracted the UI seams — as `RecordingsHeader.kt` (title + selection actions + export
-         `DropdownMenu` + storage line), `RecordingsFilterBar.kt` (search field + both chip rows),
+         `DropdownMenu` + storage line; renamed `RecordingsTopBar.kt` when the Bug-block top-bar rebuild
+         turned it into a real `TopAppBar`), `RecordingsFilterBar.kt` (search field + both chip rows),
          `RecordingsDialogs.kt` (`DeleteRecordingDialog` / `BulkDeleteDialog` / `ExportProgressDialog` /
          `BatchProgressDialog`; the player was already `VideoPlayerModal`) and `RecordingCardItem.kt`
          (`internal`, body decomposed into thumbnail / details / actions-menu). The loading / empty /
@@ -408,12 +417,14 @@ none of this is verifiable from the build.
 - [x] Compiles & installs with `targetSdk 37` (assembleDebug green).
 - [x] Edge-to-edge layout: status bar no longer overlaps the top of Live / Recordings / Settings; nav bar
       doesn't cover content or the Settings FAB.
-- [x] `RecordingsScreen` custom top bar ("Recordings Archive" + search/filter chips) sits below the status bar,
-      not behind the clock.
+- [ ] Recordings top band ("Recordings Archive" + storage line + search/filter chips) sits below the status
+      bar, not behind the clock. **Re-opened 2026-09-29**: the pass recorded here belonged to the old
+      hand-rolled Column; the band is now a real `TopAppBar` (see the Bug block), which also shrinks the
+      heading from 32 sp to 22 sp. This supersedes the Recordings half of the gate above — re-check both.
 - [ ] Incoming-call screen: header and call controls (mute/speaker/hangup) clear the status & gesture/nav bars
       on a punch-hole / gesture-nav device; video still renders fullscreen behind the bars.
 - [ ] Locked-screen doorbell ring → full-screen intent still fires and shows `IncomingCallActivity` over the keyguard.
-- [] Motion/noise → high-priority heads-up notification appears (screen may NOT wake directly from the service on
+- [ ] Motion/noise → high-priority heads-up notification appears (screen may NOT wake directly from the service on
       Android 15/16 due to BAL rules); tapping it opens `IncomingCallActivity`.
 - [ ] Reboot → `BootReceiver` autostart of the `connectedDevice` foreground service still succeeds
       (`ForegroundServiceStartNotAllowedException` regression check).

@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
@@ -84,23 +82,20 @@ fun RecordingsScreen(
     }
 
     Scaffold(
-        // Top inset is applied manually on the custom Column topBar below (this is not a
-        // TopAppBar, so it does not self-consume the status bar); bottom system inset comes from
-        // the host NavigationBar in MainActivity. Nested Scaffold stays inset-free to avoid
-        // double-counting.
+        // Top inset is consumed by the TopAppBar itself, exactly like the Live and Settings tabs;
+        // bottom system inset comes from the host NavigationBar in MainActivity. Nested Scaffold
+        // stays inset-free to avoid double-counting. The strip under the bar is padded by hand:
+        // TopAppBar must keep its own horizontal content padding, so nothing wraps it.
         contentWindowInsets = WindowInsets(0),
         topBar = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface)
-                    .windowInsetsPadding(WindowInsets.statusBars)
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                RecordingsHeader(
+                RecordingsTopBar(
                     selectionMode = selectionMode,
                     selectedCount = selectedIds.size,
-                    totalStorageBytes = state.totalStorageBytes,
                     onSelectAll = { viewModel.selectAllVisible() },
                     onExportSelected = { kind -> viewModel.exportSelected(kind) },
                     onBulkDelete = { showBulkDeleteConfirm = true },
@@ -111,17 +106,20 @@ fun RecordingsScreen(
                     onEnterSelection = { selectionMode = true }
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                RecordingsFilterBar(
-                    searchQuery = state.searchQuery,
-                    onSearchQueryChange = { viewModel.setSearchQuery(it) },
-                    selectedEventType = state.selectedEventType,
-                    onEventTypeSelect = { viewModel.selectEventTypeFilter(it) },
-                    devices = state.devices,
-                    selectedDeviceId = state.selectedDeviceId,
-                    onDeviceSelect = { viewModel.selectDeviceFilter(it) }
-                )
+                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    RecordingsStorageLine(totalStorageBytes = state.totalStorageBytes)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    RecordingsFilterBar(
+                        searchQuery = state.searchQuery,
+                        onSearchQueryChange = { viewModel.setSearchQuery(it) },
+                        selectedEventType = state.selectedEventType,
+                        onEventTypeSelect = { viewModel.selectEventTypeFilter(it) },
+                        devices = state.devices,
+                        selectedDeviceId = state.selectedDeviceId,
+                        onDeviceSelect = { viewModel.selectDeviceFilter(it) }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
             }
         }
     ) { paddingValues ->
