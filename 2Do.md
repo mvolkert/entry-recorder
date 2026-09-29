@@ -54,7 +54,46 @@
       prove it builds — same 25 pre-existing findings). Open question for the owner: `secondaryContainer`
       is not part of `AccentPalette`, so the selected recording card stays the neutral M3 default —
       deriving that role too would need two new fields per preset and the picker is unaffected.
-- []  After Display off for one minute the Client times out so no continuous observation possible log: HttpSnapshotClient      io.github.mvolkert.entryrecorder     D  Snapshot fetch exception for 2N IP Verso: timeout
+- [ ] **Snapshot HTTP client times out ~1 min after the display turns off → no continuous observation**
+      (owner-reported 2026-09-29, logcat `HttpSnapshotClient D Snapshot fetch exception for 2N IP Verso:
+      timeout`). Diagnosed from code, **not yet root-caused on device** — the mechanism matters and the
+      three candidates need different fixes.
+      Where the log comes from: `data/network/HttpSnapshotClient.kt:41` catches the exception and prints
+      `e.message`; OkHttp's `AsyncTimeout` renders a *silent* stall as exactly `"timeout"` (a dead socket
+      would instead say `Read timed out`/`Failed to connect`), so the request went out and the 2N never
+      answered within the client's **4 s connect / 4 s read** timeouts (L18-19).
+      Who is affected with the screen off: only `video/RtspStreamRecorder.kt:228` (the live view at
+      `LiveStreamPlayer.kt:197` is not on screen). Consequence chain, which is why the archive ends up
+      with nothing usable: the polling loop at L226-234 **swallows** the failure, still sleeps
+      `1000 / fps` ms, and the recording deadline (L202) is wall-clock — so every stalled fetch burns
+      ~4 s of the recording window as *zero* frames, and a run of them yields `fileSize == 0`, which is
+      discarded at L289-291 ("Recording produced empty file"). Motion detection has the same failure
+      shape through a *different* client: `video/OnDeviceMotionAnalyzer.kt:112-114` is a plain
+      `HttpURLConnection` with 3 s timeouts, so there the frames just stop arriving and no motion event
+      is ever raised (that path logs under its own tag, not `HttpSnapshotClient`).
+      Candidates, in the order I would test them:
+      1. **Doze / light-Doze network denial.** The service holds a `PARTIAL_WAKE_LOCK` (24 h) and a
+         Wi-Fi lock (`service/IntercomMonitorService.kt:298-320`), but a wakelock does **not** exempt an
+         app from Doze and neither does the `connectedDevice` foreground-service type. The ~1 min delay
+         matches the first idle window almost exactly. Fix needs a battery-optimization exemption →
+         **manifest permission (`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) = ask-first territory**.
+      2. **Wi-Fi firmware power save.** `0acd070` changed the API 29+ branch to the tag-only
+         `createWifiLock(tag)` overload, i.e. `WIFI_MODE_FULL_LOW_LATENCY`; only
+         `WIFI_MODE_FULL_HIGH_PERF` stops the chip's power-save. On Android 10+ this app therefore holds
+         a *weaker* lock than it did before that commit — the exact "device ring-poll latency" risk that
+         commit's own Tier G note flagged.
+      3. **Stale keep-alive at the 2N.** If the camera drops the idle socket without a RST, the next
+         pooled request is written into a dead socket and times out silently. Consistent with "after one
+         minute", but *not* with "only when the display is off" (the poll keeps the socket hot), so it is
+         the weakest candidate unless polling also stops.
+      Cheap discriminator before any code: `adb shell dumpsys deviceidle whitelist +io.github.mvolkert.entryrecorder`,
+      then screen off for two minutes and watch logcat. Timeouts gone → (1); still there → (2)/(3). Also
+      worth confirming `adb shell dumpsys power` still lists `EntryRecorder::MonitorWakeLock` at that
+      moment — if the lock is *not* held, that is the bug and the polling is simply being frozen.
+      Independent of the cause, the client is fragile by design and worth hardening in its own pass:
+      a `callTimeout` so one stalled fetch cannot eat the frame budget, a consecutive-failure counter
+      surfaced as a real `IntercomEvent.ConnectionState` instead of a `Log.d` nobody watches, and no
+      reuse of a socket idle for more than the camera's keep-alive window.
 
 
 Reorganized from the code & feature review, re-verified against the current codebase
