@@ -147,7 +147,7 @@ fun SettingsScreen(
                 }
             }
 
-            item { SettingsSectionHeader(R.string.settings_section_mode) }
+            item { SettingsSectionHeader(R.string.settings_section_mode, Modifier.padding(top = 16.dp)) }
 
             item {
                 SettingsEngineCard(
@@ -167,7 +167,7 @@ fun SettingsScreen(
                 )
             }
 
-            item { SettingsSectionHeader(R.string.settings_section_retention) }
+            item { SettingsSectionHeader(R.string.settings_section_retention, Modifier.padding(top = 16.dp)) }
 
             item {
                 SettingsStorageCard(
@@ -183,19 +183,19 @@ fun SettingsScreen(
                 )
             }
 
-            item { SettingsSectionHeader(R.string.settings_section_alerts) }
+            item { SettingsSectionHeader(R.string.settings_section_alerts, Modifier.padding(top = 16.dp)) }
 
             item {
                 SettingsAlertsCard(settings = state.appSettings, onSettingsChange = updateSettings)
             }
 
-            item { SettingsSectionHeader(R.string.settings_section_appearance) }
+            item { SettingsSectionHeader(R.string.settings_section_appearance, Modifier.padding(top = 16.dp)) }
 
             item {
                 SettingsAppearanceCard(settings = state.appSettings, onSettingsChange = updateSettings)
             }
 
-            item { SettingsSectionHeader(R.string.settings_section_backup) }
+            item { SettingsSectionHeader(R.string.settings_section_backup, Modifier.padding(top = 16.dp)) }
 
             item {
                 SettingsBackupCard(

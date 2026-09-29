@@ -34,11 +34,11 @@ internal fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     }
 }
 
-/** Primary-coloured section title; sections sit 16 dp apart, the first one only 8 dp under the app bar. */
+/** Primary-coloured section title; callers pass the gap to the previous section. */
 @Composable
 internal fun SettingsSectionHeader(
     @StringRes textRes: Int,
-    modifier: Modifier = Modifier.padding(top = 16.dp)
+    modifier: Modifier = Modifier
 ) {
     Text(
         text = stringResource(textRes),
