@@ -1129,17 +1129,30 @@
             }
         }
 
+        let liveCamerasSignature = null;
+
         function renderLiveCameras() {
             const grid = document.getElementById('live-cameras-grid');
             if (allDevices.length === 0) {
+                liveCamerasSignature = null;
                 grid.innerHTML = '<div class="empty-state">No cameras added yet. Click "Add Camera" to start a live view.</div>';
                 return;
             }
 
+            // Rebuilding the cards would recreate every MJPEG <img> and reconnect each upstream stream
+            // on the 5 s poll. Only a changed device set or API key rebuilds; recording state is patched
+            // in place, and a dead stream is recovered by clicking it (reloadLiveStream).
+            const signature = `${getApiKey()}|${allDevices.map(d => `${d.id}:${d.name}:${d.live_mode}:${d.live_url}`).join(';')}`;
+            if (liveCamerasSignature === signature && grid.querySelector('.live-card')) {
+                updateLiveCardStates();
+                return;
+            }
+            liveCamerasSignature = signature;
+
             grid.innerHTML = allDevices.map(dev => {
                 const isRecording = !!activeRecordingsByDevice[dev.id];
                 return `
-                <div class="live-card">
+                <div class="live-card" id="live-card-${dev.id}">
                     <div class="live-card-header">
                         <div class="live-name"><span class="live-indicator"></span> ${dev.name}</div>
                         <div style="display: flex; gap: 0.25rem;">
@@ -1148,13 +1161,13 @@
                         </div>
                     </div>
                     <div class="live-video-container">
-                        <img class="live-img" id="live-img-${dev.id}" src="${apiUrl(dev.live_url)}" alt="${dev.name} live view" onerror="this.style.opacity=0.3;">
+                        <img class="live-img" id="live-img-${dev.id}" src="${apiUrl(dev.live_url)}" alt="${dev.name} live view" style="cursor: pointer;" title="Click to reconnect the stream" onload="this.style.opacity=1;" onerror="this.style.opacity=0.3;" onclick="reloadLiveStream(${dev.id})">
                     </div>
                     <div class="live-card-footer">
-                        <span style="font-size:0.8rem; color: var(--text-muted);">${isRecording ? 'Recording…' : 'Live'}</span>
+                        <span style="font-size:0.8rem; color: var(--text-muted);" id="live-status-${dev.id}">${isRecording ? 'Recording…' : 'Live'}</span>
                         <div style="display: flex; gap: 0.5rem;">
                             <button class="rec-toggle-btn" style="background-color: var(--card-border);" onclick="toggleFullscreen(${dev.id})" title="Fullscreen">⛶</button>
-                            <button class="rec-toggle-btn ${isRecording ? 'recording' : ''}" onclick="toggleDeviceRecording(${dev.id})" title="${isRecording ? 'Stop Recording' : 'Start Recording'}">
+                            <button class="rec-toggle-btn${isRecording ? ' recording' : ''}" id="live-rec-btn-${dev.id}" onclick="toggleDeviceRecording(${dev.id})" title="${isRecording ? 'Stop Recording' : 'Start Recording'}">
                                 ${isRecording ? '⏹' : '⏺'}
                             </button>
                         </div>
@@ -1162,6 +1175,29 @@
                 </div>
             `;
             }).join('');
+        }
+
+        function updateLiveCardStates() {
+            allDevices.forEach(dev => {
+                const isRecording = !!activeRecordingsByDevice[dev.id];
+                const status = document.getElementById(`live-status-${dev.id}`);
+                const btn = document.getElementById(`live-rec-btn-${dev.id}`);
+                if (status) status.textContent = isRecording ? 'Recording…' : 'Live';
+                if (btn) {
+                    btn.classList.toggle('recording', isRecording);
+                    btn.title = isRecording ? 'Stop Recording' : 'Start Recording';
+                    btn.textContent = isRecording ? '⏹' : '⏺';
+                }
+            });
+        }
+
+        function reloadLiveStream(deviceId) {
+            const dev = allDevices.find(d => d.id === deviceId);
+            const img = document.getElementById(`live-img-${deviceId}`);
+            if (!dev || !img) return;
+            // A fresh timestamp defeats any cached response and forces a new stream request.
+            img.style.opacity = '1';
+            img.src = `${apiUrl(dev.live_url)}&_=${Date.now()}`;
         }
 
         function toggleFullscreen(deviceId) {

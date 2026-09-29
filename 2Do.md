@@ -66,9 +66,9 @@ Single-file, non-behavioral or config-only changes.
       failure now reports its `MediaError` code in `#playback-warn-detail` — the two cases are no longer
       confusable, which was the point of the playback note below. Other probe statuses still attempt playback.
       Verified off-browser: `node server/tests/webui_auth_harness.mjs server/entry_recorder_server/static/index.html`
-      → 26/26 (runs the real inline script in a VM with DOM/fetch stubs: header injection, `?api_key=` on
-      thumbnail/live/player/download URLs, the 401 re-prompt-once + lock rule, and the fallback wording).
-      Docs updated in both READMEs.
+      → 36/36 (runs the real inline script in a VM with DOM/fetch stubs: header injection, `?api_key=` on
+      thumbnail/live/player/download URLs, the 401 re-prompt-once + lock rule, the fallback wording, and the
+      Tier B live-card rules). Docs updated in both READMEs.
       ⚠️ Not verified: the server was not booted (no `fastapi`/`uvicorn` in this environment); Starlette's
       automatic HEAD-for-GET support is assumed.
       Files: `server/entry_recorder_server/static/index.html`, `server/tests/webui_auth_harness.mjs` (new),
@@ -102,22 +102,38 @@ Single-file, non-behavioral or config-only changes.
   5. **Legacy MKV fallback** — click the `.mkv` card. Expect: the player is replaced by the
      `#playback-warn` box whose detail suffix reads **`(player error 4: source not supported)`** (NOT
      `server returned HTTP …`), and the ⬇️ link downloads the file. Download it and confirm it opens in VLC.
-  6. **Live view** — a server-created camera shows moving MJPEG. (Known pre-existing wart: the 5 s poll
-     re-renders the `<img>` each cycle, so the stream reconnects — see the Tier B item.)
+  6. **Live view** — a server-created camera shows moving MJPEG, and the Tier B no-rebuild fix holds:
+     watch one camera for ~15 s — the picture must not blank at each poll, and DevTools → Network must show
+     **one** long-lived `/api/live/<id>/mjpeg` request, not a new one every 5 s. Start/stop a recording on that
+     card: the footer label and ⏺/⏹ change without the picture restarting. Press ⛶ and wait 15 s: you must
+     still be in fullscreen (the old poll ejected you). Unplug a camera → the tile dims; plug it back and click
+     the tile → the stream reconnects.
   7. **Safari** — cannot be covered on Windows; if you ever check it, the same steps 3 and 5 apply.
 
-  Mark this item `[x]` only when 1–5 pass in Firefox. Report which step failed and what the modal said.
+  Mark this item `[x]` only when 1–5 pass in Firefox (step 6 closes the Tier B live-card item).
+  Report which step failed and what the modal said.
 
 
 # Tier B — Localized one-file changes (small, isolated)
 Confined to a single file/module; no cross-layer design decisions.
 
-- [ ] **Live camera `<img>` reconnects every poll** – `loadData()` (5 s interval) calls `renderLiveCameras()`,
-      which rebuilds `live-cameras-grid`'s `innerHTML`, so every live MJPEG `<img>` is destroyed and recreated
-      ~every 5 s: constant reconnects, flicker and a new upstream connection per camera. Only touches
-      `server/entry_recorder_server/static/index.html` — keep the DOM nodes when the device set is unchanged and
-      refresh only the recording-state footer. Found while writing the Tier A Firefox checklist (step 6).
-      File: `server/entry_recorder_server/static/index.html` (`loadData()` / `renderLiveCameras()`)
+- [x] **Live camera `<img>` reconnects every poll** – `loadData()` (5 s interval) called `renderLiveCameras()`,
+      which rebuilt `live-cameras-grid`'s `innerHTML`, so every live MJPEG `<img>` was destroyed and recreated
+      ~every 5 s: a new upstream connection per camera, constant flicker — and it also dropped the user out of
+      fullscreen every cycle, because the fullscreen element left the document. Now the cards are only rebuilt
+      when the *device set* or the *API key* changes (signature over `id:name:live_mode:live_url` + key, plus a
+      guard that the nodes still exist); otherwise the recording state is patched in place via
+      `updateLiveCardStates()` (footer text, `recording` class, icon, title) on the now-identified
+      `live-card-{id}` / `live-status-{id}` / `live-rec-btn-{id}` nodes. Since the rebuild was the accidental
+      reconnect mechanism, an explicit one replaces it: clicking a camera's image calls
+      `reloadLiveStream(id)`, which re-requests `live_url` with a fresh `&_=<ts>` cache-buster and restores the
+      opacity that `onerror` dims (and `onload` now restores it on its own when a frame arrives).
+      Verified: same harness → **36/36**, incl. "idle poll leaves the live grid untouched", "recording state
+      patched without a rebuild", "changed key/device set rebuilds", "empty → non-empty rebuilds" and the
+      reconnect URL/opacity assertions. Not verified: no real browser or live camera was attached (the harness
+      stubs the DOM), so the flicker-free reconnect behaviour still needs the Tier A Firefox checklist step 6.
+      File: `server/entry_recorder_server/static/index.html` (`renderLiveCameras()`, `updateLiveCardStates()`,
+      `reloadLiveStream()`) (done 2026-09-29)
 - [x] **Server: make auth mandatory** (former Phase 1) – auth deps exist on **all** endpoints incl.
       `/video`, `/thumbnail`, `/api/live/{id}/mjpeg`. `verify_api_key` now always rejects a missing/wrong
       key; a new `ensure_api_key()` generates a random key on first run, persists it to `data/.api_key`

@@ -14,12 +14,29 @@ script = script.replace(/\/\/ Auto load and poll[\s\S]*$/, '');
 if (!script) { console.error('no inline script'); process.exit(1); }
 
 const elements = new Map();
-const makeEl = () => ({
-    textContent: '', innerHTML: '', value: '', src: '', style: {}, href: '',
-    error: null, onerror: null,
-    classList: { add() {}, remove() {} },
-    pause() {},
-});
+const makeEl = () => {
+    const classes = new Set();
+    return {
+        textContent: '', innerHTML: '', value: '', src: '', href: '', title: '',
+        error: null, onerror: null, style: {}, classes,
+        classList: {
+            add: c => classes.add(c),
+            remove: c => classes.delete(c),
+            contains: c => classes.has(c),
+            toggle: (c, force) => {
+                const on = force === undefined ? !classes.has(c) : !!force;
+                if (on) classes.add(c); else classes.delete(c);
+                return on;
+            },
+        },
+        // Good enough to answer grid.querySelector('.live-card') from the rendered innerHTML.
+        querySelector(sel) {
+            const cls = String(sel).replace(/^\./, '').trim();
+            return this.innerHTML.includes(cls) ? { matched: cls } : null;
+        },
+        pause() {},
+    };
+};
 // Stable per-id stubs so the checks can read back what the modal wrote.
 const byId = id => {
     if (!elements.has(id)) elements.set(id, makeEl());
@@ -146,10 +163,70 @@ await vm.runInContext('loadDevices()', context);
 const liveHtml = byId('live-cameras-grid').innerHTML;
 check('live img carries api_key', liveHtml.includes('src="/api/live/3/mjpeg?api_key=k1"'), liveHtml.slice(liveHtml.indexOf('live-img'), liveHtml.indexOf('live-img') + 90));
 
+// 6c. the 5 s poll must NOT recreate the live cards: rebuilding the grid destroys each MJPEG <img>
+// and reconnects the upstream stream (and kicks the user out of fullscreen).
+const statusBody = active => ({
+    status: 200,
+    body: {
+        version: '1.0.0', active_recordings_count: active.length, total_recordings_count: 1,
+        total_storage_bytes: 1, active_recordings: active,
+    },
+});
+const poll = async active => {
+    state.responses.push(statusBody(active), { status: 200, body: [rec] });
+    await vm.runInContext('loadData()', context);
+};
+const devicesBody = name => ({
+    status: 200,
+    body: [{ id: 3, name, live_url: '/api/live/3/mjpeg', live_mode: 'rtsp', rtsp_url: null, snapshot_url: null, username: null, password: null }],
+});
+const gridRender = byId('live-cameras-grid').innerHTML;
+await poll([]);
+check('idle poll leaves the live grid untouched', byId('live-cameras-grid').innerHTML === gridRender);
+
+// 6d. recording state is still reflected, purely by patching the nodes
+await poll([{ device_id: 3, device_name: 'Door', event_type: 'MANUAL', elapsed_seconds: 5, max_duration_seconds: 60 }]);
+check('recording state patched without a rebuild',
+    byId('live-cameras-grid').innerHTML === gridRender && byId('live-status-3').textContent === 'Recording…');
+check('rec button switches to stop',
+    byId('live-rec-btn-3').textContent.trim() === '⏹' && byId('live-rec-btn-3').classes.has('recording')
+    && byId('live-rec-btn-3').title === 'Stop Recording');
+await poll([]);
+check('rec button switches back to start',
+    byId('live-rec-btn-3').textContent.trim() === '⏺' && !byId('live-rec-btn-3').classes.has('recording')
+    && byId('live-status-3').textContent === 'Live' && byId('live-cameras-grid').innerHTML === gridRender);
+
+// 6e. a changed key or a changed device set must rebuild (the stream needs a new authenticated URL)
+let currentKey = 'k2';
+storage.set('entryRecorderApiKey', currentKey);
+await poll([]);
+const gridAfterKey = byId('live-cameras-grid').innerHTML;
+check('changed key rebuilds the live img', gridAfterKey !== gridRender && gridAfterKey.includes('/api/live/3/mjpeg?api_key=k2'));
+state.responses.push(devicesBody('Front Door'));
+await vm.runInContext('loadDevices()', context);
+const gridAfterRename = byId('live-cameras-grid').innerHTML;
+check('changed device set rebuilds the card', gridAfterRename !== gridAfterKey && gridAfterRename.includes('Front Door'));
+
+// 6f. empty -> non-empty must rebuild (signature reset guard)
+state.responses.push({ status: 200, body: [] });
+await vm.runInContext('loadDevices()', context);
+check('no cameras shows the empty state', byId('live-cameras-grid').innerHTML.includes('No cameras added yet'));
+state.responses.push(devicesBody('Front Door'));
+await vm.runInContext('loadDevices()', context);
+check('cameras come back after an empty cycle', byId('live-cameras-grid').innerHTML.includes('live-card-3'));
+
+// 6g. clicking a dead stream reconnects it with a fresh authenticated request
+byId('live-img-3').style.opacity = '0.3';
+vm.runInContext('reloadLiveStream(3)', context);
+const reloaded = byId('live-img-3').src;
+check('reconnect reuses the key and busts the cache',
+    reloaded.includes(`/api/live/3/mjpeg?api_key=${currentKey}`) && /[&_]_=\d{10,}/.test(reloaded), reloaded);
+check('reconnect restores the image opacity', byId('live-img-3').style.opacity === '1');
+
 // 7. playback probe: an available file wires <video> with the keyed URL, no fallback
 state.responses.push({ status: 200 });
 await vm.runInContext('openPlayerModal(7)', context);
-check('inline <video> gets the keyed URL', byId('video-element').src === '/api/recordings/7/video?api_key=k1', byId('video-element').src);
+check('inline <video> gets the keyed URL', byId('video-element').src === `/api/recordings/7/video?api_key=${currentKey}`, byId('video-element').src);
 check('fallback stays hidden on success', byId('playback-warn').style.display === 'none');
 
 // 8. an auth/file rejection is reported as a server error, never as "browser cannot play this"
@@ -163,14 +240,14 @@ check('404 is not labelled a player error', !detail404.includes('player error'))
 state.responses.push({ status: 405 });
 byId('video-element').src = '';
 await vm.runInContext('openPlayerModal(7)', context);
-check('405 probe still attempts inline playback', byId('video-element').src === '/api/recordings/7/video?api_key=k1', byId('video-element').src);
+check('405 probe still attempts inline playback', byId('video-element').src === `/api/recordings/7/video?api_key=${currentKey}`, byId('video-element').src);
 
 // 10. a genuine container rejection reports its MediaError code
 byId('video-element').error = { code: 4 };
 vm.runInContext('onVideoElementError()', context);
 const detailCodec = byId('playback-warn-detail').textContent;
 check('container failure reports player error 4', detailCodec.includes('player error 4: source not supported'), detailCodec);
-check('download link points at the keyed URL', byId('playback-download-link').href === '/api/recordings/7/video?api_key=k1', byId('playback-download-link').href);
+check('download link points at the keyed URL', byId('playback-download-link').href === `/api/recordings/7/video?api_key=${currentKey}`, byId('playback-download-link').href);
 
 console.log(results.join('\n'));
 const failed = results.filter(r => r.startsWith('FAIL')).length;
