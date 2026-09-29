@@ -74,7 +74,7 @@ Confined to a single file/module; no cross-layer design decisions.
 # Tier C — Medium UI features (Android, single-purpose, multi-file)
 Behavioral but self-contained UI work.
 
-- [ ] **Split the oversized UI files; lift export logic out of the composables** – added after the
+- [~] **Split the oversized UI files; lift export logic out of the composables** – added after the
       2026-09-29 reordering (owner: "a file refactor splitting into components would be smart"). Facts from
       the current tree: `SettingsScreen.kt` 848 lines / **one** 787-line composable, `RecordingsScreen.kt`
       816 / one 509-line composable + a 206-line card, `DeviceEditDialog.kt` 548 / one composable. Measured
@@ -83,21 +83,34 @@ Behavioral but self-contained UI work.
       Toasts and broad `catch (e: Exception)`; the `RecordingsViewModel` next to it is 124 lines of pure
       filtering. So the split is worth doing **with** the UDF fix, not instead of it. Ordered sub-steps,
       each its own commit, behaviour-preserving, `compileDebugKotlin` + `lintDebug` between every one:
-      1. `RecordingsScreen`: move the three export functions into the ViewModel behind a
+      1. ✅ `RecordingsScreen`: move the three export functions into the ViewModel behind a
          `RecordingExportKind` enum (`SHARE|GALLERY|FOLDER` magic strings today) and expose progress as UI
          state + results as `Channel<UiEvent>` (Toasts/errors are data per AGENTS.md). Keep the existing
          lazy transcode-on-export policy comments verbatim.
-      2. Then extract the UI seams already visible in the file: `RecordingsTopBar` (title + selection
-         actions + export `DropdownMenu` + storage line, 292-382), `RecordingsFilterRow(s)` (search field +
-         the two chip rows, 386-474), `RecordingsList` (loading/empty/`LazyColumn`, 483-517),
-         `RecordingsDialogs` (player, delete, bulk delete, export + batch progress, 521-607). Keep
-         `RecordingCardItem` in its own file and make it `private`-scope-correct (it takes **10** params
-         today — collapse the export callbacks).
-      3. `SettingsScreen`: cut at its own section comments — Devices (171), Recording Engine & Destination
+         (done 2026-09-29, commit `1e89b92`. The share sheet stays in the screen through a
+         `RecordingsUiEvent.Share` event: `ExportHelper.shareFile` calls `startActivity` without
+         `FLAG_ACTIVITY_NEW_TASK`, so it needs the Activity context — moving it to `getApplication()`
+         would crash.)
+      2. ✅ Extracted the UI seams — as `RecordingsHeader.kt` (title + selection actions + export
+         `DropdownMenu` + storage line), `RecordingsFilterBar.kt` (search field + both chip rows),
+         `RecordingsDialogs.kt` (`DeleteRecordingDialog` / `BulkDeleteDialog` / `ExportProgressDialog` /
+         `BatchProgressDialog`; the player was already `VideoPlayerModal`) and `RecordingCardItem.kt`
+         (`internal`, body decomposed into thumbnail / details / actions-menu). The loading / empty /
+         `LazyColumn` block stayed in the screen: as `RecordingsList` it would need ~10 parameters, so it
+         adds indirection without narrowing a recomposition scope. `RecordingCardItem` still takes **10**
+         params — collapsing the three export callbacks into one `(RecordingExportKind) -> Unit` is the
+         obvious follow-up but changes the call surface, so it was left for the next pass.
+         `RecordingsScreen.kt` is now 208 lines, one composable.
+         (done 2026-09-29, `compileDebugKotlin` + `lintDebug` + `testDebugUnitTest` green — the last one is
+         NO-SOURCE: no unit tests exist in `app/`.)
+      3. TODO `SettingsScreen`: cut at its own section comments — Devices (171), Recording Engine & Destination
          (212), Storage & Retention (326), Backup & Restore (716) → one file per section composable.
-      4. Same pass fixes the convention gap: all five screens use `collectAsState()` where AGENTS.md
+      4. TODO Same pass fixes the convention gap: all five screens use `collectAsState()` where AGENTS.md
          requires `collectAsStateWithLifecycle()` (`MainActivity:68`, `LiveCamerasScreen:60`,
          `RecordingsScreen:107/111/112/119`, `SettingsScreen:89`, `IncomingCallActivity:87`).
+         ⚠️ **Blocked on owner approval**: `androidx.lifecycle:lifecycle-runtime-compose` is not a project
+         dependency (only `lifecycle-runtime-ktx` + `lifecycle-viewmodel-compose`, lifecycle 2.11.0), and
+         AGENTS.md requires asking before adding one. Say the word and this step becomes mechanical.
       ⚠️ No UI tests exist, so verification stops at compile + lint; the visual/interaction check rides on
       the Tier G edge-to-edge gates. Do **not** apply the same treatment to `video/Fmp4StreamMuxer.kt` (454)
       or `video/MkvStreamMuxer.kt` (384) — a box writer splits badly, the sequence of writes is the API.
