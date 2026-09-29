@@ -67,46 +67,55 @@ Single-file, non-behavioral or config-only changes.
 # Tier B — Localized one-file changes (small, isolated)
 Confined to a single file/module; no cross-layer design decisions.
 
-- [~] **Server: make auth mandatory** (former Phase 1) – auth deps now exist on **all** endpoints
-      incl. `/video`, `/thumbnail`, `/api/live/{id}/mjpeg` (re-verified 2026-09-28, more done than
-      previously claimed). Remaining: `verify_api_key` is still a no-op when `API_KEY` is empty
-      (`.env` ships none; startup only logs a warning) → require a key, generate a default on first run.
-      File: `server/entry_recorder_server/main.py:78-87`, `server/entry_recorder_server/config.py:61`
-- [ ] **Broadcast intent to trigger export** (former Features) – no `sendBroadcast`/export action
-      exists in the app today (verified). New exported action handled in a receiver → reuse
-      `ExportTranscoder`/`ExportHelper` on the latest/all finalized recordings; enables external
-      automation (Tasker etc.).
-      Files: new receiver + `AndroidManifest.xml`, hook into finalize path in `video/RtspStreamRecorder.kt`
-- [ ] **WifiLock SDK-version branch** (former Lint debt, safe part) – branch on
-      `Build.VERSION.SDK_INT >= Q (29)` → non-deprecated tag-only `createWifiLock("EntryRecorder::MonitorWifiLock")`;
-      pre-29 fallback keeps `WIFI_MODE_FULL_HIGH_PERF` with a single-line scoped `@Suppress("DEPRECATION")`
-      (owner-approved for that legacy branch only). Build green suffices for the modern path;
-      ring-poll latency check on device is covered in Tier G.
-      File: `service/IntercomMonitorService.kt:309` (`acquireWakeAndWifiLocks()`)
+- [x] **Server: make auth mandatory** (former Phase 1) – auth deps exist on **all** endpoints incl.
+      `/video`, `/thumbnail`, `/api/live/{id}/mjpeg`. `verify_api_key` now always rejects a missing/wrong
+      key; a new `ensure_api_key()` generates a random key on first run, persists it to `data/.api_key`
+      and logs it (a `.env` `API_KEY` still wins). Server `py_compile` clean (done 2026-09-29, commit `0acd070`).
+      Files: `server/entry_recorder_server/main.py`
+- [x] **Broadcast intent to trigger export** (former Features) – exported `ExportTriggerReceiver`
+      (action `io.github.mvolkert.entryrecorder.action.EXPORT_RECORDINGS`, `--es scope latest|all`)
+      only enqueues a `WorkManager` `ExportTriggerWorker` that reuses `ExportTranscoder`/`ExportHelper`
+      to write the latest/all finalized recordings into the configured SAF folder; enables external
+      automation (Tasker/`adb`).
+      **Deviation (deliberate):** did NOT hook the 24/7 finalize path in `video/RtspStreamRecorder.kt` —
+      not needed for the automation case and avoids adding a broadcast to the capture lifecycle.
+      Files: new receiver + `AndroidManifest.xml` + new `worker/ExportTriggerWorker.kt` (done 2026-09-29, commit `0acd070`).
+- [x] **WifiLock SDK-version branch** (former Lint debt, safe part) – `acquireWakeAndWifiLocks()` now
+      branches on `Build.VERSION.SDK_INT >= Q (29)` → non-deprecated tag-only
+      `createWifiLock("EntryRecorder::MonitorWifiLock")`; the pre-29 fallback keeps
+      `WIFI_MODE_FULL_HIGH_PERF` under a single-line scoped `@Suppress("DEPRECATION")`.
+      `compileDebugKotlin` green (device ring-poll latency check covered in Tier G) (done 2026-09-29, commit `0acd070`).
+      File: `service/IntercomMonitorService.kt` (`acquireWakeAndWifiLocks()`)
 
 # Tier C — Medium UI features (single-purpose, multi-file)
 Behavioral but self-contained UI work.
 
-- [ ] **Tab swiping** (former UX) – add a pager (e.g. `HorizontalPager`; none exists in the app
-      today, verified) to the Live/Recordings/Settings navigation in `ui/MainActivity.kt`, keeping
-      per-screen state. Medium size, but a behavior change of main navigation → test all three tabs
-      after wiring.
-- [ ] **Pickable accent colors** (former UI) – primary/secondary/tertiary currently one palette;
-      offer selectable seeds via a theme overlay applied from Settings. Contained to the theming
-      layer, but the Settings persistence + picker UI is a few files.
+- [x] **Tab swiping** (former UX) – `MainActivity` now uses a `HorizontalPager` synced to the bottom
+      `NavigationBar` (swipe + tap both change pages); per-screen state persists via the Activity-scoped
+      ViewModels. NavHost removed. `compileDebugKotlin` + `lintDebug` green; swipe feel on device (Tier G) (done 2026-09-29, commit `6f51a5e`).
+      File: `ui/MainActivity.kt`
+- [x] **Pickable accent colors** (former UI) – curated dark-scheme presets in `ui/theme/Theme.kt`
+      applied from a Settings swatch picker; the choice persists in `AppSettingsEntity.themeAccentIndex`
+      (Room v7→v8 migration, default 0 = previous baseline look). `compileDebugKotlin` + `lintDebug` green (done 2026-09-29, commit `6f51a5e`).
+      Files: `ui/theme/Theme.kt`, `ui/MainActivity.kt`, `ui/settings/SettingsScreen.kt`, `data/local/entity/AppSettingsEntity.kt`, `data/local/AppDatabase.kt`
 
 # Tier D — Larger UI / cross-cutting features
 Multiple screens or cross-cutting behavior; design worth confirming before building.
 
-- [ ] **M3 Expressive Motion** (former UI) – spring specs/motion tokens across screens; touches
-      every screen's animation behavior without changing logic.
+- [x] **M3 Expressive Motion** (former UI) – centralized spring tokens in `ui/theme/Motion.kt` drive an
+      expressive pager page scale/fade + a nav-icon selection spring; no custom durations. Applied at
+      the pager layer on purpose so distant pages (incl. live camera streams) are NOT force-composed
+      (keeps capture cheap). `compileDebugKotlin` + `lintDebug` green; motion feel on device (Tier G) (done 2026-09-29, commit `94fcd2e`).
+      Files: `ui/theme/Motion.kt`, `ui/MainActivity.kt`
 - [ ] **Live view through the server** (former Phase 4) – consume `/api/live/{id}/mjpeg` in
-      `LiveCamerasScreen` (`LiveStreamPlayer`). Depends on server auth (Tier B) and is blocked for
-      app-managed cameras by the sync gap (Tier F) — works today only for server-UI-created devices.
+      `LiveCamerasScreen` (`LiveStreamPlayer`). Depends on server auth (Tier B, now done) but is **still
+      blocked** for app-managed cameras by the sync gap (Tier F) — works today only for server-UI-created
+      devices. **DEFERRED** per owner Tier-D selection (2026-09-29).
 - [ ] **Surface server recordings in the app** (former Phase 4, Bug #3) – data layer done
       (`ServerRecordingClient.listRecordings()` + `ServerRecordingDto`, server-relative URLs).
       Remaining is architectural: a UI-model abstraction over the Room-only `RecordingEntity` list
-      for network thumbnails + remote playback. **Confirm design before building.**
+      for network thumbnails + remote playback. **Confirm design before building. DEFERRED** per owner
+      Tier-D selection (2026-09-29).
       Files: `data/server/ServerRecordingClient.kt`, `ui/recordings/RecordingsViewModel.kt`, `ui/recordings/RecordingsScreen.kt`
 
 # Tier E — Service & data-layer refactors (larger blast radius)

@@ -33,6 +33,16 @@ Namespace: `io.github.mvolkert.entryrecorder`
 - **Video-Export**:
   - Teilen über das Android Share-Sheet (z.B. WhatsApp, Signal, E-Mail, Google Drive).
   - Speichern in die öffentliche Galerie / Downloads (`Movies/EntryRecorder`).
+  - **Export per Broadcast-Intent (externe Automatisierung)**: Ein exportierter Broadcast-Receiver
+    (`io.github.mvolkert.entryrecorder.action.EXPORT_RECORDINGS`) löst über externe Automatisierung
+    (z.B. Tasker, `adb`) einen Export abzuschließender Aufnahmen in den in den Einstellungen gewählten
+    SAF-Ordner aus. `--es scope latest` (Standard) exportiert die neueste, `--es scope all` alle
+    Aufnahmen. Der Receiver selbst gibt keine Daten zurück und führt die (ggf. H.264-)Transkodierung
+    in einem Hintergrund-Worker (`WorkManager`) aus, statt den 24/7-Überwachungsdienst zu blockieren.
+
+    ```bash
+    adb shell am broadcast -a io.github.mvolkert.entryrecorder.action.EXPORT_RECORDINGS --es scope all
+    ```
 - **Aufbewahrungsrichtlinie (Retention Policy) & Auto-Cleanup**:
   - Konfigurierbare maximale Aufbewahrungsdauer (z.B. 7, 14, 30 Tage).
   - Speicherplatzkontingent (z.B. max. 10 GB) mit automatischem Löschen der ältesten, ungeschützten Aufnahmen im Hintergrund (`WorkManager`).
@@ -79,7 +89,7 @@ docker compose up -d
 ```
 
 - **Web-Dashboard**: Erreichbar unter `http://<server-ip>:8000` im Webbrowser (Live-Aufnahmestatus, Videogalerie mit HTML5-Player, Download, Retention Cleanup und manuelle Aufnahmetrigger).
-- **REST API**: `/api/status`, `/api/recordings/start`, `/api/recordings/stop`, `/api/recordings`. Alle Endpunkte akzeptieren den API-Key im `X-API-Key`-Header (bzw. `api_key`-Query-Parameter für Media-/Live-Endpunkte), sobald auf dem Server ein `API_KEY` gesetzt ist.
+- **REST API**: `/api/status`, `/api/recordings/start`, `/api/recordings/stop`, `/api/recordings`. Authentifizierung ist **verpflichtend**: jeder Endpunkt verlangt den API-Key im `X-API-Key`-Header (bzw. `api_key`-Query-Parameter für Media-/Live-Endpunkte). Ist auf dem Server kein `API_KEY` in der `.env` gesetzt, erzeugt der Server beim ersten Start automatisch einen, speichert ihn in `data/.api_key` und gibt ihn im Log aus — diesen Wert in den App-Einstellungen und im Web-UI eintragen. Bestehende Installationen ohne Key müssen entsprechend umgestellt werden.
 
 ---
 
@@ -104,7 +114,8 @@ app/src/main/java/io/github/mvolkert/entryrecorder/
 ├── notification/
 │   └── NotificationHelper.kt          # FullScreenIntent, Heads-Up & Foreground Notifications
 ├── receiver/
-│   └── BootReceiver.kt                # Autostart nach Geräteneustart
+│   ├── BootReceiver.kt                # Autostart nach Geräteneustart
+│   └── ExportTriggerReceiver.kt       # Exportiert Broadcast-Intent für automatisierten Export
 ├── service/
 │   └── IntercomMonitorService.kt      # Dauerhafter LAN-Überwachungsdienst
 ├── sip/
@@ -131,7 +142,8 @@ app/src/main/java/io/github/mvolkert/entryrecorder/
 │   ├── RtspStreamRecorder.kt          # Aufnahme-Engine (Snapshot/RTSP zu crash-sicherem MKV)
 │   └── ThumbnailUtil.kt               # Thumbnail-Extraktion
 └── worker/
-    └── RetentionCleanupWorker.kt      # Automatischer Speicher- & Zeit-Bereiniger
+    ├── RetentionCleanupWorker.kt      # Automatischer Speicher- & Zeit-Bereiniger
+    └── ExportTriggerWorker.kt         # Hintergrund-Export (Transcode + SAF) per Broadcast-Intent
 ```
 
 ---

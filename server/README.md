@@ -13,7 +13,7 @@ Centralized video recording server with Web UI for Entry Recorder intercoms (2N 
   - In-browser HTML5 video player.
   - Filter by intercom device name and event type (Doorbell Ring, Motion, Noise, Manual).
   - Download recordings (MP4 for new encoded captures; MKV for legacy rows and the no-FFmpeg raw-JPEG fallback) and protect them from auto-cleanup.
-- **REST API**: Seamless communication with the Entry Recorder Android App.
+- **REST API**: Seamless communication with the Entry Recorder Android App. Access is controlled by a mandatory `X-API-Key` (see the note under the endpoint table below).
 - **Automatic Storage Retention**: Configurable retention period in days and maximum storage quota limit.
 
 ## Downloads & Releases
@@ -68,7 +68,7 @@ In the Android app, select **Python Server** recording mode and configure the se
 | `POST` | `/api/recordings/start` | Starts a recording when a 2N event occurs. |
 | `POST` | `/api/recordings/stop` | Stops the recording when the event ends or its duration expires. |
 
-When `API_KEY` is set in the server environment, enter the same value in the Android app. The app sends it in the `X-API-Key` request header. Ensure the Android device can reach the server on its configured port (default: `8000`) and the server can reach the 2N intercom's RTSP and HTTP interfaces.
+Authentication is **mandatory** on all endpoints (status, recordings, media and live). Set `API_KEY` in the server environment or `.env`, then enter the same value in the Android app (sent as the `X-API-Key` header) and in the Web UI. If no `API_KEY` is configured, the server generates a random one on first startup, persists it to `data/.api_key`, and logs it — read it there and configure it in both the app and the Web UI so it stays stable across restarts. Installs that previously ran with a blank key must be reconfigured. Ensure the Android device can reach the server on its configured port (default: `8000`) and the server can reach the 2N intercom's RTSP and HTTP interfaces.
 
 ### Recording Request Example
 
