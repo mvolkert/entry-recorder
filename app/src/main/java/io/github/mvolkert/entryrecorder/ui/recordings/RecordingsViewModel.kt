@@ -61,16 +61,6 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     private val _selectedIds = MutableStateFlow<Set<Long>>(emptySet())
     val selectedIds: StateFlow<Set<Long>> = _selectedIds.asStateFlow()
 
-    /** Whether exports should be transcoded to H.264 for universal playback (Settings-driven). */
-    val transcodeOnExport: StateFlow<Boolean> = repository.settingsFlow
-        .map { it?.transcodeOnExport ?: true }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
-
-    /** SAF tree URI of the user-chosen export folder ("" = not set). Drives "Export to folder". */
-    val exportFolderUri: StateFlow<String> = repository.settingsFlow
-        .map { it?.exportFolderUri ?: "" }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
-
     /** Percent (0..100) of the running single-item transcode, null while idle. */
     private val _exportProgress = MutableStateFlow<Int?>(null)
     val exportProgress: StateFlow<Int?> = _exportProgress.asStateFlow()
@@ -175,31 +165,34 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
      * the lossless original stays in-app and the folder isn't cluttered with near-duplicates.
      */
     fun exportRecording(recording: RecordingEntity, kind: RecordingExportKind) {
-        val src = File(recording.filePath)
-        val willTranscode = transcodeOnExport.value && src.extension.equals("mkv", ignoreCase = true)
-
-        if (kind == RecordingExportKind.FOLDER) {
-            if (exportFolderUri.value.isBlank()) {
-                toast(R.string.recordings_toast_set_folder_first)
-                return
-            }
-            if (!src.exists()) {
-                toast(R.string.recordings_toast_file_not_found, short = true)
-                return
-            }
-        }
-        // Raw file, no progress dialog: the path taken when transcoding is off or the source is not MKV.
-        if (!willTranscode && kind != RecordingExportKind.FOLDER) {
-            deliver(recording, src, kind)
-            return
-        }
-
         viewModelScope.launch {
+            // Read the settings when the action runs: which folder was picked and whether to re-encode
+            // must not depend on whether anything happens to be subscribed to them.
+            val settings = repository.getSettings()
+            val src = File(recording.filePath)
+            val willTranscode = settings.transcodeOnExport && src.extension.equals("mkv", ignoreCase = true)
+
+            if (kind == RecordingExportKind.FOLDER) {
+                if (settings.exportFolderUri.isBlank()) {
+                    toast(R.string.recordings_toast_set_folder_first)
+                    return@launch
+                }
+                if (!src.exists()) {
+                    toast(R.string.recordings_toast_file_not_found, short = true)
+                    return@launch
+                }
+            }
+            // Raw file, no progress dialog: the path taken when transcoding is off or the source is not MKV.
+            if (!willTranscode && kind != RecordingExportKind.FOLDER) {
+                deliver(recording, src, kind, settings.exportFolderUri)
+                return@launch
+            }
+
             try {
                 if (willTranscode) _exportProgress.value = 0
                 val out = if (willTranscode) transcodeWithProgress(recording) else src
                 _exportProgress.value = null
-                deliver(recording, out, kind)
+                deliver(recording, out, kind, settings.exportFolderUri)
             } catch (e: CancellationException) {
                 _exportProgress.value = null
                 throw e
@@ -222,19 +215,20 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
             toast(R.string.recordings_toast_nothing_selected)
             return
         }
-        if (kind == RecordingExportKind.FOLDER && exportFolderUri.value.isBlank()) {
-            toast(R.string.recordings_toast_set_folder_first)
-            return
-        }
-        _batchProgress.value = 0 to targets.size
         viewModelScope.launch {
+            val settings = repository.getSettings()
+            if (kind == RecordingExportKind.FOLDER && settings.exportFolderUri.isBlank()) {
+                toast(R.string.recordings_toast_set_folder_first)
+                return@launch
+            }
+            _batchProgress.value = 0 to targets.size
             val toShare = ArrayList<File>()
             var saved = 0
             var done = 0
             try {
                 for (rec in targets) {
                     val src = File(rec.filePath)
-                    val willTranscode = transcodeOnExport.value &&
+                    val willTranscode = settings.transcodeOnExport &&
                             src.extension.equals("mkv", ignoreCase = true) && src.exists()
                     val out = if (willTranscode) {
                         try {
@@ -251,7 +245,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
 
                         RecordingExportKind.FOLDER -> {
                             // One file per recording (H.264 when produced, else original) — as single-item.
-                            val treeUri = exportFolderUri.value.toUri()
+                            val treeUri = settings.exportFolderUri.toUri()
                             if (ExportHelper.saveFileToSafFolder(context, treeUri, out, out.name)) saved++
                         }
                     }
@@ -287,14 +281,14 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
             _exportProgress.value = if (total > 0) done * 100 / total else 0
         }
 
-    private fun deliver(recording: RecordingEntity, file: File, kind: RecordingExportKind) {
+    private fun deliver(recording: RecordingEntity, file: File, kind: RecordingExportKind, exportFolderUri: String) {
         when (kind) {
             RecordingExportKind.SHARE -> _events.trySend(RecordingsUiEvent.Share(listOf(file), recording))
 
             RecordingExportKind.GALLERY -> ExportHelper.saveFileToGallery(context, file, recording)
 
             RecordingExportKind.FOLDER -> {
-                val treeUri = exportFolderUri.value.toUri()
+                val treeUri = exportFolderUri.toUri()
                 if (ExportHelper.saveFileToSafFolder(context, treeUri, file, file.name)) {
                     toast(R.string.recordings_toast_exported_to, ExportHelper.safFolderDisplayName(treeUri))
                 } else {

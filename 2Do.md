@@ -5,6 +5,33 @@
 - [x] Notification is not the correct new Launcher icon — replaced the four legacy `android.R.drawable`
       small icons in `NotificationHelper` with a dedicated `drawable/ic_notification` (the CCTV launcher
       mark as a white 24dp silhouette). `compileDebugKotlin` + `lintDebug` green (done 2026-09-29).
+- [ ] Top bar inconsistent size across tabs — diagnosed 2026-09-29: Live and Settings use an M3
+      `TopAppBar` (title `titleLarge` ≈22 sp, fixed 64 dp band that applies the status-bar inset itself),
+      while Recordings hand-rolls a Column whose title is `headlineMedium` (32 sp) plus the storage line
+      and the pinned filter row. So the Recordings heading is ~10 sp larger and its band is much taller.
+      Two ways out, owner's call: match the typography/height only, or rebuild Recordings on a real
+      `TopAppBar` and keep the filter row as the bar's second content row — the latter re-opens the
+      edge-to-edge gate that was just passed on device.
+- [x] Export Video not working: The saved MJPEG.mkv is moved after finish correctly to the Export folder
+      but the encoding export shows a toast "Select Export folder". But save to gallery works. Encoded
+      video playable — fixed 2026-09-29. **This was a regression from commit `1e89b92` (step 1 of the
+      Tier C split).** The ViewModel exposed `exportFolderUri` / `transcodeOnExport` as
+      `stateIn(viewModelScope, WhileSubscribed(5000), …)` and the export functions then read `.value` —
+      but **nothing in the UI ever collected them**, so with no subscriber both stayed frozen at their
+      initial values (`""` and `true`) for the life of the ViewModel: every folder export answered
+      "Set an export folder in Settings first", and the Settings transcode toggle silently had no effect
+      on manual export. The automatic post-finalize export was unaffected because
+      `ExportTriggerWorker` reads `repository.getSettings()` itself — which is exactly why the raw MKV
+      still reached the folder while the in-app export claimed no folder was set. Fix: both dead flows
+      removed; `exportRecording` / `exportSelected` read `repository.getSettings()` once when the action
+      runs and pass the folder URI into `deliver()`. `compileDebugKotlin` + `lintDebug` green — **needs a
+      device re-run of the export paths** (single + batch, folder/gallery/share, toggle on and off).
+- [ ] Accent colors too bland — all eight presets are the Material 3 **baseline** dark tones (`#D0BCFF`,
+      `#A9C7FF`, `#9DDC8B`, …), i.e. tone-80 of each hue, which is low-chroma by construction. Direction
+      needed from the owner: push saturation of `primary`/`primaryContainer` across the board, or replace
+      the set with more distinctive hues. Contrast pairs (`onPrimary` etc.) have to be re-derived, not
+      edited by eye.
+
 
 Reorganized from the code & feature review, re-verified against the current codebase
 (`app/`, `server/`, `.github/`) on 2026-09-27; **task list re-sorted by invasiveness (minimal →
@@ -379,14 +406,14 @@ The 34→37 bump forces edge-to-edge (Android 15) and tightens background-activi
 none of this is verifiable from the build.
 
 - [x] Compiles & installs with `targetSdk 37` (assembleDebug green).
-- [ ] Edge-to-edge layout: status bar no longer overlaps the top of Live / Recordings / Settings; nav bar
+- [x] Edge-to-edge layout: status bar no longer overlaps the top of Live / Recordings / Settings; nav bar
       doesn't cover content or the Settings FAB.
-- [ ] `RecordingsScreen` custom top bar ("Recordings Archive" + search/filter chips) sits below the status bar,
+- [x] `RecordingsScreen` custom top bar ("Recordings Archive" + search/filter chips) sits below the status bar,
       not behind the clock.
 - [ ] Incoming-call screen: header and call controls (mute/speaker/hangup) clear the status & gesture/nav bars
       on a punch-hole / gesture-nav device; video still renders fullscreen behind the bars.
 - [ ] Locked-screen doorbell ring → full-screen intent still fires and shows `IncomingCallActivity` over the keyguard.
-- [ ] Motion/noise → high-priority heads-up notification appears (screen may NOT wake directly from the service on
+- [] Motion/noise → high-priority heads-up notification appears (screen may NOT wake directly from the service on
       Android 15/16 due to BAL rules); tapping it opens `IncomingCallActivity`.
 - [ ] Reboot → `BootReceiver` autostart of the `connectedDevice` foreground service still succeeds
       (`ForegroundServiceStartNotAllowedException` regression check).
