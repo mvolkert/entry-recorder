@@ -74,7 +74,7 @@ Confined to a single file/module; no cross-layer design decisions.
 # Tier C — Medium UI features (Android, single-purpose, multi-file)
 Behavioral but self-contained UI work.
 
-- [~] **Split the oversized UI files; lift export logic out of the composables** – added after the
+- [x] **Split the oversized UI files; lift export logic out of the composables** – added after the
       2026-09-29 reordering (owner: "a file refactor splitting into components would be smart"). Facts from
       the current tree: `SettingsScreen.kt` 848 lines / **one** 787-line composable, `RecordingsScreen.kt`
       816 / one 509-line composable + a 206-line card, `DeviceEditDialog.kt` 548 / one composable. Measured
@@ -114,6 +114,10 @@ Behavioral but self-contained UI work.
          `key = { it.id }`), the SAF launchers + Toasts stay with the screen and the section cards take
          `(AppSettingsEntity) -> Unit`, so `copy()` happens next to the control it belongs to.
          `SettingsScreen.kt` is now 236 lines.
+         Follow-up in step 5's pass: lint `ModifierParameter` flagged `SettingsSectionHeader` for a Modifier
+         default that was `Modifier.padding(top = 16.dp)`; it is now plain `Modifier` and all six call sites
+         state their own gap (8 dp for the first section, 16 dp between the rest) — same layout, no hidden
+         default.
          (done 2026-09-29, `compileDebugKotlin` + `lintDebug` green.)
       4. ✅ Same pass fixes the convention gap: all five screens use `collectAsState()` where AGENTS.md
          requires `collectAsStateWithLifecycle()` (`MainActivity:68`, `LiveCamerasScreen:60`,
@@ -128,10 +132,28 @@ Behavioral but self-contained UI work.
       ⚠️ No UI tests exist, so verification stops at compile + lint; the visual/interaction check rides on
       the Tier G edge-to-edge gates. Do **not** apply the same treatment to `video/Fmp4StreamMuxer.kt` (454)
       or `video/MkvStreamMuxer.kt` (384) — a box writer splits badly, the sequence of writes is the API.
-      `DeviceEditDialog.kt` is last and optional: its `initialDevice` copy-over (former Bug #4) is subtle, so
-      only split it once the four steps above are green.
+      `DeviceEditDialog.kt` was gated on steps 1–4 being green; they are, so it went as step 5 below.
       Files: `ui/recordings/RecordingsScreen.kt`, `ui/recordings/RecordingsViewModel.kt`,
-      `ui/settings/SettingsScreen.kt`, `ui/MainActivity.kt`, `ui/live/LiveCamerasScreen.kt`
+      `ui/settings/SettingsScreen.kt`, `ui/settings/DeviceEditDialog.kt`, `ui/MainActivity.kt`,
+      `ui/live/LiveCamerasScreen.kt`
+      5. ✅ `DeviceEditDialog.kt` (548 → 127 lines) split along its own section comments into
+         `DeviceFormState.kt` (124), `DeviceFormComponents.kt` (64: `FormSectionLabel`, `FormDivider`,
+         `FormRadioRow`, `FormEmphasizedSwitchRow`), `DeviceFormNetworkSection.kt` (108),
+         `DeviceFormStreamSection.kt` (74), `DeviceFormSipSection.kt` (59),
+         `DeviceFormTriggersSection.kt` (84, also holds `DeviceFormDurationsSection`) and
+         `DeviceFormTestSection.kt` (91). The 28 form `remember { mutableStateOf(...) }` declarations became one
+         `DeviceFormState` seeded in a single `remember` — same retention semantics as before (no keys, so a
+         changing `initialDevice` still does not re-seed a live dialog). Former Bug #4's copy-over is now
+         `buildDevice()`, the only place that starts from `initial` and overwrites just the exposed fields;
+         the probe's narrower entity is `buildTestCandidate()`.
+         Kept deliberately: numeric fields stay **strings** (no re-parse while typing), `device_protocol_rtsp`
+         is still formatted with the raw `rtspPort` text, `sipLocalPort` still has **no** UI field (it
+         round-trips untouched, exactly as before) and the trigger rows reuse `SettingsSwitchRow`, whose
+         layout is character-for-character the row the dialog used to inline. Two deviations worth knowing:
+         the SIP peer-to-peer label's `padding(end = 8.dp)` moved from the `Text` onto its wrap-content row
+         (same visual result), and the probe's `isTestingConnection` / `testResult` now live inside
+         `DeviceFormTestSection`, so a test result no longer recomposes the whole form.
+         (done 2026-09-29, `compileDebugKotlin` + `lintDebug` green; `testDebugUnitTest` still NO-SOURCE.)
 
 # Tier D — Larger UI / cross-cutting features (Android)
 Multiple screens or cross-cutting behavior; design worth confirming before building.
@@ -149,7 +171,8 @@ selection (2026-09-29)** — confirm the design before building.
 - [ ] **Surface server recordings in the app** (former Phase 4, Bug #3) – data layer done
       (`ServerRecordingClient.listRecordings()` + `ServerRecordingDto`, server-relative URLs).
       Remaining is architectural: a UI-model abstraction over the Room-only `RecordingEntity` list
-      for network thumbnails + remote playback. `RecordingsScreen.kt` is 816 lines typed on
+      for network thumbnails + remote playback. `RecordingsScreen.kt` (208 lines since the Tier C split,
+      the card and dialogs next to it) is typed on
       `RecordingEntity` (local `filePath`/`thumbnailPath`, Room ids, multi-select, SAF export) and
       local + server ids are both `Long`, so a merged list needs composite keys. ExoPlayer can play
       the server's fMP4 rows directly once `?api_key=` is on the URL (possible since the Tier S Web-UI
