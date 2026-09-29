@@ -169,6 +169,10 @@
     <string name="accent_teal">Teal</string>
     <string name="accent_amber">Amber</string>
     <string name="accent_magenta">Magenta</string>
+    <string name="accent_blue">Blue</string>
+    <string name="accent_green">Green</string>
+    <string name="accent_coral">Coral</string>
+    <string name="accent_violet">Violet</string>
 
     <!-- Device edit dialog -->
     <string name="device_add_title">Add Intercom Device</string>

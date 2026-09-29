@@ -57,6 +57,34 @@ val accentPresets: List<AccentPalette> = listOf(
         secondary = Color(0xFFE7BACB), onSecondary = Color(0xFF3F2932),
         tertiary = Color(0xFFD8C29A), onTertiary = Color(0xFF3A2D13),
     ),
+    AccentPalette(
+        labelRes = R.string.accent_blue,
+        primary = Color(0xFFA9C7FF), onPrimary = Color(0xFF002F63),
+        primaryContainer = Color(0xFF00448C), onPrimaryContainer = Color(0xFFD6E3FF),
+        secondary = Color(0xFFB7C9E0), onSecondary = Color(0xFF213244),
+        tertiary = Color(0xFFD0BCEC), onTertiary = Color(0xFF372750),
+    ),
+    AccentPalette(
+        labelRes = R.string.accent_green,
+        primary = Color(0xFF9DDC8B), onPrimary = Color(0xFF0A3D10),
+        primaryContainer = Color(0xFF215A28), onPrimaryContainer = Color(0xFFBDF6A6),
+        secondary = Color(0xFFB6CCAB), onSecondary = Color(0xFF22351F),
+        tertiary = Color(0xFFA6CBCE), onTertiary = Color(0xFF0E373B),
+    ),
+    AccentPalette(
+        labelRes = R.string.accent_coral,
+        primary = Color(0xFFFFB4A9), onPrimary = Color(0xFF682412),
+        primaryContainer = Color(0xFF843628), onPrimaryContainer = Color(0xFFFFDBD3),
+        secondary = Color(0xFFE7BDB6), onSecondary = Color(0xFF482824),
+        tertiary = Color(0xFFFFB3CF), onTertiary = Color(0xFF561436),
+    ),
+    AccentPalette(
+        labelRes = R.string.accent_violet,
+        primary = Color(0xFFC2B8FF), onPrimary = Color(0xFF2A1492),
+        primaryContainer = Color(0xFF4129AE), onPrimaryContainer = Color(0xFFE4DDFF),
+        secondary = Color(0xFFC6C0DD), onSecondary = Color(0xFF2F2B44),
+        tertiary = Color(0xFFE3B7D3), onTertiary = Color(0xFF452346),
+    ),
 )
 
 private fun AccentPalette.toColorScheme(): ColorScheme = darkColorScheme(
