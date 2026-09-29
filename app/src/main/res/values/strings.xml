@@ -161,6 +161,15 @@
     <string name="settings_cd_edit">Edit</string>
     <string name="settings_cd_delete">Delete</string>
 
+    <!-- Appearance / accent colors -->
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_accent_hint">Pick an accent color for the app.</string>
+    <string name="settings_accent_selected">Selected accent</string>
+    <string name="accent_default">Indigo</string>
+    <string name="accent_teal">Teal</string>
+    <string name="accent_amber">Amber</string>
+    <string name="accent_magenta">Magenta</string>
+
     <!-- Device edit dialog -->
     <string name="device_add_title">Add Intercom Device</string>
     <string name="device_edit_title">Edit Device</string>

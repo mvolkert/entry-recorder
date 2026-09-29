@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,6 +20,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -56,15 +61,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
+import io.github.mvolkert.entryrecorder.ui.theme.accentPresets
 import io.github.mvolkert.entryrecorder.util.ExportHelper
 import androidx.core.net.toUri
 
@@ -631,6 +641,70 @@ fun SettingsScreen(
                                     viewModel.updateSettings(state.appSettings.copy(wakeOnNoise = it))
                                 }
                             )
+                        }
+                    }
+                }
+            }
+
+            // Appearance (accent color presets)
+            item {
+                Text(
+                    text = stringResource(R.string.settings_section_appearance),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 16.dp)
+                )
+            }
+
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_accent_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            accentPresets.forEachIndexed { index, palette ->
+                                val selected = state.appSettings.themeAccentIndex == index
+                                val label = stringResource(palette.labelRes)
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .background(palette.primary)
+                                        .border(
+                                            width = if (selected) 3.dp else 0.dp,
+                                            color = if (selected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                                            shape = CircleShape
+                                        )
+                                        .clickable {
+                                            viewModel.updateSettings(
+                                                state.appSettings.copy(themeAccentIndex = index)
+                                            )
+                                        }
+                                        .semantics { contentDescription = label },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (selected) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = stringResource(R.string.settings_accent_selected),
+                                            tint = palette.onPrimary
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

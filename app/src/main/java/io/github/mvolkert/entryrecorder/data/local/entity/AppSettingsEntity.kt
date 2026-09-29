@@ -27,5 +27,8 @@ data class AppSettingsEntity(
     val exportFolderUri: String = "",
     // Opt-in archive mirror: copies the original (lossless) MJPEG MKV into exportFolderUri right
     // after a local recording is finalized, so sync tools always see complete, up-to-date files.
-    val autoExportOnFinalize: Boolean = false
+    val autoExportOnFinalize: Boolean = false,
+    // Index into ui.theme.accentPresets selecting the app's accent color scheme. 0 = the default
+    // (Material 3 baseline) palette, so existing installs keep their current look after migration.
+    val themeAccentIndex: Int = 0
 )

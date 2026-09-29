@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
         RecordingEntity::class,
         AppSettingsEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -64,6 +64,16 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v7 -> v8: add the selectable accent-color preset index. Default 0 maps to the baseline
+        // Material 3 palette, preserving the previous look for existing installs.
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE app_settings ADD COLUMN themeAccentIndex INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -72,7 +82,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "entry_recorder_database"
                 )
                     .fallbackToDestructiveMigration(false)
-                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)
