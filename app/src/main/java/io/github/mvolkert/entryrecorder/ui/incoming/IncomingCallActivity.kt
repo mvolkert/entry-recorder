@@ -40,7 +40,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +51,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
@@ -84,7 +84,7 @@ class IncomingCallActivity : ComponentActivity() {
                 )
             ) {
                 var device by remember { mutableStateOf<DeviceEntity?>(null) }
-                val sipState by sipManager.sessionState.collectAsState()
+                val sipState by sipManager.sessionState.collectAsStateWithLifecycle()
 
                 LaunchedEffect(deviceId) {
                     if (deviceId != -1L) {

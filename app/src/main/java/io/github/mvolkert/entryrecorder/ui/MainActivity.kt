@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.service.IntercomMonitorService
@@ -65,7 +66,7 @@ class MainActivity : ComponentActivity() {
             // scaffold and the same Activity-scoped SettingsViewModel feeds both the theme and the
             // Settings screen (single source of truth for the chosen accent).
             val settingsViewModel: SettingsViewModel = viewModel()
-            val settingsState by settingsViewModel.uiState.collectAsState()
+            val settingsState by settingsViewModel.uiState.collectAsStateWithLifecycle()
             AppTheme(accentIndex = settingsState.appSettings.themeAccentIndex) {
                 MainAppScaffold(settingsViewModel)
             }

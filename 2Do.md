@@ -115,12 +115,16 @@ Behavioral but self-contained UI work.
          `(AppSettingsEntity) -> Unit`, so `copy()` happens next to the control it belongs to.
          `SettingsScreen.kt` is now 236 lines.
          (done 2026-09-29, `compileDebugKotlin` + `lintDebug` green.)
-      4. TODO Same pass fixes the convention gap: all five screens use `collectAsState()` where AGENTS.md
+      4. ✅ Same pass fixes the convention gap: all five screens use `collectAsState()` where AGENTS.md
          requires `collectAsStateWithLifecycle()` (`MainActivity:68`, `LiveCamerasScreen:60`,
          `RecordingsScreen:107/111/112/119`, `SettingsScreen:89`, `IncomingCallActivity:87`).
-         ⚠️ **Blocked on owner approval**: `androidx.lifecycle:lifecycle-runtime-compose` is not a project
-         dependency (only `lifecycle-runtime-ktx` + `lifecycle-viewmodel-compose`, lifecycle 2.11.0), and
-         AGENTS.md requires asking before adding one. Say the word and this step becomes mechanical.
+         Approved and done 2026-09-29: `androidx.lifecycle:lifecycle-runtime-compose` (same `lifecycle`
+         version ref, 2.11.0) added to `gradle/libs.versions.toml` + `app/build.gradle.kts`, and all **8**
+         call sites switched — every one of them collects a `StateFlow`, so the swap is API-compatible.
+         ⚠️ One real behaviour difference to keep in mind: `IncomingCallActivity` now stops collecting
+         `sipManager.sessionState` while the activity is stopped (screen off over the lockscreen) and
+         re-reads the current value on resume; call audio itself lives in the service and is unaffected.
+         The rest of the Tier G gates still cover the visual side.
       ⚠️ No UI tests exist, so verification stops at compile + lint; the visual/interaction check rides on
       the Tier G edge-to-edge gates. Do **not** apply the same treatment to `video/Fmp4StreamMuxer.kt` (454)
       or `video/MkvStreamMuxer.kt` (384) — a box writer splits badly, the sequence of writes is the API.
