@@ -103,8 +103,18 @@ Behavioral but self-contained UI work.
          `RecordingsScreen.kt` is now 208 lines, one composable.
          (done 2026-09-29, `compileDebugKotlin` + `lintDebug` + `testDebugUnitTest` green — the last one is
          NO-SOURCE: no unit tests exist in `app/`.)
-      3. TODO `SettingsScreen`: cut at its own section comments — Devices (171), Recording Engine & Destination
+      3. ✅ `SettingsScreen`: cut at its own section comments — Devices (171), Recording Engine & Destination
          (212), Storage & Retention (326), Backup & Restore (716) → one file per section composable.
+         Delivered as `DeviceCard.kt` (card + `DevicesEmptyCard`), `SettingsEngineCard.kt`,
+         `SettingsStorageCard.kt`, `SettingsAlertsCard.kt`, `SettingsAppearanceCard.kt`,
+         `SettingsBackupCard.kt` and `SettingsComponents.kt` (`SettingsCard` shell, `SettingsSectionHeader`,
+         two `SettingsSwitchRow` overloads — the six identical toggle rows). There are **six** sections, not
+         four: Screen & Alert Notifications (558) and Appearance (651) had no checklist line of their own.
+         The `LazyColumn` item structure is untouched (each card is still one `item { }`, devices keep their
+         `key = { it.id }`), the SAF launchers + Toasts stay with the screen and the section cards take
+         `(AppSettingsEntity) -> Unit`, so `copy()` happens next to the control it belongs to.
+         `SettingsScreen.kt` is now 236 lines.
+         (done 2026-09-29, `compileDebugKotlin` + `lintDebug` green.)
       4. TODO Same pass fixes the convention gap: all five screens use `collectAsState()` where AGENTS.md
          requires `collectAsStateWithLifecycle()` (`MainActivity:68`, `LiveCamerasScreen:60`,
          `RecordingsScreen:107/111/112/119`, `SettingsScreen:89`, `IncomingCallActivity:87`).
