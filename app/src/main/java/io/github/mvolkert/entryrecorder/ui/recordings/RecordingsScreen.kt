@@ -63,12 +63,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,14 +76,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.net.toUri
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import io.github.mvolkert.entryrecorder.R
@@ -92,8 +89,6 @@ import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.ui.components.VideoPlayerModal
 import io.github.mvolkert.entryrecorder.util.ExportHelper
-import io.github.mvolkert.entryrecorder.video.ExportTranscoder
-import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -106,179 +101,39 @@ fun RecordingsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-    val resources = LocalResources.current
-    val scope = rememberCoroutineScope()
-    val transcodeOnExport by viewModel.transcodeOnExport.collectAsState()
-    val exportFolderUri by viewModel.exportFolderUri.collectAsState()
+    val exportProgress by viewModel.exportProgress.collectAsState()
+    val batchProgress by viewModel.batchProgress.collectAsState()
     var activePlaybackRecording by remember { mutableStateOf<RecordingEntity?>(null) }
     var recordingToDelete by remember { mutableStateOf<RecordingEntity?>(null) }
-    var exportProgress by remember { mutableStateOf<Int?>(null) }
 
     // Multi-select delete mode
     var selectionMode by remember { mutableStateOf(false) }
     val selectedIds by viewModel.selectedIds.collectAsState()
     var showBulkDeleteConfirm by remember { mutableStateOf(false) }
     var showExportMenu by remember { mutableStateOf(false) }
-    var batchTotal by remember { mutableStateOf<Int?>(null) }
-    var batchDone by remember { mutableIntStateOf(0) }
 
-    // Exports an MJPEG MKV by first transcoding to H.264 (so it plays in other apps) when the
-    // setting is enabled; otherwise shares/saves the raw file. Transcoding runs only here (on
-    // explicit user action), never during capture. This path is Share-only: it uses the system
-    // share sheet and does NOT persist anything to the user's export folder.
-    fun runExport(recording: RecordingEntity, share: Boolean) {
-        val src = File(recording.filePath)
-        val isMjpegMkv = src.extension.equals("mkv", ignoreCase = true)
-        if (!(transcodeOnExport && isMjpegMkv)) {
-            if (share) ExportHelper.shareFile(context, src, recording)
-            else ExportHelper.saveFileToGallery(context, src, recording)
-            return
-        }
-        exportProgress = 0
-        scope.launch {
-            try {
-                val out = ExportTranscoder.transcodeToH264(context, recording) { done, total ->
-                    val pct = if (total > 0) (done * 100 / total) else 0
-                    scope.launch { exportProgress = pct }
-                }
-                exportProgress = null
-                if (share) ExportHelper.shareFile(context, out, recording)
-                else ExportHelper.saveFileToGallery(context, out, recording)
-            } catch (e: Exception) {
-                exportProgress = null
-                Toast.makeText(
+    // Export runs in the ViewModel; its results arrive as one-shot events. The share sheet is launched
+    // here because ExportHelper.shareFile needs an Activity context (it adds no NEW_TASK flag).
+    LaunchedEffect(Unit) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is RecordingsUiEvent.Message -> Toast.makeText(
                     context,
-                    resources.getString(R.string.recordings_toast_export_failed, e.message ?: ""),
-                    Toast.LENGTH_LONG
+                    event.text,
+                    if (event.short) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
                 ).show()
-            }
-        }
-    }
 
-    // Persists an export to the user's SAF folder as ONE file per recording: the re-encoded H.264
-    // MKV when the transcode setting produced one, otherwise the original MJPEG MKV. The lossless
-    // original always stays in-app (and Settings can mirror originals to this folder at
-    // finalization), so the folder isn't cluttered with near-duplicate, hard-to-play files.
-    fun exportToFolder(recording: RecordingEntity) {
-        if (exportFolderUri.isBlank()) {
-            Toast.makeText(context, R.string.recordings_toast_set_folder_first, Toast.LENGTH_LONG).show()
-            return
-        }
-        val src = File(recording.filePath)
-        if (!src.exists()) {
-            Toast.makeText(context, R.string.recordings_toast_file_not_found, Toast.LENGTH_SHORT).show()
-            return
-        }
-        val isMjpegMkv = src.extension.equals("mkv", ignoreCase = true)
-        val willTranscode = transcodeOnExport && isMjpegMkv
-
-        scope.launch {
-            try {
-                if (willTranscode) exportProgress = 0
-                val h264 = if (willTranscode) {
-                    ExportTranscoder.transcodeToH264(context, recording) { done, total ->
-                        val pct = if (total > 0) (done * 100 / total) else 0
-                        scope.launch { exportProgress = pct }
+                is RecordingsUiEvent.Share -> {
+                    val recording = event.recording
+                    val file = event.files.firstOrNull()
+                    if (recording != null && file != null) {
+                        ExportHelper.shareFile(context, file, recording)
+                    } else {
+                        ExportHelper.shareFiles(context, event.files)
                     }
-                } else null
-                exportProgress = null
-
-                // One file per recording: the H.264 re-encode when transcoding produced one,
-                // otherwise the original MKV.
-                val out = h264 ?: src
-                val treeUri = exportFolderUri.toUri()
-                val saved = ExportHelper.saveFileToSafFolder(context, treeUri, out, out.name)
-
-                val label = ExportHelper.safFolderDisplayName(treeUri)
-                Toast.makeText(
-                    context,
-                    if (saved) resources.getString(R.string.recordings_toast_exported_to, label)
-                    else resources.getString(R.string.recordings_toast_export_folder_failed),
-                    Toast.LENGTH_LONG
-                ).show()
-            } catch (e: Exception) {
-                exportProgress = null
-                Toast.makeText(
-                    context,
-                    resources.getString(R.string.recordings_toast_export_failed, e.message ?: ""),
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-        }
-    }
-
-    // Multi-select export. Applies the same lazy transcode-on-export policy as the single-item
-    // path but across all selected recordings, with a k/n progress dialog. Share collects the
-    // (transcoded-when-enabled) files and hands them to the system sheet in one action; Gallery
-    // and Folder write each file and report a final saved count. kind: "SHARE" | "GALLERY" | "FOLDER".
-    fun runBatchExport(kind: String) {
-        val targets = state.recordings.filter { it.id in selectedIds }
-        if (targets.isEmpty()) {
-            Toast.makeText(context, R.string.recordings_toast_nothing_selected, Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (kind == "FOLDER" && exportFolderUri.isBlank()) {
-            Toast.makeText(context, R.string.recordings_toast_set_folder_first, Toast.LENGTH_LONG).show()
-            return
-        }
-        batchTotal = targets.size
-        batchDone = 0
-        scope.launch {
-            val toShare = ArrayList<File>()
-            var saved = 0
-            try {
-                for (rec in targets) {
-                    val src = File(rec.filePath)
-                    val isMjpegMkv = src.extension.equals("mkv", ignoreCase = true)
-                    val willTranscode = transcodeOnExport && isMjpegMkv && src.exists()
-                    val h264 = if (willTranscode) {
-                        try { ExportTranscoder.transcodeToH264(context, rec) } catch (_: Exception) { null }
-                    } else null
-
-                    when (kind) {
-                        "SHARE" -> toShare.add(h264 ?: src)
-                        "GALLERY" -> {
-                            val out = h264 ?: src
-                            if (ExportHelper.saveFileToGallery(context, out, rec, showToast = false)) saved++
-                        }
-                        "FOLDER" -> {
-                            // One file per recording (H.264 when produced, else original) — same as the single-item path.
-                            val treeUri = exportFolderUri.toUri()
-                            val out = h264 ?: src
-                            if (ExportHelper.saveFileToSafFolder(context, treeUri, out, out.name)) saved++
-                        }
-                    }
-                    batchDone += 1
                 }
 
-                when (kind) {
-                    "SHARE" -> if (toShare.isNotEmpty()) ExportHelper.shareFiles(context, toShare)
-                    "GALLERY" -> Toast.makeText(
-                        context,
-                        context.resources.getQuantityString(
-                            R.plurals.recordings_toast_saved_gallery, targets.size, saved, targets.size
-                        ),
-                        Toast.LENGTH_LONG
-                    ).show()
-                    "FOLDER" -> Toast.makeText(
-                        context,
-                        context.resources.getQuantityString(
-                            R.plurals.recordings_toast_exported_folder, targets.size, saved, targets.size
-                        ),
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            } catch (e: Exception) {
-                Toast.makeText(
-                    context,
-                    resources.getString(R.string.recordings_toast_export_failed, e.message ?: ""),
-                    Toast.LENGTH_LONG
-                ).show()
-            } finally {
-                batchTotal = null
-                batchDone = 0
-                selectionMode = false
-                viewModel.clearSelection()
+                RecordingsUiEvent.SelectionCleared -> selectionMode = false
             }
         }
     }
@@ -329,7 +184,7 @@ fun RecordingsScreen(
                                     leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
                                     onClick = {
                                         showExportMenu = false
-                                        runBatchExport("SHARE")
+                                        viewModel.exportSelected(RecordingExportKind.SHARE)
                                     }
                                 )
                                 DropdownMenuItem(
@@ -337,7 +192,7 @@ fun RecordingsScreen(
                                     leadingIcon = { Icon(Icons.Default.Download, contentDescription = null) },
                                     onClick = {
                                         showExportMenu = false
-                                        runBatchExport("GALLERY")
+                                        viewModel.exportSelected(RecordingExportKind.GALLERY)
                                     }
                                 )
                                 DropdownMenuItem(
@@ -345,7 +200,7 @@ fun RecordingsScreen(
                                     leadingIcon = { Icon(Icons.Default.SaveAlt, contentDescription = null) },
                                     onClick = {
                                         showExportMenu = false
-                                        runBatchExport("FOLDER")
+                                        viewModel.exportSelected(RecordingExportKind.FOLDER)
                                     }
                                 )
                             }
@@ -508,9 +363,9 @@ fun RecordingsScreen(
                             onPlay = { activePlaybackRecording = recording },
                             onDelete = { recordingToDelete = recording },
                             onToggleProtect = { viewModel.toggleProtection(recording) },
-                            onShare = { runExport(recording, share = true) },
-                            onExportGallery = { runExport(recording, share = false) },
-                            onExportFolder = { exportToFolder(recording) }
+                            onShare = { viewModel.exportRecording(recording, RecordingExportKind.SHARE) },
+                            onExportGallery = { viewModel.exportRecording(recording, RecordingExportKind.GALLERY) },
+                            onExportFolder = { viewModel.exportRecording(recording, RecordingExportKind.FOLDER) }
                         )
                     }
                 }
@@ -591,13 +446,13 @@ fun RecordingsScreen(
 
     // Batch export progress (multi-select): shows "k of n" across the selected recordings while
     // each item is transcoded (when the setting is on) and written/shared.
-    batchTotal?.let { total ->
+    batchProgress?.let { (done, total) ->
         AlertDialog(
             onDismissRequest = {},
             title = { Text(stringResource(R.string.recordings_batch_progress_title)) },
             text = {
                 Column {
-                    Text(stringResource(R.string.recordings_batch_progress_body, batchDone, total))
+                    Text(stringResource(R.string.recordings_batch_progress_body, done, total))
                     Spacer(modifier = Modifier.height(12.dp))
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
