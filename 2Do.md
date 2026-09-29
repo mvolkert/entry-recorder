@@ -34,11 +34,27 @@
       removed; `exportRecording` / `exportSelected` read `repository.getSettings()` once when the action
       runs and pass the folder URI into `deliver()`. `compileDebugKotlin` + `lintDebug` green — **needs a
       device re-run of the export paths** (single + batch, folder/gallery/share, toggle on and off).
-- [ ] Accent colors too bland — all eight presets are the Material 3 **baseline** dark tones (`#D0BCFF`,
-      `#A9C7FF`, `#9DDC8B`, …), i.e. tone-80 of each hue, which is low-chroma by construction. Direction
-      needed from the owner: push saturation of `primary`/`primaryContainer` across the board, or replace
-      the set with more distinctive hues. Contrast pairs (`onPrimary` etc.) have to be re-derived, not
-      edited by eye.
+- [x] Accent colors too bland — all eight presets were the Material 3 **baseline** dark tones (`#D0BCFF`,
+      `#A9C7FF`, `#9DDC8B`, …), i.e. tone-80 of each hue, which is low-chroma by construction. Fixed
+      2026-09-29 on the owner's choice (**raise chroma, keep the hues**), derived rather than eyeballed:
+      every color was converted to OKLCh, the hue was taken unchanged from the old preset, and each role
+      now sits at 90% of the chroma the sRGB gamut allows at its lightness — `primary` at L≈0.76,
+      `primaryContainer` at L≈0.48 (mid-dark is where purple/blue/magenta can go rich: 0.134→0.233,
+      0.134→0.212, 0.113→0.181), `on*` colors as dark tints of the same hue at L≈0.27.
+      Measured chroma gain of `primary`: green +69%, coral +43%, magenta +38%, default +35%, blue +28%,
+      violet +23%, teal +13%, **amber +0%** (0.141→0.140 — sRGB simply has no more chroma for a yellow
+      hue at any lightness that stays legible; amber only reads *deeper*, `#F2C14E` → `#D9A932`).
+      Contrast re-derived with the pairs, verified by script against the values as they sit in `Theme.kt`:
+      worst `on*`/background pair **5.07:1**, worst `primary`-as-text against `#1E1E1E` **7.20:1** (all AA;
+      `primary` is a text color for section headers, buttons and icons, so lightness could not just be
+      dropped for saturation). The derivation rule is recorded in the comment above `accentPresets`.
+      Two consequences: index 0 is no longer the M3 baseline, so the **default** look changes on update
+      (the old comment claiming otherwise was replaced), and the Settings swatch row now previews
+      saturated chips. ⚠️ Still needs an on-device look in Settings → Appearance (compile + lint only
+      prove it builds — same 25 pre-existing findings). Open question for the owner: `secondaryContainer`
+      is not part of `AccentPalette`, so the selected recording card stays the neutral M3 default —
+      deriving that role too would need two new fields per preset and the picker is unaffected.
+- []  After Display off for one minute the Client times out so no continuous observation possible log: HttpSnapshotClient      io.github.mvolkert.entryrecorder     D  Snapshot fetch exception for 2N IP Verso: timeout
 
 
 Reorganized from the code & feature review, re-verified against the current codebase
