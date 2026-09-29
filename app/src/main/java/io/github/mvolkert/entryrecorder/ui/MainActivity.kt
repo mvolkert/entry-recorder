@@ -11,6 +11,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
@@ -18,6 +20,8 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
@@ -30,7 +34,9 @@ import io.github.mvolkert.entryrecorder.ui.recordings.RecordingsScreen
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsScreen
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsViewModel
 import io.github.mvolkert.entryrecorder.ui.theme.AppTheme
+import io.github.mvolkert.entryrecorder.ui.theme.AppMotion
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 sealed class Screen(val route: String, @StringRes val labelRes: Int, val icon: ImageVector) {
     object Live : Screen("live", R.string.nav_live, Icons.Default.Videocam)
@@ -99,10 +105,23 @@ class MainActivity : ComponentActivity() {
                 NavigationBar {
                     items.forEachIndexed { index, screen ->
                         val label = stringResource(screen.labelRes)
+                        val selected = pagerState.currentPage == index
+                        // Expressive emphasis: the selected nav icon springs slightly larger.
+                        val iconScale by animateFloatAsState(
+                            targetValue = if (selected) 1.12f else 1f,
+                            animationSpec = AppMotion.emphasis,
+                            label = "navIconScale",
+                        )
                         NavigationBarItem(
-                            icon = { Icon(screen.icon, contentDescription = label) },
+                            icon = {
+                                Icon(
+                                    screen.icon,
+                                    contentDescription = label,
+                                    modifier = Modifier.scale(iconScale),
+                                )
+                            },
                             label = { Text(label) },
-                            selected = pagerState.currentPage == index,
+                            selected = selected,
                             onClick = {
                                 if (pagerState.currentPage != index) {
                                     scope.launch { pagerState.animateScrollToPage(index) }
@@ -119,11 +138,28 @@ class MainActivity : ComponentActivity() {
                     .fillMaxSize()
                     .padding(innerPadding)
             ) { page ->
-                when (page) {
-                    // Recording status + devices arrive as observable state via LiveViewModel.
-                    0 -> LiveCamerasScreen()
-                    1 -> RecordingsScreen()
-                    else -> SettingsScreen(viewModel = settingsViewModel)
+                // Expressive page transition: the off-center page scales down and fades as it
+                // leaves the viewport. Reads the live scroll offset, so it animates on swipe and
+                // on the spring-driven animateScrollToPage from a nav-bar tap.
+                val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                    .coerceIn(-1f, 1f)
+                val fraction = abs(pageOffset)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            val scale = 1f - (1f - AppMotion.PAGE_MIN_SCALE) * fraction
+                            scaleX = scale
+                            scaleY = scale
+                            alpha = 1f - (1f - AppMotion.PAGE_MIN_ALPHA) * fraction
+                        }
+                ) {
+                    when (page) {
+                        // Recording status + devices arrive as observable state via LiveViewModel.
+                        0 -> LiveCamerasScreen()
+                        1 -> RecordingsScreen()
+                        else -> SettingsScreen(viewModel = settingsViewModel)
+                    }
                 }
             }
         }
