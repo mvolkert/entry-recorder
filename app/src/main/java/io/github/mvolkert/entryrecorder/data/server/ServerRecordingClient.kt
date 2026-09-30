@@ -31,8 +31,48 @@ data class ServerStatusDto(
     val version: String,
     @SerializedName("active_recordings_count") val activeCount: Int,
     @SerializedName("total_recordings_count") val totalCount: Int,
-    @SerializedName("total_storage_bytes") val storageBytes: Long
+    @SerializedName("total_storage_bytes") val storageBytes: Long,
+    // Nullable on purpose: Gson writes the field default (here an absent property) as null, not as the
+    // Kotlin default, so a server that does not report its jobs must not crash the reader.
+    @SerializedName("active_recordings") val activeRecordings: List<ServerActiveRecording>? = null
 )
+
+/**
+ * One entry of `/api/status.active_recordings`: a job the server is running right now. This is what the
+ * app reconciles its own "server is recording" view against, since the server hands back no row id at
+ * start (see [ServerStartResponse.recordingId]).
+ */
+data class ServerActiveRecording(
+    @SerializedName("device_id") val deviceId: Long,
+    @SerializedName("device_name") val deviceName: String,
+    @SerializedName("event_type") val eventType: String,
+    @SerializedName("elapsed_seconds") val elapsedSeconds: Int,
+    @SerializedName("max_duration_seconds") val maxDurationSeconds: Int
+)
+
+/**
+ * Answer of `POST /api/recordings/start`. `status` is `started` or `already_recording`; the latter means a
+ * job from an earlier request is still running, which this client must not stop on its own schedule.
+ *
+ * `recordingId` is null with today's server: the row is only inserted when the job is finalized, so
+ * reconciling through `GET /api/recordings/{id}` needs the server to return the id from start (Phase S).
+ */
+data class ServerStartResponse(
+    val status: String?,
+    @SerializedName("device_id") val deviceId: Long,
+    @SerializedName("recording_id") val recordingId: Long? = null
+) {
+    /** False only when the server explicitly said a job was already running for this device. */
+    val startedByThisRequest: Boolean get() = !status.equals("already_recording", ignoreCase = true)
+}
+
+/** Answer of `POST /api/recordings/stop`; `not_recording` means the job had already ended server-side. */
+data class ServerStopResponse(
+    val status: String?,
+    @SerializedName("device_id") val deviceId: Long
+) {
+    val hadActiveJob: Boolean get() = status.equals("stopped", ignoreCase = true)
+}
 
 /**
  * A recording stored on the Python server. `videoUrl`/`thumbnailUrl` are server-relative paths
@@ -66,16 +106,17 @@ class ServerRecordingClient(
         return url.trimEnd('/')
     }
 
+    /** Adds the API key header when one is configured; every endpoint requires it since auth became mandatory. */
+    private fun Request.Builder.withApiKey(apiKey: String?): Request.Builder =
+        if (!apiKey.isNullOrBlank()) addHeader("X-API-Key", apiKey) else this
+
     suspend fun testConnection(serverUrl: String, apiKey: String? = null): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             val base = normalizeUrl(serverUrl)
             val requestBuilder = Request.Builder()
                 .url("$base/api/status")
                 .get()
-
-            if (!apiKey.isNullOrBlank()) {
-                requestBuilder.addHeader("X-API-Key", apiKey)
-            }
+                .withApiKey(apiKey)
 
             client.newCall(requestBuilder.build()).execute().use { response ->
                 if (response.isSuccessful) {
@@ -90,13 +131,17 @@ class ServerRecordingClient(
         }
     }
 
+    /**
+     * Asks the server to record and reports what it answered, because "HTTP 200" is not the whole story:
+     * an `already_recording` answer means the live job belongs to an earlier request.
+     */
     suspend fun startRecording(
         serverUrl: String,
         apiKey: String?,
         device: DeviceEntity,
         eventType: EventType,
         durationSeconds: Int
-    ): Result<Boolean> = withContext(Dispatchers.IO) {
+    ): Result<ServerStartResponse> = withContext(Dispatchers.IO) {
         try {
             val base = normalizeUrl(serverUrl)
             val payload = StartServerRecordingPayload(
@@ -111,18 +156,29 @@ class ServerRecordingClient(
             )
 
             val body = gson.toJson(payload).toRequestBody("application/json".toMediaType())
-            val requestBuilder = Request.Builder()
+            val request = Request.Builder()
                 .url("$base/api/recordings/start")
                 .post(body)
+                .withApiKey(apiKey)
+                .build()
 
-            if (!apiKey.isNullOrBlank()) {
-                requestBuilder.addHeader("X-API-Key", apiKey)
-            }
-
-            client.newCall(requestBuilder.build()).execute().use { response ->
+            client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
-                    Log.i(tag, "Started server recording for ${device.name}")
-                    Result.success(true)
+                    val answer = runCatching { gson.fromJson(response.body.string(), ServerStartResponse::class.java) }
+                        .getOrNull()
+                    if (answer == null) {
+                        // Success with an unreadable body: assume the job is ours, which is what the caller
+                        // did before the answer was read at all, so an older server keeps working.
+                        Log.w(tag, "Start answer for ${device.name} carried no readable body; assuming it started")
+                        Result.success(ServerStartResponse(status = "started", deviceId = device.id))
+                    } else {
+                        Log.i(
+                            tag,
+                            "Server recording ${answer.status} for ${device.name}" +
+                                (answer.recordingId?.let { " (server recording id $it)" } ?: "")
+                        )
+                        Result.success(answer)
+                    }
                 } else {
                     val err = "HTTP ${response.code}: ${response.body.string()}"
                     Log.w(tag, "Server recording error: $err")
@@ -135,25 +191,58 @@ class ServerRecordingClient(
         }
     }
 
+    /** Whether the server still runs a job for [deviceId]; null success means "the server has none". */
+    suspend fun activeRecordingFor(
+        serverUrl: String,
+        apiKey: String?,
+        deviceId: Long
+    ): Result<ServerActiveRecording?> = withContext(Dispatchers.IO) {
+        try {
+            val base = normalizeUrl(serverUrl)
+            val request = Request.Builder()
+                .url("$base/api/status")
+                .get()
+                .withApiKey(apiKey)
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Result.failure(Exception("HTTP ${response.code}"))
+                } else {
+                    val status = gson.fromJson(response.body.string(), ServerStatusDto::class.java)
+                    Result.success(status.activeRecordings.orEmpty().firstOrNull { it.deviceId == deviceId })
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Server status probe failed for device $deviceId", e)
+            Result.failure(e)
+        }
+    }
+
     suspend fun stopRecording(
         serverUrl: String,
         apiKey: String?,
         deviceId: Long
-    ): Result<Boolean> = withContext(Dispatchers.IO) {
+    ): Result<ServerStopResponse> = withContext(Dispatchers.IO) {
         try {
             val base = normalizeUrl(serverUrl)
             val json = "{\"device_id\":$deviceId}"
             val body = json.toRequestBody("application/json".toMediaType())
-            val requestBuilder = Request.Builder()
+            val request = Request.Builder()
                 .url("$base/api/recordings/stop")
                 .post(body)
+                .withApiKey(apiKey)
+                .build()
 
-            if (!apiKey.isNullOrBlank()) {
-                requestBuilder.addHeader("X-API-Key", apiKey)
-            }
-
-            client.newCall(requestBuilder.build()).execute().use { response ->
-                Result.success(response.isSuccessful)
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Result.failure(Exception("HTTP ${response.code}: ${response.body.string()}"))
+                } else {
+                    val answer = runCatching { gson.fromJson(response.body.string(), ServerStopResponse::class.java) }
+                        .getOrNull()
+                        ?: ServerStopResponse(status = null, deviceId = deviceId)
+                    Result.success(answer)
+                }
             }
         } catch (e: Exception) {
             Log.e(tag, "Server stop recording failed for device $deviceId", e)
@@ -177,11 +266,11 @@ class ServerRecordingClient(
                 append("$base/api/recordings?limit=").append(limit)
                 if (deviceId != null) append("&device_id=").append(deviceId)
             }
-            val requestBuilder = Request.Builder().url(url).get()
-            if (!apiKey.isNullOrBlank()) {
-                requestBuilder.addHeader("X-API-Key", apiKey)
-            }
-            client.newCall(requestBuilder.build()).execute().use { response ->
+            val request = Request.Builder()
+                .url(url)
+                .get()
+                .withApiKey(apiKey)
+            client.newCall(request.build()).execute().use { response ->
                 if (response.isSuccessful) {
                     val body = response.body.string()
                     val type = object : com.google.gson.reflect.TypeToken<List<ServerRecordingDto>>() {}.type

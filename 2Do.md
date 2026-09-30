@@ -7,6 +7,9 @@ sorted minimal → architectural. Nothing was silently dropped: 34 open + 7 part
 Legend: `[x]` done · `[~]` partial / needs validation · `[ ]` open · 🔄 on-device gate (blocks closing) ·
 🔭 long-term / not scheduled · 🖥️ server-side scope
 
+## Feature
+- Now/Stop Monitor button in the @RecordingScreen
+
 ## How to read the phases
 - **Phase 1–5** — Android app (`app/`, Kotlin). Do these in order; each phase is smaller-blast-radius than the next.
 - **Phase 6** — heavy / device-unverifiable app backlog; do NOT start before Phases 1–5 and the Phase G gates land.
@@ -175,10 +178,19 @@ cross-layer design pivot except where noted.
       Files: `sip/SipCallManager.kt`, `ui/incoming/*`
 
 ## Phase 4 — Service & data-layer refactors (larger blast radius)
-- [~] **Server-mode stop reconciliation.** Auto-stop uses a fixed `maxDurationSeconds + 2` local timer with no
-      reconciliation of the actual server job; the app holds no server recording id, so stop/status can drift.
-      Return/persist the server recording id and reconcile via `/api/recordings/{id}`. The app side is here; the
-      server returning an id from *start* is a Phase S dependency. File: `video/RtspStreamRecorder.kt`
+- [~] **Server-mode stop reconciliation.** Auto-stop used a fixed `maxDurationSeconds + 2` local timer with an
+      unconditional stop, so app and server drifted both ways: the phone kept showing REC after the server had
+      finalized, and a `maxDurationSeconds + 2` stop could cut short a job the server reported as
+      `already_recording` (someone else's duration). Done (app side): the recorder tracks an
+      `ActiveServerRecording` (trigger type, requested duration, `startedByThisRequest`, `recordingId`) and
+      `watchServerRecording` reconciles it against `/api/status.active_recordings` every 10 s — local tracking is
+      dropped as soon as the server has no job, the explicit stop only goes out for a job this request started
+      (or after 3 failed probes, where it is the safe fallback), and a job that outlived the requested duration is
+      left alone. `ServerRecordingClient` now reads the start/stop bodies (`started` vs `already_recording`,
+      `stopped` vs `not_recording`) and an optional `recording_id` instead of trusting HTTP 200.
+      **Remaining:** the id is only held in memory — persisting it needs a server-recording column, which belongs
+      to the Phase 5 UI-model abstraction, and `GET /api/recordings/{id}` only becomes usable once the server
+      returns the id from *start* (Phase S). Files: `video/RtspStreamRecorder.kt`, `data/server/ServerRecordingClient.kt`
 - 🔭 **RTSP H.264 passthrough** (demux → re-mux, zero re-encode/CPU) for stream-capable cameras — capture-pipeline
       rewrite, only for future RTSP-only devices. Not scheduled.
 
@@ -240,7 +252,9 @@ running in a real browser — that is the one owner session covering the Firefox
       "Live view through the server". Files: `data/server/ServerRecordingClient.kt`, `server/.../main.py`
 - [ ] **Server: return + expose the recording id** (feeds Phase 4 stop reconciliation) — start does not hand back
       a persistable id, so `/api/recordings/{id}` can't reconcile an auto-stop. Return the id from start and keep
-      `GET /api/recordings/{id}` available to the app. Files: `server/.../main.py`, `server/.../recorder.py`
+      `GET /api/recordings/{id}` available to the app. The app is already ready for it: `ServerStartResponse`
+      parses `recording_id`, the recorder stores it, and reconciliation falls back to `/api/status` while it is
+      null. Files: `server/.../main.py`, `server/.../recorder.py`
 - [ ] **Server: HTTPS-first** (unlocks Phase 6 network-transport cleanup) — mandatory auth is in place but the
       server is still plain HTTP behind global cleartext. TLS, or an explicit decision to stay LAN-only HTTP,
       before dropping user-CA trust app-side. Files: `server/.../main.py`, `server/docker-compose.yml`, `server/Dockerfile`
