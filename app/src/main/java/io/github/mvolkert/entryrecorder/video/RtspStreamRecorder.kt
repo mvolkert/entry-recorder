@@ -74,6 +74,13 @@ class RtspStreamRecorder(
     fun isRecording(deviceId: Long): Boolean = deviceId in _activeDeviceIds.value
 
     /**
+     * True only while the *phone's* capture loop polls the device's snapshot endpoint (not for
+     * server-side recordings). Motion analysis backs off on this, because in PYTHON_SERVER mode the
+     * server is the poller and slowing the analyzer would relieve contention that doesn't exist here.
+     */
+    fun isLocallyRecording(deviceId: Long): Boolean = activeRecordings.containsKey(deviceId)
+
+    /**
      * Start recording an RTSP/Snapshot video sequence for a given device and trigger event.
      * Evaluates whether to record via Python server or locally in-app (default).
      */
@@ -241,20 +248,26 @@ class RtspStreamRecorder(
 
         MkvStreamMuxer(outputFile).use { muxer ->
             fun handleJpeg(jpeg: ByteArray, atMs: Long) {
-                if (firstFrameRef.get() == null) firstFrameRef.set(jpeg)
                 muxer.writeMjpegFrame(jpeg, (atMs - baselineMs).coerceAtLeast(0L))
             }
 
             // Prepend the frames captured just before the trigger; baselineMs is the earliest of them,
             // so their relative times are >= 0 and stay monotonic against the live frames that follow.
+            // firstFrameRef deliberately only picks up the first LIVE frame: the oldest pre-roll frame is
+            // typically the empty approach scene, which would make every thumbnail look identical.
             preRoll.forEach { handleJpeg(it.jpeg, it.timestampMs) }
+
+            fun handleLiveFrame(jpeg: ByteArray, atMs: Long) {
+                if (firstFrameRef.get() == null) firstFrameRef.set(jpeg)
+                handleJpeg(jpeg, atMs)
+            }
 
             if (device.streamProtocol == StreamProtocol.MJPEG_STREAM) {
                 val mjpegReader = MjpegStreamReader()
                 try {
                     mjpegReader.streamRawJpeg(device).collect { jpegBytes ->
                         if (!isActive || System.currentTimeMillis() >= deadline) return@collect
-                        handleJpeg(jpegBytes, System.currentTimeMillis())
+                        handleLiveFrame(jpegBytes, System.currentTimeMillis())
                     }
                 } catch (e: Exception) {
                     // Snapshot polling continues below. Not silent: a stream that dies after a few frames
@@ -275,7 +288,7 @@ class RtspStreamRecorder(
                 try {
                     val frameBytes = HttpSnapshotClient.fetchSnapshotBytes(device)
                     if (frameBytes != null && frameBytes.isNotEmpty()) {
-                        handleJpeg(frameBytes, System.currentTimeMillis())
+                        handleLiveFrame(frameBytes, System.currentTimeMillis())
                         if (!endpointHealthy) {
                             Log.i(tag, "Snapshot frames from ${device.name} recovered after a gap")
                             endpointHealthy = true

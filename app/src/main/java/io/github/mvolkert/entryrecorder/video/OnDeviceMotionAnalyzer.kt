@@ -22,9 +22,11 @@ import kotlin.time.Duration.Companion.milliseconds
 class OnDeviceMotionAnalyzer(
     val deviceEntity: DeviceEntity,
     private val listener: IntercomEventListener,
-    // While a recording is active the recorder already polls this same snapshot endpoint, so the
-    // analyzer backs off to a coarse interval instead of competing for a serial device. Defaults to
-    // "never recording" so the analyzer stays usable without a recorder wired in.
+    // While a *local* recording is active the recorder's capture loop on this phone polls the same
+    // snapshot endpoint, so the analyzer backs off to a coarse interval instead of competing for a
+    // serial device. Server-side recordings must NOT report true here: the phone is not the poller
+    // then, and backing off would only slow detection. Defaults to "never recording" so the analyzer
+    // stays usable without a recorder wired in.
     private val isRecording: () -> Boolean = { false }
 ) {
     private val tag = "OnDeviceMotionAnalyzer"

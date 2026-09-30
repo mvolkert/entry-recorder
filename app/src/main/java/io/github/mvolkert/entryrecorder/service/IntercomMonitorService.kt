@@ -125,7 +125,9 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                 if (existingAnalyzer == null || existingAnalyzer.deviceEntity != entity) {
                     existingAnalyzer?.stop()
                     val analyzer = OnDeviceMotionAnalyzer(entity, this@IntercomMonitorService) {
-                        recorder.isRecording(entity.id)
+                        // Back off only for the phone's own capture loop: in PYTHON_SERVER mode the
+                        // server polls the endpoint, so a server recording must not slow detection here.
+                        recorder.isLocallyRecording(entity.id)
                     }
                     activeMotionAnalyzers[entity.id] = analyzer
                     analyzer.start()
