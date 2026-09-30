@@ -7,6 +7,7 @@ import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
@@ -14,6 +15,7 @@ import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
+import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.util.ExportHelper
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -21,10 +23,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -38,6 +42,15 @@ import kotlin.time.Duration.Companion.milliseconds
 
 /** A captured JPEG plus its wall-clock capture time, used to prepend a motion pre-roll to a recording. */
 class PreRollFrame(val timestampMs: Long, val jpeg: ByteArray)
+
+/**
+ * Things the capture loop learns that no caller asked for, published so the monitor service can act on
+ * them: a snapshot endpoint that goes quiet has to reach the device's connection status and the live
+ * card, not only logcat.
+ */
+sealed interface RecorderEvent {
+    data class Connection(val event: IntercomEvent.ConnectionState) : RecorderEvent
+}
 
 @OptIn(UnstableApi::class)
 class RtspStreamRecorder(
@@ -58,6 +71,10 @@ class RtspStreamRecorder(
     private val _activeDeviceIds = MutableStateFlow<Set<Long>>(emptySet())
     /** Device ids that currently have an active recording (local or on the server). */
     val activeDeviceIds: StateFlow<Set<Long>> = _activeDeviceIds.asStateFlow()
+
+    private val _events = Channel<RecorderEvent>(Channel.BUFFERED)
+    /** One-shot recorder observations for the monitor service to route (never replayed to a late collector). */
+    val events = _events.receiveAsFlow()
 
     private fun publishActiveIds() {
         _activeDeviceIds.value = (activeRecordings.keys + activeServerRecordings.keys).toSet()
@@ -244,7 +261,7 @@ class RtspStreamRecorder(
         preRoll: List<PreRollFrame>
     ) = withContext(Dispatchers.IO) {
         val deadline = System.currentTimeMillis() + (maxDurationSeconds * 1000L)
-        val fps = device.snapshotFps.coerceIn(1, 30)
+        val fps = device.effectiveSnapshotFps
 
         MkvStreamMuxer(outputFile).use { muxer ->
             fun handleJpeg(jpeg: ByteArray, atMs: Long) {
@@ -282,32 +299,46 @@ class RtspStreamRecorder(
             // further apart than the configured rate implies.
             val frameIntervalMs = 1000L / fps
             var nextFrameAt = System.currentTimeMillis()
-            var endpointHealthy = true
+            // Edge-triggered health: one announcement per state change instead of one per dropped frame,
+            // so a recording that never gets a frame is not confused with a short quiet one.
+            var reportedQuality = HttpSnapshotClient.snapshotQuality(device.id)
+            var framesWritten = 0
             while (isActive && System.currentTimeMillis() < deadline) {
                 nextFrameAt += frameIntervalMs
-                try {
-                    val frameBytes = HttpSnapshotClient.fetchSnapshotBytes(device)
-                    if (frameBytes != null && frameBytes.isNotEmpty()) {
-                        handleLiveFrame(frameBytes, System.currentTimeMillis())
-                        if (!endpointHealthy) {
-                            Log.i(tag, "Snapshot frames from ${device.name} recovered after a gap")
-                            endpointHealthy = true
-                        }
-                    } else if (endpointHealthy) {
-                        // Announce the gap once instead of once per frame: a recording that never gets
-                        // a frame is otherwise indistinguishable from a short quiet one.
-                        Log.w(tag, "Snapshot endpoint for ${device.name} returned no image, recording continues without frames for now")
-                        endpointHealthy = false
-                    }
-                } catch (e: Exception) {
-                    if (endpointHealthy) {
-                        Log.w(tag, "Snapshot grab threw for ${device.name}: ${e.message}, recording continues without frames for now")
-                        endpointHealthy = false
-                    }
+                val frameBytes = HttpSnapshotClient.fetchSnapshotBytes(device)
+                if (frameBytes != null && frameBytes.isNotEmpty()) {
+                    handleLiveFrame(frameBytes, System.currentTimeMillis())
+                    framesWritten++
+                }
+                val quality = HttpSnapshotClient.snapshotQuality(device.id)
+                if (quality != reportedQuality) {
+                    reportedQuality = quality
+                    val failures = HttpSnapshotClient.consecutiveFailures(device.id)
+                    Log.w(tag, "Snapshot endpoint for ${device.name} is $quality ($failures polls in a row without a frame)")
+                    _events.trySend(
+                        RecorderEvent.Connection(
+                            IntercomEvent.ConnectionState(
+                                device = device,
+                                quality = quality,
+                                message = if (quality == ConnectionQuality.ONLINE)
+                                    "Snapshot frames recovered after $failures missed polls"
+                                else "Snapshot endpoint delivered no frame for $failures polls in a row"
+                            )
+                        )
+                    )
                 }
                 val remainingMs = nextFrameAt - System.currentTimeMillis()
                 if (remainingMs > 0) delay(remainingMs.milliseconds)
             }
+            // The rate the loop actually got frames at, versus what was configured: the gap is what the
+            // endpoint's serial ceiling costs, and it has to be visible without a LAN measurement.
+            val elapsedSec = ((System.currentTimeMillis() - baselineMs) / 1000f).coerceAtLeast(1f)
+            Log.i(
+                tag,
+                "Recorded ${device.name} at %.1f fps (configured %d fps, endpoint ceiling %d fps) "
+                    .format(framesWritten / elapsedSec, fps, device.maxSnapshotFps) +
+                    "${framesWritten} frames"
+            )
         }
     }
 

@@ -23,6 +23,9 @@ object MonitorStatusHolder {
         _statuses.update { it + (deviceId to status) }
     }
 
+    /** Current status of one device, or null while the service has not taken it over. */
+    fun statusFor(deviceId: Long): MonitorStatus? = _statuses.value[deviceId]
+
     fun remove(deviceId: Long) {
         _statuses.update { it - deviceId }
     }

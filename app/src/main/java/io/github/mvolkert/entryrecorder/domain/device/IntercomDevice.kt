@@ -1,6 +1,7 @@
 package io.github.mvolkert.entryrecorder.domain.device
 
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 
 sealed class IntercomEvent {
     data class MotionStarted(val device: DeviceEntity, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
@@ -12,7 +13,7 @@ sealed class IntercomEvent {
     data class MotionOnDeviceEnded(val device: DeviceEntity, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
     data class DoorbellRung(val device: DeviceEntity, val callerNumber: String? = null, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
     data class CallState(val device: DeviceEntity, val state: String, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
-    data class ConnectionState(val device: DeviceEntity, val isConnected: Boolean, val message: String? = null) : IntercomEvent()
+    data class ConnectionState(val device: DeviceEntity, val quality: ConnectionQuality, val message: String? = null) : IntercomEvent()
     data class Error(val device: DeviceEntity, val error: Throwable) : IntercomEvent()
 }
 

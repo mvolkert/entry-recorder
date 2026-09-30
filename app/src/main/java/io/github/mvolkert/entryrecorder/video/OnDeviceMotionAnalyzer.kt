@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.util.Log
 import androidx.core.graphics.scale
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
@@ -55,9 +56,14 @@ class OnDeviceMotionAnalyzer(
     private var peakChangedRatio = 0f
     private var lastReportAtMs = 0L
 
+    // Last connection quality handed to the listener, so a state change is reported exactly once
+    // instead of on every poll that comes back empty.
+    private var reportedQuality = ConnectionQuality.ONLINE
+
     fun start() {
         if (job?.isActive == true) return
         resetState()
+        reportedQuality = HttpSnapshotClient.snapshotQuality(deviceEntity.id)
         lastReportAtMs = System.currentTimeMillis()
         Log.i(tag, "Analyzing ${deviceEntity.name} at ${deviceEntity.snapshotUrl}")
         job = scope.launch { runLoop() }
@@ -97,6 +103,7 @@ class OnDeviceMotionAnalyzer(
             }
             pollsSinceReport++
             reportHealthIfDue()
+            reportConnectionEdge()
             val poll = when {
                 // Recording in progress: the recorder owns the endpoint at snapshotFps, so poll slowly
                 // to avoid oversubscribing it, while still catching motion-end to schedule the stop.
@@ -110,12 +117,32 @@ class OnDeviceMotionAnalyzer(
         }
     }
 
+    /**
+     * Turns the failure streak of the shared snapshot client into a real [IntercomEvent.ConnectionState]
+     * edge. This loop runs 24/7, so it — not the occasionally-running recorder — is what makes a camera
+     * that stopped serving frames visible in the UI instead of only in logcat.
+     */
+    private fun reportConnectionEdge() {
+        val quality = HttpSnapshotClient.snapshotQuality(deviceEntity.id)
+        if (quality == reportedQuality) return
+        reportedQuality = quality
+        val failures = HttpSnapshotClient.consecutiveFailures(deviceEntity.id)
+        val message = if (quality == ConnectionQuality.ONLINE)
+            "Snapshot frames recovered after $failures missed polls"
+        else "Snapshot endpoint delivered no frame for $failures polls in a row"
+        listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, quality, message))
+    }
+
     /** Periodic self-report: whether frames arrive at all, and how strong the biggest change was. */
     private fun reportHealthIfDue() {
         val now = System.currentTimeMillis()
         val elapsedMs = now - lastReportAtMs
         if (elapsedMs < HEALTH_REPORT_MS) return
         lastReportAtMs = now
+
+        // Measured versus configured rate: the endpoint's serial ceiling means the configured value is
+        // a wish, not a guarantee, and "no continuous observation" has to stop being a silent lie.
+        val achievedFps = HttpSnapshotClient.achievedFps(deviceEntity.id)
 
         if (pollsSinceReport > 0 && framesSinceReport == 0) {
             Log.w(
@@ -129,7 +156,7 @@ class OnDeviceMotionAnalyzer(
                 "Motion analysis on ${deviceEntity.name}: $framesSinceReport/$pollsSinceReport frames, " +
                     "peak change ${(peakChangedRatio * 100).toInt()}% of ${ANALYSIS_WIDTH}x$ANALYSIS_HEIGHT " +
                     "(needs ${(MOTION_RATIO_THRESHOLD * 100).toInt()}% twice in a row), " +
-                    "poll ${currentPollMs}ms"
+                    "poll ${currentPollMs}ms, %.1f fps achieved (configured ${deviceEntity.effectiveSnapshotFps})".format(achievedFps)
             )
         }
         pollsSinceReport = 0

@@ -207,6 +207,9 @@
     <string name="device_mjpeg_path_label">MJPEG Stream Path (e.g. /api/camera/mjpeg)</string>
     <string name="device_snapshot_path_label">Snapshot Path</string>
     <string name="device_snapshot_fps">FPS</string>
+    <string name="device_snapshot_fps_ceiling">Ceiling %1$d fps for this device type — faster is not served. Higher values are capped.</string>
+    <string name="device_snapshot_fps_above_ceiling">Above the %1$d fps ceiling; saved and polled as %1$d.</string>
+    <string name="device_snapshot_fps_measured">Measured right now: %1$.1f fps (polled by the live view or a recording)</string>
     <string name="device_sip_section">SIP Intercom Configuration</string>
     <string name="device_sip_p2p">Direct Peer-to-Peer (IP-to-IP)</string>
     <string name="device_sip_pbx">SIP PBX Server (e.g. Fritz!Box / Asterisk)</string>

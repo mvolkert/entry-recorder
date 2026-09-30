@@ -157,7 +157,7 @@ fun LiveDeviceCard(
                     Box(
                         modifier = Modifier
                             .size(10.dp)
-                            .background(Color(0xFF4CAF50), shape = RoundedCornerShape(50))
+                            .background(monitorStatusColor(monitorStatus), shape = RoundedCornerShape(50))
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
@@ -254,6 +254,20 @@ fun LiveDeviceCard(
             }
         }
     }
+}
+
+/**
+ * The card's connection dot: the one place the device's live health is shown, driven by the
+ * [MonitorStatus] the monitor service publishes (degraded polling fallback and an offline camera used to
+ * both look exactly like a healthy green dot).
+ */
+@Composable
+private fun monitorStatusColor(status: MonitorStatus): Color = when (status) {
+    MonitorStatus.DISABLED -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+    MonitorStatus.MONITORING -> Color(0xFF4CAF50)
+    MonitorStatus.MOTION -> Color(0xFF4CAF50)
+    MonitorStatus.DEGRADED -> Color(0xFFFFB300)
+    MonitorStatus.OFFLINE -> Color(0xFFF44336)
 }
 
 /**

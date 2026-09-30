@@ -34,5 +34,18 @@ enum class RecordingMode {
 enum class MonitorStatus {
     DISABLED,     // Device disabled, or the service does not monitor it (yet)
     MONITORING,   // Events are being monitored, no motion right now
-    MOTION        // Motion currently detected
+    MOTION,       // Motion currently detected
+    DEGRADED,     // Reachable, but a reduced path (polling fallback, or snapshot frames going missing)
+    OFFLINE       // Nothing usable arrives: the endpoints answer with errors or no frames at all
+}
+
+/**
+ * Observability of a device's event/image path. Three values because "reachable" and "working" are
+ * not the same: an SSE stream in polling fallback, or a snapshot endpoint that keeps timing out, is
+ * neither connected nor disconnected, and a boolean forced that into one of the two.
+ */
+enum class ConnectionQuality {
+    ONLINE,       // Full path works: events and frames arrive
+    DEGRADED,     // Reachable but reduced: fallback polling only, or frames intermittently missing
+    OFFLINE       // Nothing usable arrives for an extended stretch
 }

@@ -60,6 +60,20 @@ class DeviceFormState(
     val isValid: Boolean
         get() = name.isNotBlank() && ipAddress.isNotBlank()
 
+    /** Row id of the edited device, or 0 for a new one — the key the snapshot rate is measured under. */
+    val deviceId: Long get() = initial?.id ?: 0L
+
+    /** Snapshot rate ceiling of the selected device type; what a higher input will be clamped to. */
+    val maxSnapshotFps: Int get() = DeviceEntity.maxSnapshotFpsFor(deviceType)
+
+    /** True while the typed rate is above the ceiling, so the field can say it will not be honoured. */
+    val isSnapshotFpsAboveCeiling: Boolean
+        get() = (snapshotFps.toIntOrNull() ?: 0) > maxSnapshotFps
+
+    /** The typed rate brought into 1..[maxSnapshotFps], which is what actually gets persisted. */
+    private val clampedSnapshotFps: Int
+        get() = (snapshotFps.toIntOrNull() ?: 5).coerceIn(1, maxSnapshotFps)
+
     /**
      * The connection probe sees exactly what was typed, including a still-empty or untrimmed port,
      * and only carries the fields [io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory]
@@ -78,7 +92,7 @@ class DeviceFormState(
         streamProtocol = streamProtocol,
         mjpegPath = mjpegPath,
         snapshotPath = snapshotPath,
-        snapshotFps = snapshotFps.toIntOrNull() ?: 5
+        snapshotFps = clampedSnapshotFps
     )
 
     /**
@@ -104,7 +118,9 @@ class DeviceFormState(
             streamProtocol = streamProtocol,
             mjpegPath = mjpegPath.trim(),
             snapshotPath = snapshotPath.trim(),
-            snapshotFps = snapshotFps.toIntOrNull() ?: 5,
+            // Capped on save: a rate above the endpoint's ceiling cannot be delivered, and storing it
+            // would make the recording pace itself by a number that is unreachable by construction.
+            snapshotFps = clampedSnapshotFps,
             sipMode = sipMode,
             sipLocalPort = sipLocalPort.toIntOrNull() ?: 5060,
             sipServerHost = if (sipServerHost.isNotBlank()) sipServerHost.trim() else null,

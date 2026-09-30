@@ -2,6 +2,7 @@ package io.github.mvolkert.entryrecorder.data.device
 
 import android.util.Log
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.domain.device.IntercomDevice
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
@@ -39,7 +40,7 @@ class GenericRtspDevice(
         // auto-recorded through the device-agnostic app-side OnDeviceMotionAnalyzer (enabled per
         // device via recordOnMotionOnDevice), plus manual recording from the Live view. This is a
         // documented limitation rather than a bug.
-        listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, true, "RTSP Ready"))
+        listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, ConnectionQuality.ONLINE, "RTSP Ready"))
     }
 
     override suspend fun stopMonitoring() {

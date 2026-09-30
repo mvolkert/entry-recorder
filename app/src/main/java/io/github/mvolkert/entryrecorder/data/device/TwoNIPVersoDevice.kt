@@ -5,6 +5,7 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.network.DigestAuthenticator
 import io.github.mvolkert.entryrecorder.domain.device.IntercomDevice
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
@@ -77,7 +78,7 @@ class TwoNIPVersoDevice(
         if (isMonitoring.getAndSet(true)) return@withContext
 
         Log.i(tag, "Starting 2N IP Verso monitoring on ${deviceEntity.ipAddress} (FW 2.50+)")
-        listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, true, "Connecting to 2N IP Verso..."))
+        listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, ConnectionQuality.ONLINE, "Connecting to 2N IP Verso..."))
 
         // Try SSE Event Stream first (/api/event/subscribe)
         startSseEventListener(listener)
@@ -94,7 +95,7 @@ class TwoNIPVersoDevice(
         eventSource = factory.newEventSource(request, object : EventSourceListener() {
             override fun onOpen(eventSource: EventSource, response: Response) {
                 Log.d(tag, "SSE Event Stream opened with 2N Verso")
-                listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, true, "Connected"))
+                listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, ConnectionQuality.ONLINE, "Connected"))
             }
 
             override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
@@ -105,7 +106,7 @@ class TwoNIPVersoDevice(
             override fun onClosed(eventSource: EventSource) {
                 Log.w(tag, "SSE Event Stream closed by 2N Verso. Fallback to polling if active.")
                 if (isMonitoring.get()) {
-                    listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, false, "Stream closed, retrying..."))
+                    listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, ConnectionQuality.DEGRADED, "Stream closed, retrying..."))
                     scheduleReconnect(listener)
                 }
             }
@@ -197,7 +198,7 @@ class TwoNIPVersoDevice(
             listener.onEvent(
                 IntercomEvent.ConnectionState(
                     deviceEntity,
-                    isConnected = true,
+                    quality = ConnectionQuality.DEGRADED,
                     message = "SSE event stream unavailable, polling motion/noise status only. " +
                         "Doorbell rings are not delivered in this mode."
                 )
@@ -229,16 +230,31 @@ class TwoNIPVersoDevice(
                 if (noise != null) lastNoiseState = noise
 
                 val bothDead = motion == null && noise == null
-                consecutiveDeadPolls = if (bothDead) consecutiveDeadPolls + 1 else 0
-                if (consecutiveDeadPolls == DEAD_POLLS_ALERT) {
+                if (bothDead) {
+                    consecutiveDeadPolls++
+                    if (consecutiveDeadPolls == DEAD_POLLS_ALERT) {
+                        listener.onEvent(
+                            IntercomEvent.ConnectionState(
+                                deviceEntity,
+                                quality = ConnectionQuality.OFFLINE,
+                                message = "Motion/noise status endpoints returned no usable data $DEAD_POLLS_ALERT times " +
+                                    "— wrong path, denied auth or motion detection disabled on the device"
+                            )
+                        )
+                    }
+                } else if (consecutiveDeadPolls >= DEAD_POLLS_ALERT) {
+                    // The recovery edge matters as much as the failure one: without it the device would
+                    // stay reported offline in the UI long after the endpoints started answering again.
                     listener.onEvent(
                         IntercomEvent.ConnectionState(
                             deviceEntity,
-                            isConnected = false,
-                            message = "Motion/noise status endpoints returned no usable data $DEAD_POLLS_ALERT times " +
-                                "— wrong path, denied auth or motion detection disabled on the device"
+                            quality = ConnectionQuality.DEGRADED,
+                            message = "Motion/noise status endpoints answering again"
                         )
                     )
+                    consecutiveDeadPolls = 0
+                } else {
+                    consecutiveDeadPolls = 0
                 }
 
                 delay(1500.milliseconds)

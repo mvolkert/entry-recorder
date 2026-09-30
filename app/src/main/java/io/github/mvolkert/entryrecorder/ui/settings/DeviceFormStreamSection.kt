@@ -5,15 +5,24 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
+import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
+import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * How the picture is pulled from the device. The path fields only appear for the protocols that
@@ -67,8 +76,45 @@ internal fun DeviceFormStreamSection(form: DeviceFormState) {
                 onValueChange = { form.snapshotFps = it },
                 label = { Text(stringResource(R.string.device_snapshot_fps)) },
                 modifier = Modifier.weight(1f),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                isError = form.isSnapshotFpsAboveCeiling,
+                supportingText = {
+                    Text(
+                        text = stringResource(
+                            if (form.isSnapshotFpsAboveCeiling) R.string.device_snapshot_fps_above_ceiling
+                            else R.string.device_snapshot_fps_ceiling,
+                            form.maxSnapshotFps
+                        )
+                    )
+                }
+            )
+        }
+        // The rate the endpoint really delivered lately, measured by the shared snapshot client while the
+        // live view or a recording polls it. Without this the configured number is unfalsifiable.
+        val measuredFps = rememberMeasuredSnapshotFps(form.deviceId)
+        if (measuredFps > 0f) {
+            Text(
+                text = stringResource(R.string.device_snapshot_fps_measured, measuredFps),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
+}
+
+/**
+ * Polls the shared snapshot client's measurement for [deviceId] while the dialog is open.
+ * Reads the live value rather than a cached one, and only devices that were polled recently report a
+ * rate — a new or never-polled device has nothing to show.
+ */
+@Composable
+private fun rememberMeasuredSnapshotFps(deviceId: Long): Float {
+    var measured by remember(deviceId) { mutableFloatStateOf(HttpSnapshotClient.achievedFps(deviceId)) }
+    LaunchedEffect(deviceId) {
+        while (true) {
+            measured = HttpSnapshotClient.achievedFps(deviceId)
+            delay(2000.milliseconds)
+        }
+    }
+    return measured
 }

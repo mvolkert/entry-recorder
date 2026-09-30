@@ -194,7 +194,7 @@ fun LiveStreamPlayer(
 
             StreamProtocol.HTTP_SNAPSHOT -> {
                 exoPlayer.stop()
-                val frameIntervalMs = 1000L / device.snapshotFps.coerceIn(1, 30)
+                val frameIntervalMs = 1000L / device.effectiveSnapshotFps
                 // Poll only while the UI is at least STARTED: an ungated loop kept hitting the
                 // snapshot endpoint after the activity stopped, draining the radio unattended.
                 // repeatOnLifecycle cancels the loop on STOP and restarts it on the next START.

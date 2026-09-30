@@ -43,25 +43,34 @@ value. Diagnosed 2026-09-30 by the LAN measurement block (cause pinned: Wi-Fi RT
 the 2N itself serves serially at ≈5.9 req/s, fast and keep-alive-friendly). Pacing (fetch-counted rolling
 deadline) is already fixed in the recorder and live view — what remains is robustness + surfacing.
 
-- [ ] **Snapshot timeout: retry + a real connection state.** `data/network/HttpSnapshotClient.kt` prints one
+- [x] **Snapshot timeout: retry + a real connection state.** `data/network/HttpSnapshotClient.kt` printed one
       `timeout` per failed poll (`Log.w`) on a shared client with 4 s connect/read. A lost request or ACK costs
-      one RTO (≈0.44 s observed); three in a row exceed the 4 s window and drop a frame. Action: add a
-      `callTimeout` + one retry with backoff so a short RTO chain does not eat a whole frame slot, and surface
-      a **consecutive-failure counter** as a real `IntercomEvent.ConnectionState` instead of a bare log line
-      nobody watches. Not silent: today a flaky endpoint and an empty room both reach logcat the same way.
+      one RTO (≈0.44 s observed); three in a row exceed the 4 s window and drop a frame. Done: connect/read
+      2 s + `callTimeout` 3 s, one 150 ms-backoff retry for retryable failures only (timeouts, 5xx, 429 — a
+      401/404/non-image body is permanent and not retried), a per-device `consecutiveFailures` counter and
+      `snapshotQuality()` (ONLINE < 3 misses, DEGRADED 3–9, OFFLINE ≥ 10). The recorder and the motion analyzer
+      report quality **edges** as `IntercomEvent.ConnectionState`, the service maps them onto `MonitorStatus`
+      (new DEGRADED / OFFLINE) and the live card dot is now state-driven instead of always green.
       Files: `data/network/HttpSnapshotClient.kt`, `video/RtspStreamRecorder.kt`, `domain/device/IntercomEvent`
-- [ ] **Surface achieved vs configured FPS; cap the setting.** The 2N ceiling is ≈5.9 req/s but `snapshotFps`
-      is configurable up to 30; requests above what the endpoint serves are unreachable by construction.
-      Show the achieved rate next to the setting (and/or clamp it) so "no continuous observation" stops being
-      a silent lie. Files: `ui/settings/DeviceFormStreamSection.kt`, `data/local/entity/DeviceEntity.kt`
-- [ ] **The MJPEG path stored for the 2N does not exist on this firmware.** `DeviceEntity.mjpegUrl`
+- [x] **Surface achieved vs configured FPS; cap the setting.** The 2N ceiling is ≈5.9 req/s while `snapshotFps`
+      was configurable up to 30; requests above what the endpoint serves are unreachable by construction.
+      Done: `DeviceEntity.effectiveSnapshotFps` clamps to `maxSnapshotFps` (6 for TWO_N_VERSO, 30 as the hard
+      ceiling) and both the recorder and the live view pace by it; saves are capped in `DeviceFormState`; the
+      device form shows the ceiling (and an error tint above it) plus the rate the shared client actually
+      measured (`HttpSnapshotClient.achievedFps`, 0f = not polled recently); the recorder logs achieved vs
+      configured at the end of every capture and the analyzer health line carries the measured rate.
+      Files: `ui/settings/DeviceFormStreamSection.kt`, `data/local/entity/DeviceEntity.kt`
+- [~] 🔄 **The MJPEG path stored for the 2N does not exist on this firmware.** `DeviceEntity.mjpegUrl`
       (`/api/camera/mjpeg`) answers **HTTP 200 + `application/json`** (`{"error":{"code":2 …invalid request
-      path}}`); `data/network/MjpegStreamReader.kt` then finds no JPEG boundaries and yields zero frames, so
-      `MJPEG_STREAM` reads as a dead camera. Action: confirm the live path this firmware actually serves, and
-      make `MjpegStreamReader` fail loudly on a content type that is not `multipart`/`image` instead of
-      streaming nothing silently. Related fact: `/api/camera/snapshot` without `width`/`height` returns
-      `{"code":11 …missing mandatory parameter}` — `DeviceEntity.snapshotUrl`'s parameter appending is
-      load-bearing. Files: `data/network/MjpegStreamReader.kt`, `data/local/entity/DeviceEntity.kt`
+      path}}`); `data/network/MjpegStreamReader.kt` then found no JPEG boundaries and yielded zero frames, so
+      `MJPEG_STREAM` read as a dead camera. Done: `requireMjpegContentType()` fails loudly on any content type
+      that is not `multipart`/`image` (naming the URL, code and type), both stream functions rethrow so the
+      recorder falls back to snapshot polling and the live view shows an error instead of a black box.
+      **Remaining device gate:** confirm which live path this firmware actually serves before changing the
+      stored `mjpegPath` default — guessing a URL here would just move the failure. Related fact:
+      `/api/camera/snapshot` without `width`/`height` returns `{"code":11 …missing mandatory parameter}` —
+      `DeviceEntity.snapshotUrl`'s parameter appending is load-bearing.
+      Files: `data/network/MjpegStreamReader.kt`, `data/local/entity/DeviceEntity.kt`
 - [ ] 🔄 **Retune motion sensitivity from the health line (needs device numbers).** The trigger needs
       `changedRatio >= 3 %` of the 96x54 grid differing by >25 grey levels on **two consecutive** comparisons,
       while idle polling backs off to `MAX_IDLE_POLL_MS = 1500` — a person crossing in ~1.5 s can produce only

@@ -11,14 +11,17 @@ import android.util.Log
 import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
+import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.domain.device.IntercomDevice
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
 import io.github.mvolkert.entryrecorder.notification.NotificationHelper
 import io.github.mvolkert.entryrecorder.ui.incoming.IncomingCallActivity
 import io.github.mvolkert.entryrecorder.video.OnDeviceMotionAnalyzer
+import io.github.mvolkert.entryrecorder.video.RecorderEvent
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration.Companion.milliseconds
@@ -68,6 +71,16 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         // A SIP INVITE is a second, independent ring source for the doorbell (see handleSipRing).
         sipManager.onIncomingCall = { remoteHost, caller -> handleSipRing(remoteHost, caller) }
 
+        // The capture loop sees the snapshot endpoint go quiet long before any event stream does, so its
+        // connection observations are folded into the same routing as the device events.
+        serviceScope.launch {
+            recorder.events.collect { event ->
+                when (event) {
+                    is RecorderEvent.Connection -> onEvent(event.event)
+                }
+            }
+        }
+
         // Observe devices from database and update monitoring
         serviceScope.launch {
             repository.allDevices.collect { devices ->
@@ -101,6 +114,8 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             // post-record stop could still fire for it and a re-added id would inherit the old ring stamp.
             pendingPostRecordStops.remove(id)?.cancel()
             lastRingHandledAt.remove(id)
+            // Snapshot health is per device id too: a re-added id must not inherit the old failure streak.
+            HttpSnapshotClient.forgetDevice(id)
         }
 
         // Add or update active devices
@@ -313,10 +328,11 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                 }
 
                 is IntercomEvent.ConnectionState -> {
-                    val detail = "Device ${event.device.name} connection: ${event.isConnected} (${event.message})"
-                    // Degraded monitoring (e.g. the 2N polling fallback that cannot see doorbells at all) has
-                    // to be visible in logcat and crash telemetry, not buried at debug level.
-                    if (event.isConnected) Log.i(tag, detail) else Log.w(tag, detail)
+                    val detail = "Device ${event.device.name} connection: ${event.quality} (${event.message})"
+                    // Degraded monitoring (e.g. the 2N polling fallback that cannot see doorbells at all)
+                    // has to be visible in logcat and on the live card, not only in logcat.
+                    if (event.quality == ConnectionQuality.ONLINE) Log.i(tag, detail) else Log.w(tag, detail)
+                    applyConnectionQuality(event.device.id, event.quality)
                 }
 
                 is IntercomEvent.Error -> {
@@ -324,6 +340,22 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                 }
             }
         }
+    }
+
+    /**
+     * Maps connection quality onto the device's [MonitorStatus] so the live card can show it.
+     *
+     * A recovery must not erase a running motion alert, so ONLINE only replaces MONITORING; a degraded
+     * or offline source cannot deliver trustworthy events at all, so it always wins over MOTION.
+     */
+    private fun applyConnectionQuality(deviceId: Long, quality: ConnectionQuality) {
+        val target = when (quality) {
+            ConnectionQuality.ONLINE ->
+                if (MonitorStatusHolder.statusFor(deviceId) == MonitorStatus.MOTION) null else MonitorStatus.MONITORING
+            ConnectionQuality.DEGRADED -> MonitorStatus.DEGRADED
+            ConnectionQuality.OFFLINE -> MonitorStatus.OFFLINE
+        } ?: return
+        MonitorStatusHolder.update(deviceId, target)
     }
 
     /**

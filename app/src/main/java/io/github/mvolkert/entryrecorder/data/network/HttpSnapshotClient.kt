@@ -4,7 +4,9 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.Authenticator
 import okhttp3.Credentials
@@ -12,26 +14,60 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.Route
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
+import kotlin.time.Duration.Companion.milliseconds
 
+/**
+ * Shared keep-alive client for the periodic snapshot polls (recording, motion analysis, live view).
+ *
+ * Reports per-device health alongside the frame itself: [consecutiveFailures] and
+ * [snapshotQuality] turn "the endpoint is not answering" into data a caller can act on, instead of
+ * the old single log line per failed poll that nobody watched.
+ */
 object HttpSnapshotClient {
     private const val TAG = "HttpSnapshotClient"
 
     // Only the error document shapes are rejected, so cameras serving octet-stream keep working.
     private val ERROR_BODY_SUBTYPES = setOf("json", "xml", "html", "plain")
 
-    /**
-     * Carries the per-device credentials on the request so the shared [httpClient] (one singleton for
-     * every device) can answer a Digest challenge with the right user/password. Retrieved from
-     * `response.request.tag(...)` inside the authenticator below.
-     */
+    /** Polls that have to fail back-to-back before the path is worth calling degraded. */
+    private const val DEGRADED_AFTER_POLLS = 3
+
+    /** Back-to-back failed polls after which the endpoint counts as offline rather than flaky. */
+    private const val OFFLINE_AFTER_POLLS = 10
+
+    /** A rate estimate older than this is reported as "not measured", not as the last good number. */
+    private const val RATE_STALE_MS = 5_000L
+
+    /** Carries the per-device credentials so the shared [httpClient] can answer a Digest challenge. */
     private class SnapshotAuth(val username: String, val password: String)
 
+    /** Outcome of one HTTP attempt: a frame, or why the frame is missing. */
+    private sealed interface FetchOutcome {
+        data class Frame(val bytes: ByteArray) : FetchOutcome
+
+        /** Timeout / connection / 5xx — the kind a single retry can recover from. */
+        data object Retryable : FetchOutcome
+
+        /** Auth rejection or a non-image body — retrying just burns another round trip. */
+        data class Rejected(val reason: String) : FetchOutcome
+    }
+
+    private val consecutiveFailures = ConcurrentHashMap<Long, Int>()
+    private val rateEstimates = ConcurrentHashMap<Long, Float>()
+    private val lastFrameAtMs = ConcurrentHashMap<Long, Long>()
+
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(4, TimeUnit.SECONDS)
-        .readTimeout(4, TimeUnit.SECONDS)
-        // The preemptive Basic header below covers Basic-only endpoints without a round trip; a Digest
-        // endpoint answers that with a 401 challenge, which this authenticator then resolves per device.
+        // A single lost request or ACK costs one TCP RTO (~0.44 s measured on this LAN); three in a row
+        // exceed the old 4 s window and silently drop a frame slot. The tight call timeout plus one
+        // quick retry in fetchSnapshotBytes keeps a short RTO chain from eating the whole slot.
+        .connectTimeout(2, TimeUnit.SECONDS)
+        .readTimeout(2, TimeUnit.SECONDS)
+        .callTimeout(3, TimeUnit.SECONDS)
+        // The preemptive Basic header covers Basic-only endpoints without a round trip; a Digest
+        // endpoint answers that with a 401 challenge, which this authenticator resolves per device.
         .authenticator(object : Authenticator {
             override fun authenticate(route: Route?, response: Response): Request? {
                 val auth = response.request.tag(SnapshotAuth::class.java) ?: return null
@@ -39,6 +75,38 @@ object HttpSnapshotClient {
             }
         })
         .build()
+
+    /** Failed snapshot polls in a row for this device; 0 while the endpoint answers. */
+    fun consecutiveFailures(deviceId: Long): Int = consecutiveFailures[deviceId] ?: 0
+
+    /**
+     * Snapshot frames per second actually delivered recently, measured over a rolling window.
+     * 0f means "not measured": either nothing was polled, or the last frame is older than
+     * [RATE_STALE_MS], so a stopped endpoint never keeps advertising the rate it had while alive.
+     */
+    fun achievedFps(deviceId: Long): Float {
+        val lastAt = lastFrameAtMs[deviceId] ?: return 0f
+        if (System.currentTimeMillis() - lastAt > RATE_STALE_MS) return 0f
+        return rateEstimates[deviceId] ?: 0f
+    }
+
+    /**
+     * Health of the snapshot path derived from the failure streak, so the UI can show a flaky camera
+     * instead of an empty room. One or two missed polls stay ONLINE: the built-in retry covers a short
+     * RTO chain, and flipping the indicator on every blip would make it noise.
+     */
+    fun snapshotQuality(deviceId: Long): ConnectionQuality = when (val failures = consecutiveFailures(deviceId)) {
+        in 0 until DEGRADED_AFTER_POLLS -> ConnectionQuality.ONLINE
+        in DEGRADED_AFTER_POLLS until OFFLINE_AFTER_POLLS -> ConnectionQuality.DEGRADED
+        else -> ConnectionQuality.OFFLINE
+    }
+
+    /** Drops the health bookkeeping when a device is removed or reconfigured. */
+    fun forgetDevice(deviceId: Long) {
+        consecutiveFailures.remove(deviceId)
+        rateEstimates.remove(deviceId)
+        lastFrameAtMs.remove(deviceId)
+    }
 
     /**
      * Fetches a single raw JPEG frame from the device snapshot endpoint.
@@ -50,32 +118,88 @@ object HttpSnapshotClient {
      * otherwise be muxed into the recording (or silently starve motion analysis) as a "frame".
      */
     suspend fun fetchSnapshotBytes(device: DeviceEntity): ByteArray? = withContext(Dispatchers.IO) {
-        val snapshotUrl = device.snapshotUrl
-        try {
-            val requestBuilder = Request.Builder().url(snapshotUrl)
-                .tag(SnapshotAuth::class.java, SnapshotAuth(device.username, device.password))
-            if (device.username.isNotBlank() || device.password.isNotBlank()) {
-                requestBuilder.header("Authorization", Credentials.basic(device.username, device.password))
+        var outcome = attemptFetch(device, attempt = 1)
+        if (outcome is FetchOutcome.Retryable) {
+            delay(150.milliseconds)
+            outcome = attemptFetch(device, attempt = 2)
+        }
+
+        when (outcome) {
+            is FetchOutcome.Frame -> {
+                consecutiveFailures.remove(device.id)
+                recordAchievedRate(device.id)
+                outcome.bytes
             }
-            val response = httpClient.newCall(requestBuilder.build()).execute()
-            if (response.isSuccessful) {
-                val contentType = response.body.contentType()
-                if (contentType != null && contentType.type != "image" &&
-                    contentType.subtype in ERROR_BODY_SUBTYPES
-                ) {
-                    Log.w(TAG, "Snapshot endpoint returned $contentType instead of an image url=$snapshotUrl")
-                    null
-                } else {
-                    response.body.bytes()
-                }
-            } else {
-                Log.w(TAG, "Snapshot fetch failed code=${response.code} url=$snapshotUrl")
+            is FetchOutcome.Rejected -> {
+                countedFailure(device, outcome.reason)
                 null
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Snapshot fetch exception for ${device.name}: ${e.message}")
-            null
+            else -> {
+                countedFailure(device, "no image after one retry")
+                null
+            }
         }
+    }
+
+    private suspend fun attemptFetch(device: DeviceEntity, attempt: Int): FetchOutcome =
+        withContext(Dispatchers.IO) {
+            val snapshotUrl = device.snapshotUrl
+            try {
+                val requestBuilder = Request.Builder().url(snapshotUrl)
+                    .tag(SnapshotAuth::class.java, SnapshotAuth(device.username, device.password))
+                if (device.username.isNotBlank() || device.password.isNotBlank()) {
+                    requestBuilder.header("Authorization", Credentials.basic(device.username, device.password))
+                }
+                val response = httpClient.newCall(requestBuilder.build()).execute()
+                if (!response.isSuccessful) {
+                    val reason = "HTTP ${response.code}"
+                    Log.w(TAG, "Snapshot fetch failed $reason url=$snapshotUrl attempt=$attempt")
+                    // 5xx and 429 are worth the retry; a 401/403/404 will not fix itself.
+                    val retryable = response.code >= 500 || response.code == 429
+                    if (retryable) FetchOutcome.Retryable else FetchOutcome.Rejected(reason)
+                } else {
+                    val contentType = response.body.contentType()
+                    if (contentType != null && contentType.type != "image" &&
+                        contentType.subtype in ERROR_BODY_SUBTYPES
+                    ) {
+                        val reason = "content type $contentType"
+                        Log.w(TAG, "Snapshot endpoint returned $reason instead of an image url=$snapshotUrl")
+                        FetchOutcome.Rejected(reason)
+                    } else {
+                        FetchOutcome.Frame(response.body.bytes())
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Snapshot fetch exception (attempt $attempt) for ${device.name}: ${e.message}")
+                FetchOutcome.Retryable
+            }
+        }
+
+    private fun countedFailure(device: DeviceEntity, reason: String) {
+        val failures = (consecutiveFailures[device.id] ?: 0) + 1
+        consecutiveFailures[device.id] = failures
+        rateEstimates.remove(device.id)
+        if (failures == DEGRADED_AFTER_POLLS || failures == OFFLINE_AFTER_POLLS) {
+            Log.w(TAG, "Snapshot path for ${device.name} failed $failures polls in a row ($reason)")
+        }
+    }
+
+    /**
+     * Rolling estimate of the delivered frame rate: the 2N serialises snapshot encoding at roughly
+     * 6 req/s, so a configured rate above what the endpoint serves is unreachable by construction and
+     * the achieved number is what the settings screen and the recorder log have to show.
+     */
+    private fun recordAchievedRate(deviceId: Long) {
+        val now = System.currentTimeMillis()
+        val previous = lastFrameAtMs.put(deviceId, now) ?: return
+        val deltaMs = abs(now - previous)
+        if (deltaMs <= 0) return
+        // Exponential average over the last few frame gaps: robust against one slow poll, and it
+        // settles within a couple of frames at the 1-30 fps range this endpoint works in.
+        val instantaneous = 1000f / deltaMs
+        val current = rateEstimates[deviceId]
+        rateEstimates[deviceId] = if (current == null || current <= 0f) instantaneous
+        else current * 0.7f + instantaneous * 0.3f
     }
 
     /**

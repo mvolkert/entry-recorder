@@ -91,4 +91,32 @@ data class DeviceEntity(
             if (!path.startsWith("/")) path = "/$path"
             return "$httpBaseUrl$path"
         }
+
+    /**
+     * Snapshot polling rate actually worth asking for: [snapshotFps] clamped to what this device type
+     * can serve. The 2N serialises snapshot encoding (~5.9 req/s measured on this LAN), so a higher
+     * configured value does not deliver more frames — it only makes the setting lie about the result.
+     */
+    val effectiveSnapshotFps: Int
+        get() = snapshotFps.coerceIn(1, maxSnapshotFps)
+
+    /** Upper bound [effectiveSnapshotFps] clamps to, surfaced to the user wherever the rate is edited. */
+    val maxSnapshotFps: Int
+        get() = maxSnapshotFpsFor(deviceType)
+
+    companion object {
+        // Ceiling measured on the deployed 2N IP Verso firmware (≈5.9 req/s sustained over one
+        // keep-alive connection); polling faster just queues requests behind the encoder.
+        const val TWO_N_SNAPSHOT_FPS_CEILING = 6
+
+        // Ceiling for devices with no measured endpoint limit: the frame interval still has to stay
+        // above a realistic HTTP round trip, so nothing above this is achievable through a snapshot.
+        const val SNAPSHOT_FPS_HARD_MAX = 30
+
+        /** The snapshot rate ceiling for a device type, also what the edit form warns about. */
+        fun maxSnapshotFpsFor(deviceType: DeviceType): Int = when (deviceType) {
+            DeviceType.TWO_N_VERSO -> TWO_N_SNAPSHOT_FPS_CEILING
+            DeviceType.GENERIC_RTSP_ONVIF -> SNAPSHOT_FPS_HARD_MAX
+        }
+    }
 }

@@ -14,7 +14,9 @@ import okhttp3.Request
 import okhttp3.Response
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.io.InputStream
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class MjpegStreamReader(
@@ -64,6 +66,7 @@ class MjpegStreamReader(
                 Log.w(tag, "MJPEG connection unsuccessful: HTTP ${response.code}")
                 return@flow
             }
+            requireMjpegContentType(response, device)
 
             val body = response.body
             val inputStream = BufferedInputStream(body.byteStream())
@@ -77,6 +80,9 @@ class MjpegStreamReader(
             // Normal coroutine cancellation
         } catch (e: Exception) {
             Log.e(tag, "Error reading MJPEG stream for ${device.name}", e)
+            // Rethrown so the collector can distinguish "the stream ended" from "the picture was fine":
+            // callers fall back to snapshot polling or surface the error instead of showing nothing.
+            throw e
         } finally {
             try {
                 response?.close()
@@ -96,7 +102,10 @@ class MjpegStreamReader(
         var response: Response? = null
         try {
             response = httpClient.newCall(requestBuilder.build()).execute()
-            if (!response.isSuccessful) return@flow
+            if (!response.isSuccessful) {
+                throw IOException("MJPEG endpoint on ${device.name} answered HTTP ${response.code}")
+            }
+            requireMjpegContentType(response, device)
 
             val inputStream = BufferedInputStream(response.body.byteStream())
             readMjpegStream(inputStream) { jpegBytes ->
@@ -106,12 +115,34 @@ class MjpegStreamReader(
             // Normal cancellation
         } catch (e: Exception) {
             Log.e(tag, "Error reading raw MJPEG for ${device.name}", e)
+            // Rethrown: a stream that yields nothing has to look like a failure to the recorder, which
+            // falls back to snapshot polling, instead of a silently empty recording.
+            throw e
         } finally {
             try {
                 response?.close()
             } catch (_: Exception) {}
         }
     }.flowOn(Dispatchers.IO)
+
+    /**
+     * Fails when the response is not an MJPEG multipart/image stream.
+     *
+     * Some firmwares answer an unknown path with HTTP 200 plus an application/json error document
+     * (the 2N Verso does exactly that for /api/camera/mjpeg on the deployed firmware). Scanning that
+     * body for JPEG markers yields zero frames, which reads as a dead camera — so the wrong shape is
+     * reported as what it is instead of streaming nothing.
+     */
+    private fun requireMjpegContentType(response: Response, device: DeviceEntity) {
+        val contentType = response.body.contentType()?.toString().orEmpty()
+        val mainType = contentType.substringBefore(';').trim().lowercase(Locale.US)
+        if (mainType.startsWith("multipart") || mainType.startsWith("image")) return
+        throw IOException(
+            "${device.name} answered HTTP ${response.code} with '$contentType' at ${device.mjpegUrl} — " +
+                "not a multipart MJPEG stream, so this path does not exist on this firmware " +
+                "(use HTTP Snapshot Polling instead)"
+        )
+    }
 
     /**
      * Efficiently scans a multipart stream for JPEG SOI (0xFF, 0xD8) and EOI (0xFF, 0xD9) markers.
