@@ -124,7 +124,9 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             if (entity.recordOnMotionOnDevice) {
                 if (existingAnalyzer == null || existingAnalyzer.deviceEntity != entity) {
                     existingAnalyzer?.stop()
-                    val analyzer = OnDeviceMotionAnalyzer(entity, this@IntercomMonitorService)
+                    val analyzer = OnDeviceMotionAnalyzer(entity, this@IntercomMonitorService) {
+                        recorder.isRecording(entity.id)
+                    }
                     activeMotionAnalyzers[entity.id] = analyzer
                     analyzer.start()
                 }

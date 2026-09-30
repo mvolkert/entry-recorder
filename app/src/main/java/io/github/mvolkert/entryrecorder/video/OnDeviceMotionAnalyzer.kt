@@ -21,7 +21,11 @@ import kotlin.time.Duration.Companion.milliseconds
  */
 class OnDeviceMotionAnalyzer(
     val deviceEntity: DeviceEntity,
-    private val listener: IntercomEventListener
+    private val listener: IntercomEventListener,
+    // While a recording is active the recorder already polls this same snapshot endpoint, so the
+    // analyzer backs off to a coarse interval instead of competing for a serial device. Defaults to
+    // "never recording" so the analyzer stays usable without a recorder wired in.
+    private val isRecording: () -> Boolean = { false }
 ) {
     private val tag = "OnDeviceMotionAnalyzer"
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -86,13 +90,14 @@ class OnDeviceMotionAnalyzer(
             }
             pollsSinceReport++
             reportHealthIfDue()
-            val poll = if (recentActivity) {
-                currentPollMs = POLL_INTERVAL_MS
-                POLL_INTERVAL_MS
-            } else {
-                currentPollMs = (currentPollMs + POLL_STEP_MS).coerceAtMost(MAX_IDLE_POLL_MS)
-                currentPollMs
+            val poll = when {
+                // Recording in progress: the recorder owns the endpoint at snapshotFps, so poll slowly
+                // to avoid oversubscribing it, while still catching motion-end to schedule the stop.
+                isRecording() -> RECORDING_POLL_MS
+                recentActivity -> POLL_INTERVAL_MS
+                else -> (currentPollMs + POLL_STEP_MS).coerceAtMost(MAX_IDLE_POLL_MS)
             }
+            currentPollMs = poll
             recentActivity = false
             delay(poll.milliseconds)
         }
@@ -208,6 +213,7 @@ class OnDeviceMotionAnalyzer(
         private const val POLL_INTERVAL_MS = 500L
         private const val POLL_STEP_MS = 250L
         private const val MAX_IDLE_POLL_MS = 1500L
+        private const val RECORDING_POLL_MS = 1500L
         private const val HEALTH_REPORT_MS = 60_000L
         private const val ANALYSIS_WIDTH = 96
         private const val ANALYSIS_HEIGHT = 54
