@@ -34,7 +34,9 @@ data class SipSessionState(
     val callerDisplayName: String? = null,
     val isMicMuted: Boolean = false,
     val isSpeakerOn: Boolean = true,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    // Linphone's own state (plus its reason text) verbatim, shown on the call screen in debug builds.
+    val rawCallState: String? = null
 )
 
 // Holds Application (not an arbitrary Context) so the process-lifetime singleton in the
@@ -68,6 +70,7 @@ class SipCallManager private constructor(private val app: Application) {
             message: String
         ) {
             Log.d(tag, "SIP Call State Changed: $state (msg: $message)")
+            val rawCallState = if (message.isBlank()) state?.name else "$state: $message"
             when (state) {
                 Call.State.IncomingReceived -> {
                     currentCall = call
@@ -78,7 +81,8 @@ class SipCallManager private constructor(private val app: Application) {
                     _sessionState.value = SipSessionState(
                         state = CallUiState.RINGING_INCOMING,
                         callerAddress = caller,
-                        callerDisplayName = displayName
+                        callerDisplayName = displayName,
+                        rawCallState = rawCallState
                     )
                     // Every INVITE is reported; the monitor service's per-device debounce is what collapses
                     // this against the 2N event stream's own ring notification for the same press.
@@ -90,21 +94,26 @@ class SipCallManager private constructor(private val app: Application) {
                     routeAudioToSpeaker(true)
                     _sessionState.value = _sessionState.value.copy(
                         state = CallUiState.CONNECTED,
-                        errorMessage = null
+                        errorMessage = null,
+                        rawCallState = rawCallState
                     )
                 }
                 Call.State.End, Call.State.Released -> {
                     currentCall = null
                     // ENDED has to stay observable: it was previously overwritten by IDLE in the same block,
                     // so no observer could ever see it and the call screen had no end signal at all.
-                    _sessionState.value = SipSessionState(state = CallUiState.ENDED)
+                    _sessionState.value = SipSessionState(
+                        state = CallUiState.ENDED,
+                        rawCallState = rawCallState
+                    )
                     scheduleIdleReset()
                 }
                 Call.State.Error -> {
                     currentCall = null
                     _sessionState.value = SipSessionState(
                         state = CallUiState.ERROR,
-                        errorMessage = message
+                        errorMessage = message,
+                        rawCallState = rawCallState
                     )
                     // Same bounded window as ENDED: a failed call used to stay in the flow forever, so the
                     // next unrelated screen would render a stale failure with dead accept/decline buttons.

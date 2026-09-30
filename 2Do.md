@@ -460,6 +460,53 @@ rationale below. None of the code fixes are device-verified yet — each carries
       is confirmed load-bearing, so the finding's own action criteria ("only if a second snapshot-only device type
       appears") are not met. Left `[ ]`, to revisit if a non-2N snapshot-only camera is added.
 
+### Post-fix critical review — open todos (2026-09-30, owner perspective: 2N Verso reliability / side effects / regressions)
+Self-review of commits `4b5ed5d`, `abb2153`, `9396b7a`, `a620e29`, all grep/line-verified against the
+committed source. Two items are genuine regressions worth fixing soon; the rest are accepted trade-offs
+to revisit only if observed on device.
+
+- [ ] **Thumbnail regression from pre-roll (fix 4, `a620e29`) — actionable.** `recordStreamToMkv` sets
+      `firstFrameRef` from the *first* pre-roll frame (`RtspStreamRecorder.kt:243-246`), and `finalizeRecording`
+      builds the thumbnail from exactly that frame (L316-318). Before the fix the thumbnail showed the trigger
+      moment; now it shows the oldest buffered frame — typically an **empty approach scene** (the whole point of
+      pre-roll). Recordings list tiles become visually identical "nothing happening" images. Fix: capture the
+      thumbnail from the first frame written *after* the pre-roll block (or the frame nearest the trigger
+      timestamp), not from `preRoll.first()`.
+- [ ] **Analyzer backoff is counterproductive in `PYTHON_SERVER` recording mode (fix 3, `9396b7a`) — actionable.**
+      `recorder.isRecording(deviceId)` reflects `_activeDeviceIds`, which includes **server-side** recordings. In
+      that mode the server polls the snapshot endpoint, not the phone — yet the phone's analyzer still slows to
+      `RECORDING_POLL_MS = 1500` (`OnDeviceMotionAnalyzer.kt:98-104`), degrading on-device motion detection for a
+      contention that doesn't exist. Fix: only back off when the *local* capture loop owns the endpoint (e.g. gate
+      on recording mode, or expose a `isLocalRecording` flag).
+- [ ] **Motion-END detection is slower during recordings (fix 3 side effect).** With `isRecording()` taking priority
+      in the poll `when`, clear-frame spacing grows to 1500 ms, so `REQUIRED_CLEAR_FRAMES = 4` needs ≥6 s of quiet to
+      end a recording (was ≥2 s). Longer files, more storage churn; also delays the post-record stop. Acceptable
+      trade-off vs endpoint contention, but revisit if recordings look over-long on device.
+- [ ] **Continuous memory/GC cost of the pre-roll ring (fix 4 trade-off).** `bufferPreRoll` runs on **every**
+      successful analyzer fetch, 24/7, holding 6 full-res 1280×720 JPEGs per motion-enabled device (≈1-2 MB) plus a
+      full copy on each `drainPreRoll()`. On the 24/7 service path this is permanent allocation churn; only the ring
+      cap keeps it bounded. Watch heap/GC in a long-run soak before calling fix 4 stable.
+- [ ] **Uneven pre-roll frame spacing → jittery clip start (fix 4 cosmetic).** Buffered frames arrive at whatever the
+      analyzer poll was (500 ms active, up to 1500 ms idle), but are written with their real timestamps against the
+      earliest-frame baseline. The first ~3-6 s of a motion recording play at uneven, slow intervals. A uniform
+      synthetic spacing (e.g. 1000/fps) would look smoother at the cost of lying about timestamps.
+- [ ] **Pre-roll-only files are now saved instead of discarded (fix 4 behavior change).** If the snapshot endpoint
+      dies right after the trigger, previously the recording had 0 live frames and was discarded (0-byte check,
+      `RtspStreamRecorder.kt:333-335`); now the 6 pre-roll frames make it a valid ~seconds-long file that gets kept.
+      Arguably correct (shows the approach), but expect short "ghost" recordings when the endpoint flaps.
+- [ ] **Digest endpoints pay 2 round-trips per snapshot (fix 1 trade-off).** `HttpSnapshotClient` always sends the
+      preemptive Basic header first; a Digest-only device answers 401, then the `Authenticator` retries with Digest.
+      Correct but doubles latency/requests on the ~5.9 req/s serial 2N ceiling if the owner ever switches firmware
+      to Digest. Could cache the observed auth scheme per device after the first challenge.
+- [ ] **MJPEG branch of the live view is still ungated (fix 2 incomplete scope).** `repeatOnLifecycle` was applied to
+      the HTTP_SNAPSHOT loop only; `MJPEG_STREAM` (and RTSP) branches keep their previous lifecycle behavior. Not a
+      regression, but the background-drain class of bug can still apply to MJPEG devices. Out of scope for a
+      snapshot-only Verso — track for parity.
+- [ ] 🔄 **All four fixes are build-verified only — none is device-verified.** The per-fix gates from the section
+      above still stand: Digest-only snapshot fetch, Live tab background stop/re-warm, motion-end still fires during
+      recording, walk-past recording includes approach frames. Until a Verso session confirms these, treat findings
+      1-4 as `[~]` in practice despite the `[x]` marks.
+
 
 Reorganized from the code & feature review, re-verified against the current codebase
 (`app/`, `server/`, `.github/`) on 2026-09-27; **task list re-sorted by invasiveness (minimal →
