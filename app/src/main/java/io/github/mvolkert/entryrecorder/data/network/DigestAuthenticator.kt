@@ -38,6 +38,19 @@ class DigestAuthenticator(
         return null
     }
 
+    /** True when a `WWW-Authenticate` value advertises Digest rather than only Basic. */
+    fun offersDigest(challenge: String): Boolean = challenge.startsWith("Digest", ignoreCase = true)
+
+    /**
+     * Builds a Digest `Authorization` header for [request] from a [challenge] seen earlier, so a device
+     * that only speaks Digest does not pay a 401 round trip on every single snapshot poll. Null when the
+     * challenge has no usable params, in which case the caller keeps the preemptive Basic fast path.
+     *
+     * A stale nonce is not a failure here: the server answers 401 with a fresh challenge and
+     * [authenticate] retries with it, so the caller's cache is refreshed on the next request.
+     */
+    fun preemptiveHeader(challenge: String, request: Request): String? = buildDigestHeader(challenge, request)
+
     private fun buildDigestHeader(header: String, request: Request): String? {
         val params = parseDigestParams(header)
         val realm = params["realm"] ?: return null

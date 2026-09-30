@@ -84,20 +84,26 @@ deadline) is already fixed in the recorder and live view — what remains is rob
 ## Phase 2 — Motion feature close-out & accepted trade-offs
 Follow-ups from the four snapshot-only fixes (`4b5ed5d` Digest, `abb2153` live loop, `9396b7a` analyzer
 backoff, `a620e29` pre-roll; regressions `75a1855`). None is device-verified; the trade-offs below were
-deliberately accepted to ship the fixes and are revisit-if-observed, not bugs.
+deliberately accepted to ship the fixes and are revisit-if-observed, not bugs. The items still `[ ]` after
+this pass are exactly those revisit-if-observed trade-offs plus device gates: no code change is due until a
+Verso session or a second snapshot-only device type triggers them.
 
 - [ ] 🔄 **All four Phase-1/2 fixes are build-verified only.** Gates still standing: Digest-only snapshot
       fetch returns frames; Live tab stops polling on background + re-warms on return; motion-end still fires
       during a recording; a walk-past recording includes the approach frames; thumbnail shows the person (not
       the empty doorway); detection speed unchanged in PYTHON_SERVER mode during a server recording. Until one
-      Verso session confirms these, treat the fixes as `[~]` in practice.
+      Verso session confirms these, treat the fixes as `[~]` in practice. The Phase-1 work (`7f3fe90`) adds two
+      more observations to the same session: the live card dot must show DEGRADED/OFFLINE when the endpoint is
+      starved, and the settings screen must report a measured rate near 5.9 fps at a 6 fps cap.
 - [ ] **Motion-END is slower during recordings (fix `9396b7a` side effect).** `isRecording()` takes priority in
       the poll `when`, so clear frames space to 1500 ms × `REQUIRED_CLEAR_FRAMES = 4` ≈ ≥6 s of quiet to end a
       recording (was ≥2 s) → longer files, later post-record stop. Acceptable vs endpoint contention; revisit if
       recordings look over-long on device. File: `video/OnDeviceMotionAnalyzer.kt`
-- [ ] **Pre-roll ring costs ~1–2 MB + GC churn 24/7 (fix `a620e29`).** `bufferPreRoll` runs on every successful
-      fetch, holding 6 full-res JPEGs per motion-enabled device plus a copy on each `drainPreRoll()`. Only the
-      ring cap bounds it. Watch heap/GC in a long-run soak before calling pre-roll stable.
+- [~] 🔄 **Pre-roll ring costs ~1–2 MB + GC churn 24/7 (fix `a620e29`).** `bufferPreRoll` ran on every
+      successful fetch, holding 6 full-res JPEGs per motion-enabled device. Done: the ring is only refilled
+      while no local recording owns the endpoint — those frames are already going to disk, and the buffer
+      refills within a few polls once the recording stops, which is when a *new* trigger needs it. **Remaining
+      device gate:** watch heap/GC in a long-run soak before calling pre-roll stable.
       File: `video/OnDeviceMotionAnalyzer.kt`
 - [ ] **Uneven pre-roll frame spacing → jittery clip start (fix `a620e29`).** Buffered frames carry real
       spacing (500 ms active, up to 1500 ms idle) but are written against the earliest-frame baseline, so the
@@ -106,13 +112,18 @@ deliberately accepted to ship the fixes and are revisit-if-observed, not bugs.
 - [ ] **Pre-roll-only files are now kept instead of discarded (fix `a620e29`).** If the endpoint dies right
       after trigger, the 6 pre-roll frames now make a valid short file instead of a 0-byte discard. Arguably
       correct, but expect short "ghost" recordings when the endpoint flaps. File: `video/RtspStreamRecorder.kt`
-- [ ] **Digest endpoints pay 2 round-trips per snapshot (fix `4b5ed5d`).** `HttpSnapshotClient` always sends
-      preemptive Basic first; a Digest-only device 401s, then the `Authenticator` retries with Digest — doubles
-      latency on the ~5.9 req/s serial ceiling if the owner switches firmware to Digest. Could cache the
-      observed auth scheme per device after the first challenge. File: `data/network/HttpSnapshotClient.kt`
-- [ ] **MJPEG branch of the live view is still lifecycle-ungated (fix `abb2153` scope).** `repeatOnLifecycle`
-      covered HTTP_SNAPSHOT only; the `MJPEG_STREAM`/RTSP branches keep their old behavior. Not a regression
-      and out of scope for a snapshot-only Verso — track for parity. File: `ui/components/LiveStreamPlayer.kt`
+- [x] **Digest endpoints pay 2 round-trips per snapshot (fix `4b5ed5d`).** `HttpSnapshotClient` always sent
+      preemptive Basic first; a Digest-only device 401s, then the `Authenticator` retried with Digest — doubling
+      latency on the ~5.9 req/s serial ceiling. Done: the first Digest challenge is remembered per device and
+      replayed preemptively on subsequent polls (`DigestAuthenticator.preemptiveHeader`), so a Digest-only
+      endpoint is one request again. A stale nonce self-heals (the server answers 401 with a fresh challenge,
+      the `Authenticator` retries and refreshes the cache); a 401/403 that survives that round drops the cache
+      and falls back to Basic, and `forgetDevice()` clears it. File: `data/network/HttpSnapshotClient.kt`
+- [x] **MJPEG branch of the live view is still lifecycle-ungated (fix `abb2153` scope).** `repeatOnLifecycle`
+      covered HTTP_SNAPSHOT only. Done: the `MJPEG_STREAM` collect is gated on `STARTED` too, so a long-lived
+      multipart response is cancelled on STOP (ending the call) and reconnects when the user returns.
+      `RTSP` stays ungated on purpose — ExoPlayer's own surface handling governs it and no RTSP device is in
+      the deployment; revisit with the Phase 4/6 RTSP passthrough work. File: `ui/components/LiveStreamPlayer.kt`
 - [ ] **Doorbell trigger has no snapshot-only path.** Ring detection comes only from the 2N SSE stream
       (`KeyPressed`/`CallStateChanged`) or an inbound SIP INVITE; a snapshot carries no ring signal. For this
       `TWO_N_VERSO` both 2N channels are active, so the only residual risk is SSE down **and** no INVITE

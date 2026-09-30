@@ -205,7 +205,10 @@ class OnDeviceMotionAnalyzer(
     private suspend fun fetchGrayscaleFrame(): IntArray? {
         val bytes = HttpSnapshotClient.fetchSnapshotBytes(deviceEntity) ?: return null
         val decoded = decodeDownscaled(bytes) ?: return null
-        bufferPreRoll(bytes)
+        // The ring exists to prepend the approach frames of a *new* trigger. While a local recording is
+        // running those frames are already going to disk, so holding six more full-res JPEGs per poll only
+        // costs heap and GC on a 24/7 loop; the ring refills as soon as the recording stops.
+        if (!isRecording()) bufferPreRoll(bytes)
         val scaled = if (decoded.width == ANALYSIS_WIDTH && decoded.height == ANALYSIS_HEIGHT) {
             decoded
         } else {

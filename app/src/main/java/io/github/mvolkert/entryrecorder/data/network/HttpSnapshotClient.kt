@@ -42,7 +42,7 @@ object HttpSnapshotClient {
     private const val RATE_STALE_MS = 5_000L
 
     /** Carries the per-device credentials so the shared [httpClient] can answer a Digest challenge. */
-    private class SnapshotAuth(val username: String, val password: String)
+    private class SnapshotAuth(val deviceId: Long, val username: String, val password: String)
 
     /** Outcome of one HTTP attempt: a frame, or why the frame is missing. */
     private sealed interface FetchOutcome {
@@ -59,6 +59,12 @@ object HttpSnapshotClient {
     private val rateEstimates = ConcurrentHashMap<Long, Float>()
     private val lastFrameAtMs = ConcurrentHashMap<Long, Long>()
 
+    // The last Digest challenge seen per device. A Digest-only endpoint otherwise answers every single
+    // preemptive Basic header with a 401, doubling the round trips on the serialised ~6 req/s ceiling;
+    // replaying the remembered challenge makes the poll one request again (a stale nonce self-heals
+    // through the Authenticator, which stores the fresh challenge for the next poll).
+    private val digestChallenges = ConcurrentHashMap<Long, String>()
+
     private val httpClient = OkHttpClient.Builder()
         // A single lost request or ACK costs one TCP RTO (~0.44 s measured on this LAN); three in a row
         // exceed the old 4 s window and silently drop a frame slot. The tight call timeout plus one
@@ -71,7 +77,11 @@ object HttpSnapshotClient {
         .authenticator(object : Authenticator {
             override fun authenticate(route: Route?, response: Response): Request? {
                 val auth = response.request.tag(SnapshotAuth::class.java) ?: return null
-                return DigestAuthenticator(auth.username, auth.password).authenticate(route, response)
+                val delegate = DigestAuthenticator(auth.username, auth.password)
+                response.headers("WWW-Authenticate")
+                    .firstOrNull(delegate::offersDigest)
+                    ?.let { digestChallenges[auth.deviceId] = it }
+                return delegate.authenticate(route, response)
             }
         })
         .build()
@@ -106,12 +116,31 @@ object HttpSnapshotClient {
         consecutiveFailures.remove(deviceId)
         rateEstimates.remove(deviceId)
         lastFrameAtMs.remove(deviceId)
+        digestChallenges.remove(deviceId)
+    }
+
+    /**
+     * Puts the credentials on the request: a remembered Digest challenge is replayed preemptively, and
+     * a device with no such history (or a challenge that no longer computes) keeps the Basic fast path.
+     */
+    private fun withAuthHeader(device: DeviceEntity, request: Request): Request {
+        if (device.username.isBlank() && device.password.isBlank()) return request
+        val challenge = digestChallenges[device.id]
+        if (challenge != null) {
+            val digest = DigestAuthenticator(device.username, device.password)
+                .preemptiveHeader(challenge, request)
+            if (digest != null) return request.newBuilder().header("Authorization", digest).build()
+        }
+        return request.newBuilder()
+            .header("Authorization", Credentials.basic(device.username, device.password))
+            .build()
     }
 
     /**
      * Fetches a single raw JPEG frame from the device snapshot endpoint.
-     * Sends preemptive Basic auth and, if the endpoint challenges with Digest, resolves it through
-     * [DigestAuthenticator] using the credentials tagged onto the request.
+     * Sends preemptive Basic auth and, once a Digest challenge has been seen for that device, replays
+     * Digest preemptively instead; either way a 401 is still resolved through [DigestAuthenticator]
+     * using the credentials tagged onto the request.
      *
      * A non-image body is reported and dropped rather than handed back as a frame: some firmwares
      * answer a wrong or under-parameterised path with HTTP 200 plus a JSON error document, which would
@@ -145,15 +174,18 @@ object HttpSnapshotClient {
         withContext(Dispatchers.IO) {
             val snapshotUrl = device.snapshotUrl
             try {
-                val requestBuilder = Request.Builder().url(snapshotUrl)
-                    .tag(SnapshotAuth::class.java, SnapshotAuth(device.username, device.password))
-                if (device.username.isNotBlank() || device.password.isNotBlank()) {
-                    requestBuilder.header("Authorization", Credentials.basic(device.username, device.password))
-                }
-                val response = httpClient.newCall(requestBuilder.build()).execute()
+                val baseRequest = Request.Builder().url(snapshotUrl)
+                    .tag(SnapshotAuth::class.java, SnapshotAuth(device.id, device.username, device.password))
+                    .build()
+                val response = httpClient.newCall(withAuthHeader(device, baseRequest)).execute()
                 if (!response.isSuccessful) {
                     val reason = "HTTP ${response.code}"
                     Log.w(TAG, "Snapshot fetch failed $reason url=$snapshotUrl attempt=$attempt")
+                    if (response.code == 401 || response.code == 403) {
+                        // Credentials were refused even after the challenge round, so the replayed
+                        // Digest scheme is not what this endpoint wants right now — drop back to Basic.
+                        digestChallenges.remove(device.id)
+                    }
                     // 5xx and 429 are worth the retry; a 401/403/404 will not fix itself.
                     val retryable = response.code >= 500 || response.code == 429
                     if (retryable) FetchOutcome.Retryable else FetchOutcome.Rejected(reason)

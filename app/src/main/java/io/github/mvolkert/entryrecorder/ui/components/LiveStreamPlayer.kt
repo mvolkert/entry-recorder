@@ -174,20 +174,25 @@ fun LiveStreamPlayer(
                 // Ensure ExoPlayer is stopped when in MJPEG mode
                 exoPlayer.stop()
                 val mjpegReader = MjpegStreamReader()
-                try {
-                    mjpegReader.streamBitmaps(device).collect { bmp ->
-                        latestBitmap = bmp
-                        isLoading = false
-                        errorMessage = null
-                    }
-                } catch (e: Exception) {
-                    Log.w("LiveStreamPlayer", "MJPEG stream error: ${e.message}")
-                    // If MJPEG failed and was in AUTO mode, fall back to snapshot polling
-                    if (device.streamProtocol == StreamProtocol.AUTO) {
-                        activeProtocol = StreamProtocol.HTTP_SNAPSHOT
-                    } else {
-                        isLoading = false
-                        errorMessage = resources.getString(R.string.player_error_mjpeg_disconnected, e.localizedMessage ?: "")
+                // Same gate as the snapshot branch: a long-lived multipart response keeps the radio and
+                // the decoder busy after the screen is stopped, so cancelling on STOP ends the call and
+                // a returning user reconnects.
+                lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    try {
+                        mjpegReader.streamBitmaps(device).collect { bmp ->
+                            latestBitmap = bmp
+                            isLoading = false
+                            errorMessage = null
+                        }
+                    } catch (e: Exception) {
+                        Log.w("LiveStreamPlayer", "MJPEG stream error: ${e.message}")
+                        // If MJPEG failed and was in AUTO mode, fall back to snapshot polling
+                        if (device.streamProtocol == StreamProtocol.AUTO) {
+                            activeProtocol = StreamProtocol.HTTP_SNAPSHOT
+                        } else {
+                            isLoading = false
+                            errorMessage = resources.getString(R.string.player_error_mjpeg_disconnected, e.localizedMessage ?: "")
+                        }
                     }
                 }
             }
