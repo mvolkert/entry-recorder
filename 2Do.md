@@ -56,46 +56,69 @@
       selected recording card stayed the neutral M3 default) was answered by the owner as a **feature
       request instead**: keep the containers neutral and add per-role palette picking — see the Resolved
       log entry "Per-role accent selector".
-- [ ] **Snapshot HTTP client times out ~1 min after the display turns off → no continuous observation**
+- [ ] **Snapshot HTTP client times out → frames silently dropped, "no continuous observation"**
       (owner-reported 2026-09-29, logcat `HttpSnapshotClient D Snapshot fetch exception for 2N IP Verso:
-      timeout`). Diagnosed from code, **not yet root-caused on device** — the mechanism matters and the
-      three candidates need different fixes.
-      Where the log comes from: `data/network/HttpSnapshotClient.kt:41` catches the exception and prints
-      `e.message`; OkHttp's `AsyncTimeout` renders a *silent* stall as exactly `"timeout"` (a dead socket
-      would instead say `Read timed out`/`Failed to connect`), so the request went out and the 2N never
-      answered within the client's **4 s connect / 4 s read** timeouts (L18-19).
-      Who is affected with the screen off: only `video/RtspStreamRecorder.kt:228` (the live view at
-      `LiveStreamPlayer.kt:197` is not on screen). Consequence chain, which is why the archive ends up
-      with nothing usable: the polling loop at L226-234 **swallows** the failure, still sleeps
-      `1000 / fps` ms, and the recording deadline (L202) is wall-clock — so every stalled fetch burns
-      ~4 s of the recording window as *zero* frames, and a run of them yields `fileSize == 0`, which is
-      discarded at L289-291 ("Recording produced empty file"). Motion detection has the same failure
-      shape through a *different* client: `video/OnDeviceMotionAnalyzer.kt:112-114` is a plain
-      `HttpURLConnection` with 3 s timeouts, so there the frames just stop arriving and no motion event
-      is ever raised (that path logs under its own tag, not `HttpSnapshotClient`).
-      Candidates, in the order I would test them:
-      1. **Doze / light-Doze network denial.** The service holds a `PARTIAL_WAKE_LOCK` (24 h) and a
-         Wi-Fi lock (`service/IntercomMonitorService.kt:298-320`), but a wakelock does **not** exempt an
-         app from Doze and neither does the `connectedDevice` foreground-service type. The ~1 min delay
-         matches the first idle window almost exactly. Fix needs a battery-optimization exemption →
-         **manifest permission (`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) = ask-first territory**.
-      2. **Wi-Fi firmware power save.** `0acd070` changed the API 29+ branch to the tag-only
-         `createWifiLock(tag)` overload, i.e. `WIFI_MODE_FULL_LOW_LATENCY`; only
-         `WIFI_MODE_FULL_HIGH_PERF` stops the chip's power-save. On Android 10+ this app therefore holds
-         a *weaker* lock than it did before that commit — the exact "device ring-poll latency" risk that
-         commit's own Tier G note flagged.
-      3. **Stale keep-alive at the 2N.** If the camera drops the idle socket without a RST, the next
-         pooled request is written into a dead socket and times out silently. Consistent with "after one
-         minute", but *not* with "only when the display is off" (the poll keeps the socket hot), so it is
-         the weakest candidate unless polling also stops.
-      Cheap discriminator before any code: `adb shell dumpsys deviceidle whitelist +io.github.mvolkert.entryrecorder`,
-      then screen off for two minutes and watch logcat. Timeouts gone → (1); still there → (2)/(3). Also
-      worth confirming `adb shell dumpsys power` still lists `EntryRecorder::MonitorWakeLock` at that
-      moment — if the lock is *not* held, that is the bug and the polling is simply being frozen.
-      Independent of the cause, the client is fragile by design and worth hardening in its own pass:
-      a `callTimeout` so one stalled fetch cannot eat the frame budget, a consecutive-failure counter
-      surfaced as a real `IntercomEvent.ConnectionState` instead of a `Log.d` nobody watches, and no
-      reuse of a socket idle for more than the camera's keep-alive window.
+      timeout`. **Owner update 2026-09-30: it also happens with the screen ON** — that demotes the Doze
+      theory from lead to a screen-off amplifier only.)
+      **What one log line actually asserts** (`data/network/HttpSnapshotClient.kt:41` prints `e.message`
+      for *one* poll of `device.snapshotUrl`, on a shared OkHttpClient with 4 s connect / 4 s read, L18-19):
+      - `timeout` is OkHttp's `AsyncTimeout` firing **after the TCP connection was established and the
+        request was written** — the 2N accepted the connection, then stayed quiet past the 4 s window. A
+        connectivity loss prints differently (`failed to connect to …`, `ECONNREFUSED`, 401/404 as a code
+        at L37), so this is *not* "no network". Because the same read timeout also covers
+        `response.body.bytes()` (L35), `timeout` can equally mean "the camera answered, trickled part of
+        the JPEG, then stalled" — the partial frame is discarded whole.
+      - Scope is strictly per request. Nothing is poisoned or closed; the next poll reuses/opens a
+        connection and usually succeeds. So **one line ≠ seconds of outage**: it costs one frame plus up to
+        4 s of wall clock.
+      **What it costs the archive** (`video/RtspStreamRecorder.kt:226-234`): the loop swallows the failure,
+      sleeps `1000 / fps` ms, and stamps frames with a wall-clock `relTimeMs` against a wall-clock deadline
+      (L202). Isolated timeouts therefore appear as a *gap between two frames* — the in-app player freezes
+      on the previous frame and its counter reads e.g. "38 of 100 frames" for a 20 s clip at 5 fps
+      (`player_time_frames` is the free measurement of "how many images did I actually lose"). A long run
+      burns the recording window while writing nothing, and if the first polls all fail you get
+      `fileSize == 0` → "Recording produced empty file, discarding" (L289-291). Motion detection fails in a
+      different shape through a *different* client: `video/OnDeviceMotionAnalyzer.kt:112-114` is a plain
+      `HttpURLConnection` with 3 s timeouts, so there frames just stop arriving and no event is raised —
+      and it logs `Frame grab/analysis failed for …` under its own tag, not `HttpSnapshotClient`.
+      **New lead: this app oversubscribes its own snapshot endpoint.** Up to three independent pollers hit
+      the same `device.snapshotUrl` at once — the always-on motion analyzer every 500–1500 ms, the recorder
+      at `snapshotFps` (1–30) while recording, and the live preview
+      (`ui/components/LiveStreamPlayer.kt:197`) whenever the Live tab is open — plus the 2N's own web UI if
+      anyone is watching there. The device serialises snapshot encoding behind a small connection limit, so
+      requests queue and the one at the head blows our 4 s read window. That fits the new evidence exactly:
+      sporadic isolated hits, no dependence on the display state, and it predicts clustering when
+      recording + live view + analysis overlap.
+      Candidates, re-ranked 2026-09-30:
+      1. **Endpoint oversubscription / device-side serialisation** (above). App-side fix: one frame source
+         per device shared by recorder / live view / analyzer, and pause the analyzer while a recording owns
+         the device.
+      2. **Stale keep-alive at the 2N** — the camera drops an idle socket without RST, the next pooled
+         request is written into it and stalls silently (explains single sporadic hits, not clusters;
+         `retryOnConnectionFailure` cannot rescue it because a read timeout is not retried).
+      3. **Our timeout is shorter than the device's worst-case snapshot latency** — a full-resolution JPEG
+         over a busy Wi-Fi can exceed 4 s; a `callTimeout`/retry with backoff, or a smaller snapshot URL,
+         would fix it without touching the polling architecture.
+      Still real but *screen-off only* (amplifiers, not the root cause): Doze/light-Doze network denial — a
+      `PARTIAL_WAKE_LOCK` and the `connectedDevice` FGS type do **not** exempt the app (fix would need
+      `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` = **ask-first territory**); and `0acd070` weakening the API 29+
+      lock to `createWifiLock(tag)` = `WIFI_MODE_FULL_LOW_LATENCY`, which does not stop Wi-Fi power save
+      (only `WIFI_MODE_FULL_HIGH_PERF` does) — the risk that commit's own Tier G note flagged.
+      **Discriminators, all no-code — they answer "a few images lost" vs "seconds of dead air":**
+      a) Play a normal recording in-app and read the frame counter against its duration (isolated dropouts
+      vs a stall); b) `adb logcat -s HttpSnapshotClient:V OnDeviceMotionAnalyzer:W RtspStreamRecorder:V`
+      and compare *timestamps*: both tags failing together = the device really is unreachable, only
+      `HttpSnapshotClient` = our request path/pool; c) open the Live tab and start a manual recording — if
+      the rate jumps, it is the concurrency in (1); d) load the same `snapshotUrl` in a browser on the LAN
+      while the app times out — fast there, slow here = (1)/(2), slow there too = (3) or the camera is busy;
+      e) for the screen-off amplification: `adb shell dumpsys deviceidle whitelist
+      +io.github.mvolkert.entryrecorder`, then screen off 2 min; and check `adb shell dumpsys power` still
+      lists `EntryRecorder::MonitorWakeLock` — if the lock is gone, polling is being frozen and that is its
+      own bug.
+      Independent of the cause the client is fragile by design and worth hardening in its own pass: a
+      `callTimeout` so one stalled fetch cannot eat the frame budget, a consecutive-failure counter surfaced
+      as a real `IntercomEvent.ConnectionState` instead of a `Log.d` nobody watches, and no reuse of a
+      socket idle longer than the camera's keep-alive window.
 
 
 Reorganized from the code & feature review, re-verified against the current codebase
