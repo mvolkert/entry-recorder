@@ -44,6 +44,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -57,10 +60,9 @@ import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.withContext
 import java.net.ConnectException
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -73,6 +75,7 @@ fun LiveStreamPlayer(
     autoPlay: Boolean = true
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var activeProtocol by remember(device.id, device.streamProtocol) {
         mutableStateOf(
             if (device.streamProtocol == StreamProtocol.AUTO) StreamProtocol.RTSP else device.streamProtocol
@@ -191,19 +194,30 @@ fun LiveStreamPlayer(
 
             StreamProtocol.HTTP_SNAPSHOT -> {
                 exoPlayer.stop()
-                val delayMs = (1000L / device.snapshotFps.coerceIn(1, 30))
-                withContext(Dispatchers.IO) {
-                    while (isActive) {
-                        val bmp = HttpSnapshotClient.fetchSnapshotBitmap(device)
-                        if (bmp != null) {
-                            latestBitmap = bmp
-                            isLoading = false
-                            errorMessage = null
-                        } else if (latestBitmap == null) {
-                            isLoading = false
-                            errorMessage = resources.getString(R.string.player_error_snapshot)
+                val frameIntervalMs = 1000L / device.snapshotFps.coerceIn(1, 30)
+                // Poll only while the UI is at least STARTED: an ungated loop kept hitting the
+                // snapshot endpoint after the activity stopped, draining the radio unattended.
+                // repeatOnLifecycle cancels the loop on STOP and restarts it on the next START.
+                lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    // fetchSnapshotBitmap already hops to IO, so keep the loop (and the Compose state
+                    // writes) on the caller dispatcher and pace against a rolling deadline: subtracting
+                    // the fetch time makes the achieved rate match snapshotFps instead of fetch + interval.
+                    coroutineScope {
+                        var nextFrameAt = System.currentTimeMillis()
+                        while (isActive) {
+                            nextFrameAt += frameIntervalMs
+                            val bmp = HttpSnapshotClient.fetchSnapshotBitmap(device)
+                            if (bmp != null) {
+                                latestBitmap = bmp
+                                isLoading = false
+                                errorMessage = null
+                            } else if (latestBitmap == null) {
+                                isLoading = false
+                                errorMessage = resources.getString(R.string.player_error_snapshot)
+                            }
+                            val remainingMs = nextFrameAt - System.currentTimeMillis()
+                            if (remainingMs > 0) delay(remainingMs.milliseconds)
                         }
-                        delay(delayMs.milliseconds)
                     }
                 }
             }
