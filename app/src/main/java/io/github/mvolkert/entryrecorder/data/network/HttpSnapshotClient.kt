@@ -6,9 +6,12 @@ import android.util.Log
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.Authenticator
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
+import okhttp3.Route
 import java.util.concurrent.TimeUnit
 
 object HttpSnapshotClient {
@@ -17,14 +20,30 @@ object HttpSnapshotClient {
     // Only the error document shapes are rejected, so cameras serving octet-stream keep working.
     private val ERROR_BODY_SUBTYPES = setOf("json", "xml", "html", "plain")
 
+    /**
+     * Carries the per-device credentials on the request so the shared [httpClient] (one singleton for
+     * every device) can answer a Digest challenge with the right user/password. Retrieved from
+     * `response.request.tag(...)` inside the authenticator below.
+     */
+    private class SnapshotAuth(val username: String, val password: String)
+
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(4, TimeUnit.SECONDS)
         .readTimeout(4, TimeUnit.SECONDS)
+        // The preemptive Basic header below covers Basic-only endpoints without a round trip; a Digest
+        // endpoint answers that with a 401 challenge, which this authenticator then resolves per device.
+        .authenticator(object : Authenticator {
+            override fun authenticate(route: Route?, response: Response): Request? {
+                val auth = response.request.tag(SnapshotAuth::class.java) ?: return null
+                return DigestAuthenticator(auth.username, auth.password).authenticate(route, response)
+            }
+        })
         .build()
 
     /**
      * Fetches a single raw JPEG frame from the device snapshot endpoint.
-     * Tries Basic auth first, then Digest if requested.
+     * Sends preemptive Basic auth and, if the endpoint challenges with Digest, resolves it through
+     * [DigestAuthenticator] using the credentials tagged onto the request.
      *
      * A non-image body is reported and dropped rather than handed back as a frame: some firmwares
      * answer a wrong or under-parameterised path with HTTP 200 plus a JSON error document, which would
@@ -34,6 +53,7 @@ object HttpSnapshotClient {
         val snapshotUrl = device.snapshotUrl
         try {
             val requestBuilder = Request.Builder().url(snapshotUrl)
+                .tag(SnapshotAuth::class.java, SnapshotAuth(device.username, device.password))
             if (device.username.isNotBlank() || device.password.isNotBlank()) {
                 requestBuilder.header("Authorization", Credentials.basic(device.username, device.password))
             }
