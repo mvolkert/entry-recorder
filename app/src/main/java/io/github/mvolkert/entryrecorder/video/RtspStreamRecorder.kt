@@ -244,15 +244,37 @@ class RtspStreamRecorder(
                 }
             }
 
-            // Fallback or snapshot polling mode
+            // Snapshot polling mode. Pace against a rolling deadline: a grab already costs a network
+            // round trip plus a JPEG write, so sleeping a full frame interval *after* each capture
+            // records slower than device.snapshotFps and spaces the motion-analysis comparisons
+            // further apart than the configured rate implies.
+            val frameIntervalMs = 1000L / fps
+            var nextFrameAt = System.currentTimeMillis()
+            var endpointHealthy = true
             while (isActive && System.currentTimeMillis() < deadline) {
+                nextFrameAt += frameIntervalMs
                 try {
                     val frameBytes = HttpSnapshotClient.fetchSnapshotBytes(device)
-                    if (frameBytes != null && frameBytes.isNotEmpty()) handleJpeg(frameBytes)
-                } catch (_: Exception) {
-                    // Ignore single frame fetch glitches
+                    if (frameBytes != null && frameBytes.isNotEmpty()) {
+                        handleJpeg(frameBytes)
+                        if (!endpointHealthy) {
+                            Log.i(tag, "Snapshot frames from ${device.name} recovered after a gap")
+                            endpointHealthy = true
+                        }
+                    } else if (endpointHealthy) {
+                        // Announce the gap once instead of once per frame: a recording that never gets
+                        // a frame is otherwise indistinguishable from a short quiet one.
+                        Log.w(tag, "Snapshot endpoint for ${device.name} returned no image, recording continues without frames for now")
+                        endpointHealthy = false
+                    }
+                } catch (e: Exception) {
+                    if (endpointHealthy) {
+                        Log.w(tag, "Snapshot grab threw for ${device.name}: ${e.message}, recording continues without frames for now")
+                        endpointHealthy = false
+                    }
                 }
-                delay((1000L / fps).milliseconds)
+                val remainingMs = nextFrameAt - System.currentTimeMillis()
+                if (remainingMs > 0) delay(remainingMs.milliseconds)
             }
         }
     }
