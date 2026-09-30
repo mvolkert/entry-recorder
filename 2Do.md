@@ -58,8 +58,10 @@
       log entry "Per-role accent selector".
 - [ ] **Snapshot HTTP client times out → frames silently dropped, "no continuous observation"**
       (owner-reported 2026-09-29, logcat `HttpSnapshotClient D Snapshot fetch exception for 2N IP Verso:
-      timeout`. **Owner update 2026-09-30: it also happens with the screen ON** — that demotes the Doze
-      theory from lead to a screen-off amplifier only.)
+      timeout`. **Owner update 2026-09-30: it also happens with the screen ON.** **Diagnosed the same day by
+      the measurement block at the end of this entry**: the timeouts are Wi-Fi retransmit chains, they cost
+      zero recorded frames in the current archive, Doze is exonerated, and the frame loss the owner actually
+      sees comes from the recorder's polling pacing.)
       **What one log line actually asserts** (`data/network/HttpSnapshotClient.kt:41` prints `e.message`
       for *one* poll of `device.snapshotUrl`, on a shared OkHttpClient with 4 s connect / 4 s read, L18-19):
       - `timeout` is OkHttp's `AsyncTimeout` firing **after the TCP connection was established and the
@@ -81,44 +83,66 @@
       different shape through a *different* client: `video/OnDeviceMotionAnalyzer.kt:112-114` is a plain
       `HttpURLConnection` with 3 s timeouts, so there frames just stop arriving and no event is raised —
       and it logs `Frame grab/analysis failed for …` under its own tag, not `HttpSnapshotClient`.
-      **New lead: this app oversubscribes its own snapshot endpoint.** Up to three independent pollers hit
-      the same `device.snapshotUrl` at once — the always-on motion analyzer every 500–1500 ms, the recorder
-      at `snapshotFps` (1–30) while recording, and the live preview
-      (`ui/components/LiveStreamPlayer.kt:197`) whenever the Live tab is open — plus the 2N's own web UI if
-      anyone is watching there. The device serialises snapshot encoding behind a small connection limit, so
-      requests queue and the one at the head blows our 4 s read window. That fits the new evidence exactly:
-      sporadic isolated hits, no dependence on the display state, and it predicts clustering when
-      recording + live view + analysis overlap.
-      Candidates, re-ranked 2026-09-30:
-      1. **Endpoint oversubscription / device-side serialisation** (above). App-side fix: one frame source
-         per device shared by recorder / live view / analyzer, and pause the analyzer while a recording owns
-         the device.
-      2. **Stale keep-alive at the 2N** — the camera drops an idle socket without RST, the next pooled
-         request is written into it and stalls silently (explains single sporadic hits, not clusters;
-         `retryOnConnectionFailure` cannot rescue it because a read timeout is not retried).
-      3. **Our timeout is shorter than the device's worst-case snapshot latency** — a full-resolution JPEG
-         over a busy Wi-Fi can exceed 4 s; a `callTimeout`/retry with backoff, or a smaller snapshot URL,
-         would fix it without touching the polling architecture.
-      Still real but *screen-off only* (amplifiers, not the root cause): Doze/light-Doze network denial — a
-      `PARTIAL_WAKE_LOCK` and the `connectedDevice` FGS type do **not** exempt the app (fix would need
-      `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` = **ask-first territory**); and `0acd070` weakening the API 29+
-      lock to `createWifiLock(tag)` = `WIFI_MODE_FULL_LOW_LATENCY`, which does not stop Wi-Fi power save
-      (only `WIFI_MODE_FULL_HIGH_PERF` does) — the risk that commit's own Tier G note flagged.
-      **Discriminators, all no-code — they answer "a few images lost" vs "seconds of dead air":**
-      a) Play a normal recording in-app and read the frame counter against its duration (isolated dropouts
-      vs a stall); b) `adb logcat -s HttpSnapshotClient:V OnDeviceMotionAnalyzer:W RtspStreamRecorder:V`
-      and compare *timestamps*: both tags failing together = the device really is unreachable, only
-      `HttpSnapshotClient` = our request path/pool; c) open the Live tab and start a manual recording — if
-      the rate jumps, it is the concurrency in (1); d) load the same `snapshotUrl` in a browser on the LAN
-      while the app times out — fast there, slow here = (1)/(2), slow there too = (3) or the camera is busy;
-      e) for the screen-off amplification: `adb shell dumpsys deviceidle whitelist
-      +io.github.mvolkert.entryrecorder`, then screen off 2 min; and check `adb shell dumpsys power` still
-      lists `EntryRecorder::MonitorWakeLock` — if the lock is gone, polling is being frozen and that is its
-      own bug.
-      Independent of the cause the client is fragile by design and worth hardening in its own pass: a
-      `callTimeout` so one stalled fetch cannot eat the frame budget, a consecutive-failure counter surfaced
-      as a real `IntercomEvent.ConnectionState` instead of a `Log.d` nobody watches, and no reuse of a
-      socket idle longer than the camera's keep-alive window.
+      **Measured 2026-09-30 on the owner's Fairphone 5 + a wired PC on the same LAN (02:22–02:55) — cause
+      pinned, no code written yet.** Both machines timed the same 2N endpoint at the same instants:
+      - **The 2N is neither slow nor overloaded.** 300 sequential GETs at 1/s from the PC over
+        02:35:18–02:40:18: median 175 ms, p95 311 ms, **max 341 ms, none above 1.2 s** — in a window that
+        contains 7 of the app's timeouts. A keep-alive stress run at the *requested* 10 fps
+        (02:41:30–02:45:30, spanning the app's 02:42:31 and 02:44:27 timeouts) completed 1427 requests
+        (≈5.9 req/s, the endpoint's own ceiling) on **one** connection with a single reconnect:
+        median 137 ms, max 562 ms, zero slow. So (1) oversubscription and (2) stale keep-alive are dead as
+        *device* behaviour — the camera serves snapshots serially, fast, and keep-alive-friendly.
+      - **The phone's IP path stays alive.** `ping -c 240 -i 1` to the camera: 238/240 replies, no RTT over
+        300 ms. At 5 Hz (`-i 0.2`, 2000 packets, 02:47:43–02:54:25) the 15 lost packets are not random:
+        they form four clusters at 02:48:21, 02:50:16–18, 02:52:12–15, 02:54:08–11, and the app timed out
+        at 02:48:24, 02:50:19, 02:52:19, 02:54:16 — one loss every ~0.4 s for 2–4 s right before each
+        timeout, and *no* loss anywhere else in 6.7 min. Signature of a short Wi-Fi-layer degradation
+        (power-save delivery / rate adaptation, or an AP-side channel scan), not of a dead network: a lost
+        request or ACK costs one RTO — the phone's camera socket measured `rto:0.44 s` and
+        `ssthresh:2`, i.e. it had already been through retransmit timeouts — and three of them in a row
+        exceed our 4 s read window.
+      - **Doze is exonerated; the owner's "it also happens with the screen on" was right.** During the
+        capture `mWakefulness=Dozing` with the display OFF, yet `mLightDeviceIdleMode=false` and
+        `PARTIAL_WAKE_LOCK 'EntryRecorder::MonitorWakeLock'` was continuously held (ACQ −1h12m) — the app is
+        never network-restricted, so the screen state is irrelevant. What the radio does under a held
+        partial wakelock is exactly the hole `0acd070` opened: `WIFI_MODE_FULL_LOW_LATENCY` does not stop
+        Wi-Fi power save, only `WIFI_MODE_FULL_HIGH_PERF` does.
+      - **The archive lost no frames to these timeouts.** All five recordings on the device were parsed
+        frame by frame (EBML cluster `Timecode` + block relative timecode): 6/16/27/13/15 frames over
+        1968/6166/8617/4434/5380 ms, mean inter-frame gap 394/411/331/370/384 ms, **zero gaps above
+        700 ms** — every timeout so far landed while no recording was running.
+      - **What does cost frames is pacing, and it costs them constantly.** The same parse yields
+        2.43–3.02 fps against `snapshotFps = 10`; `wlan0` on the phone shows ≈108 KB/s ≈ 3.2 snapshots/s
+        sustained. Pure arithmetic, not the network: `video/RtspStreamRecorder.kt:226-234` and
+        `ui/components/LiveStreamPlayer.kt:196-207` *fetch and then* `delay(1000/fps)`, so one cycle costs
+        fetch (≈200–330 ms) + 100 ms. 10 fps is unreachable by construction — roughly 70 % of the
+        configured frames are never captured, in perfect radio conditions too. This, not the timeout log, is
+        what "no continuous observation" has been measuring.
+      - **The poller behind the log lines runs while the app is not visible.** The activity was stopped
+        (`visible=false`, another app held focus) and `fetchSnapshotBitmap` has exactly one non-recording
+        caller: the `LaunchedEffect` at `LiveStreamPlayer.kt:106-211`, keyed on
+        `(device, activeProtocol, retryCount, autoPlay)` and looping `while (isActive)` with no lifecycle
+        gate. Kept as an open question, not a claim: attributing the ≈108 KB/s to the live-view loop needs
+        the Live tab opened and then left while `wlan0` counters are watched.
+      **Fix directions the data now supports** (owner's pick still pending, nothing implemented):
+      *pacing* — count the fetch into the period (`delay(periodMs - elapsed)`) and/or cap the setting at
+      what the endpoint serves, showing the achieved rate next to it; *robustness* — a `callTimeout` plus
+      one retry with backoff so an RTO chain does not eat a whole frame slot, and a consecutive-failure
+      counter surfaced as a real `IntercomEvent.ConnectionState` instead of a `Log.d` nobody watches;
+      *battery/data* — stop the live poller when the activity is stopped, if the attribution above confirms
+      ≈100 KB/s running unattended (~9 GB/day).
+- [ ] **The MJPEG path stored for the 2N does not exist on this firmware** (found by the same LAN probe
+      2026-09-30). `DeviceEntity.mjpegUrl` resolves to `http://<ip>:<port>/api/camera/mjpeg`, which answers
+      **HTTP 200 with `application/json`**: `{"success":false,"error":{"code":2,"description":"invalid
+      request path"}}`. `data/network/MjpegStreamReader.kt` (used by `video/RtspStreamRecorder.kt:214` and
+      `ui/components/LiveStreamPlayer.kt:173`) then finds no JPEG boundaries and yields zero frames, so
+      switching this device to `MJPEG_STREAM` would read as a dead camera instead of a wrong path. Related
+      fact from the same probe: `/api/camera/snapshot` *without* `width`/`height` returns `{"code":11,
+      "param":"width","description":"missing mandatory parameter"}` — `DeviceEntity.snapshotUrl`'s parameter
+      appending is load-bearing (a first probe without them measured 139-byte error pages instead of frames,
+      which made every latency number in that run meaningless).
+      Action: confirm the live-stream path this firmware actually serves, and make `MjpegStreamReader` fail
+      loudly on a content type that is not `multipart`/`image` instead of streaming nothing.
 
 
 Reorganized from the code & feature review, re-verified against the current codebase
