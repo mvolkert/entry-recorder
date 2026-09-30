@@ -12,7 +12,6 @@ sealed class IntercomEvent {
     data class MotionOnDeviceStarted(val device: DeviceEntity, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
     data class MotionOnDeviceEnded(val device: DeviceEntity, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
     data class DoorbellRung(val device: DeviceEntity, val callerNumber: String? = null, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
-    data class CallState(val device: DeviceEntity, val state: String, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
     data class ConnectionState(val device: DeviceEntity, val quality: ConnectionQuality, val message: String? = null) : IntercomEvent()
     data class Error(val device: DeviceEntity, val error: Throwable) : IntercomEvent()
 }

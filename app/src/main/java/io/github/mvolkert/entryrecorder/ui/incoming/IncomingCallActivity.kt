@@ -28,6 +28,7 @@ import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.sip.CallUiState
+import io.github.mvolkert.entryrecorder.sip.SipCallTiming
 import io.github.mvolkert.entryrecorder.sip.SipSessionState
 import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
 import kotlinx.coroutines.delay
@@ -92,7 +93,7 @@ class IncomingCallActivity : ComponentActivity() {
                         CallUiState.CONNECTED -> sawConnected = true
                         CallUiState.ENDED, CallUiState.ERROR -> if (screen.eventType == EventType.RING || sawConnected) {
                             sawConnected = false
-                            delay(TERMINAL_CALL_DISMISS_MS.milliseconds)
+                            delay(SipCallTiming.TERMINAL_CALL_DISMISS_MS.milliseconds)
                             finish()
                         }
                         CallUiState.IDLE, CallUiState.RINGING_INCOMING -> Unit
@@ -153,10 +154,6 @@ class IncomingCallActivity : ComponentActivity() {
         const val EXTRA_DEVICE_ID = "extra_device_id"
         const val EXTRA_EVENT_TYPE = "extra_event_type"
         const val EXTRA_CALLER = "extra_caller"
-
-        // How long the terminal call bar stays on screen after the call ended or failed, short enough not to
-        // block the lockscreen and still within the window SipCallManager keeps that state before IDLE.
-        private const val TERMINAL_CALL_DISMISS_MS = 1500L
     }
 }
 

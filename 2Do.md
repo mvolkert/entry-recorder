@@ -138,31 +138,41 @@ Verso session or a second snapshot-only device type triggers them.
 From the 2026-09-30 code-smell pass over the event → recording → alert path. Small-to-medium app work, no
 cross-layer design pivot except where noted.
 
-- [ ] **Event-router duplication.** `MotionStarted` and `MotionOnDeviceStarted` are ~20 near-identical lines
-      (differ only in which record flag they test), and the three `*Ended` branches differ only in the
-      `EventType` passed to `schedulePostRecordStop`. Collapsing them is a refactor of the 24/7 router — do it
-      with the Phase 4 service work. File: `service/IntercomMonitorService.kt`
-- [ ] **`IntercomEvent.CallState` has no consumer** — the service only `Log.d`s it. Drive
-      `MonitorStatusHolder`/the call UI from it or drop it (dead-code convention).
-      Files: `domain/device/IntercomEvent.kt`, `service/IntercomMonitorService.kt`
-- [ ] **`ConnectionState` cannot express "degraded".** It is often `{isConnected = true, message = "SSE event
-      stream unavailable…"}` — boolean says connected, text says degraded. The event has no third state and
-      `MonitorStatus` has no "degraded" value, so nothing in the UI can show it (only logcat). Needs a small
-      `IntercomEvent`/`MonitorStatus` API decision, not an invented field. **Confirm design before building.**
-- [ ] **Coupled magic constants in two files.** `POST_CALL_IDLE_MS = 2500` (`sip/SipCallManager.kt`) must stay
+- [x] **Event-router duplication.** `MotionStarted` and `MotionOnDeviceStarted` were ~20 near-identical lines
+      (differing only in which record flag they test), and the three `*Ended` branches differed only in the
+      `EventType` passed to `schedulePostRecordStop`. Done: `handleTriggerStarted` / `handleTriggerEnded` own the
+      routing, the branches keep just their log line and their differences as arguments (flag that authorises
+      recording, pre-roll provider, log label), the wake flag / notification kind / post-record duration are
+      derived from the `EventType` by one exhaustive `when`, and the bare `+ 30` safety headroom is now
+      `TRIGGER_RECORD_HEADROOM_SECONDS`. File: `service/IntercomMonitorService.kt`
+- [x] **`IntercomEvent.CallState` has no consumer** — the service only `Log.d`s it. Done: dropped the event and
+      its emission (the 2N `CallStateChanged` SSE payload still logs state/direction where it is parsed, and the
+      ring decision from it is unchanged), per the dead-code convention. Files: `domain/device/IntercomEvent.kt`,
+      `data/device/TwoNIPVersoDevice.kt`, `service/IntercomMonitorService.kt`
+- [x] **`ConnectionState` cannot express "degraded".** Closed by the Phase 1 API decision rather than an
+      invented field: `ConnectionQuality` (ONLINE / DEGRADED / OFFLINE) on `IntercomEvent.ConnectionState`, mapped
+      onto the new `MonitorStatus.DEGRADED` / `OFFLINE` by the service and shown by the live card dot. The SSE
+      polling fallback now reports DEGRADED instead of `{isConnected = true, message = "…unavailable…"}`.
+      Files: `data/model/Enums.kt`, `domain/device/IntercomDevice.kt`, `service/IntercomMonitorService.kt`
+- [x] **Coupled magic constants in two files.** `POST_CALL_IDLE_MS = 2500` (`sip/SipCallManager.kt`) had to stay
       larger than `TERMINAL_CALL_DISMISS_MS = 1500` (`ui/incoming/IncomingCallActivity.kt`) or the auto-dismiss
-      quietly stops firing. Commented at both sites, no compile-time link. Cleaner: one shared constant, or
-      dismiss on IDLE instead of racing it.
-- [ ] **`SipCallManager.onIncomingCall` is a mutable non-volatile callback property**, not the project's
-      `Channel<UiEvent>` convention, invoked on the Linphone core thread. Fine for the single non-UI consumer
-      today; a second consumer should get a Flow. File: `sip/SipCallManager.kt`
+      quietly stopped firing. Done: both live in `sip/SipCallTiming`, and the dismiss value is *derived*
+      (`POST_CALL_IDLE_MS - DISMISS_HEADROOM_MS`), so the invariant cannot be broken by editing one number.
+      Dismissing on IDLE itself was rejected: it would stretch the terminal bar to the whole idle window.
+- [x] **`SipCallManager.onIncomingCall` is a mutable non-volatile callback property**, invoked on the Linphone
+      core thread while assigned from the service. Done: `@Volatile` plus a note that a second consumer should
+      get a Flow instead of another callback property (the project's `Channel<UiEvent>` convention does not fit a
+      process singleton with one non-UI consumer). File: `sip/SipCallManager.kt`
 - [ ] **`handleSipRing` device attribution is a by-count heuristic.** Behind a PBX the remote host is the PBX,
       not the intercom, so "if exactly one device is monitored, attribute the ring to it" is not identity-based.
-      Logged at info; only correct for single-device deployments. File: `service/IntercomMonitorService.kt`
-- [ ] **The 5 s ring debounce also swallows a genuine second press** inside the window (recording keeps running,
-      no second alert). Intended trade-off — worth knowing when testing; document or narrow only if it bites.
-- [ ] **`SipSessionState.callerAddress` / `callerDisplayName` are write-only** (the overlay uses the intent's
-      caller). Pick one source or delete the fields. Files: `sip/SipCallManager.kt`, `ui/incoming/*`
+      Logged at info; only correct for single-device deployments. No app-side identity exists until the SIP
+      identity/registration work (Phase 6 per-device cores, Phase G P2P gate) lands.
+- [x] **The 5 s ring debounce also swallows a genuine second press** inside the window (recording keeps running,
+      no second alert). Intended trade-off — documented at the constant itself so the next reader of the router
+      learns it from the code, not from this file.
+- [x] **`SipSessionState.callerAddress` / `callerDisplayName` are write-only** (the overlay renders the caller
+      from the intent extras). Done: fields deleted, so there is one source for the caller again.
+      Files: `sip/SipCallManager.kt`, `ui/incoming/*`
 
 ## Phase 4 — Service & data-layer refactors (larger blast radius)
 - [~] **Server-mode stop reconciliation.** Auto-stop uses a fixed `maxDurationSeconds + 2` local timer with no

@@ -10,6 +10,7 @@ import android.os.PowerManager
 import android.util.Log
 import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory
+import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.EventType
@@ -21,6 +22,7 @@ import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
 import io.github.mvolkert.entryrecorder.notification.NotificationHelper
 import io.github.mvolkert.entryrecorder.ui.incoming.IncomingCallActivity
 import io.github.mvolkert.entryrecorder.video.OnDeviceMotionAnalyzer
+import io.github.mvolkert.entryrecorder.video.PreRollFrame
 import io.github.mvolkert.entryrecorder.video.RecorderEvent
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
@@ -211,121 +213,39 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     // direct startActivity is best-effort. The doorbell path stays reliable because
                     // NotificationHelper attaches a full-screen intent to the ring notification.
                     if (settings.wakeOnRing) {
-                        val callIntent = Intent(this@IntercomMonitorService, IncomingCallActivity::class.java).apply {
-                            putExtra(IncomingCallActivity.EXTRA_DEVICE_ID, device.id)
-                            putExtra(IncomingCallActivity.EXTRA_EVENT_TYPE, EventType.RING.name)
-                            putExtra(IncomingCallActivity.EXTRA_CALLER, event.callerNumber ?: "2N IP Verso")
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                                    Intent.FLAG_ACTIVITY_SINGLE_TOP
-                        }
-                        startActivity(callIntent)
+                        startActivity(callActivityIntent(device, EventType.RING, event.callerNumber ?: "2N IP Verso"))
                     }
                 }
 
                 is IntercomEvent.MotionStarted -> {
-                    val device = event.device
-                    Log.i(tag, "Motion started on ${device.name}")
-                    MonitorStatusHolder.update(device.id, MonitorStatus.MOTION)
-
-                    cancelPostRecordStop(device.id)
-                    if (device.recordOnMotion) {
-                        recorder.startRecording(
-                            device = device,
-                            eventType = EventType.MOTION,
-                            maxDurationSeconds = device.motionPostRecordSeconds + 30
-                        )
-                    }
-
-                    if (settings.wakeOnMotion) {
-                        NotificationHelper.showMotionNotification(this@IntercomMonitorService, device)
-                        val motionIntent = Intent(this@IntercomMonitorService, IncomingCallActivity::class.java).apply {
-                            putExtra(IncomingCallActivity.EXTRA_DEVICE_ID, device.id)
-                            putExtra(IncomingCallActivity.EXTRA_EVENT_TYPE, EventType.MOTION.name)
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                        }
-                        startActivity(motionIntent)
-                    }
-                }
-
-                is IntercomEvent.MotionEnded -> {
-                    val device = event.device
-                    Log.i(tag, "Motion ended on ${device.name}")
-                    MonitorStatusHolder.update(device.id, MonitorStatus.MONITORING)
-                    // Allow post-record time buffer then stop
-                    schedulePostRecordStop(device, EventType.MOTION, device.motionPostRecordSeconds)
-                }
-
-                is IntercomEvent.NoiseStarted -> {
-                    val device = event.device
-                    Log.i(tag, "Noise started on ${device.name}")
-
-                    cancelPostRecordStop(device.id)
-                    if (device.recordOnNoise) {
-                        recorder.startRecording(
-                            device = device,
-                            eventType = EventType.NOISE,
-                            maxDurationSeconds = device.noisePostRecordSeconds + 30
-                        )
-                    }
-
-                    if (settings.wakeOnNoise) {
-                        NotificationHelper.showNoiseNotification(this@IntercomMonitorService, device)
-                        val noiseIntent = Intent(this@IntercomMonitorService, IncomingCallActivity::class.java).apply {
-                            putExtra(IncomingCallActivity.EXTRA_DEVICE_ID, device.id)
-                            putExtra(IncomingCallActivity.EXTRA_EVENT_TYPE, EventType.NOISE.name)
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                        }
-                        startActivity(noiseIntent)
-                    }
-                }
-
-                is IntercomEvent.NoiseEnded -> {
-                    val device = event.device
-                    Log.i(tag, "Noise ended on ${device.name}")
-                    // Allow post-record time buffer then stop
-                    schedulePostRecordStop(device, EventType.NOISE, device.noisePostRecordSeconds)
+                    Log.i(tag, "Motion started on ${event.device.name}")
+                    handleTriggerStarted(event.device, settings, EventType.MOTION, record = event.device.recordOnMotion)
                 }
 
                 is IntercomEvent.MotionOnDeviceStarted -> {
-                    val device = event.device
-                    Log.i(tag, "On-device motion analysis started on ${device.name}")
-                    MonitorStatusHolder.update(device.id, MonitorStatus.MOTION)
-
-                    cancelPostRecordStop(device.id)
-                    if (device.recordOnMotionOnDevice) {
+                    Log.i(tag, "On-device motion analysis started on ${event.device.name}")
+                    handleTriggerStarted(
+                        device = event.device,
+                        settings = settings,
+                        eventType = EventType.MOTION,
+                        record = event.device.recordOnMotionOnDevice,
                         // Prepend the frames the analyzer saw just before it confirmed motion, so the
                         // recording covers the arrival rather than starting ~1s after it.
-                        val preRoll = activeMotionAnalyzers[device.id]?.drainPreRoll().orEmpty()
-                        recorder.startRecording(
-                            device = device,
-                            eventType = EventType.MOTION,
-                            maxDurationSeconds = device.motionPostRecordSeconds + 30,
-                            preRoll = preRoll
-                        )
-                    }
-
-                    if (settings.wakeOnMotion) {
-                        NotificationHelper.showMotionNotification(this@IntercomMonitorService, device)
-                        val motionIntent = Intent(this@IntercomMonitorService, IncomingCallActivity::class.java).apply {
-                            putExtra(IncomingCallActivity.EXTRA_DEVICE_ID, device.id)
-                            putExtra(IncomingCallActivity.EXTRA_EVENT_TYPE, EventType.MOTION.name)
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                        }
-                        startActivity(motionIntent)
-                    }
+                        preRollFrames = { activeMotionAnalyzers[event.device.id]?.drainPreRoll().orEmpty() }
+                    )
                 }
 
-                is IntercomEvent.MotionOnDeviceEnded -> {
-                    val device = event.device
-                    Log.i(tag, "On-device motion analysis ended on ${device.name}")
-                    MonitorStatusHolder.update(device.id, MonitorStatus.MONITORING)
-                    schedulePostRecordStop(device, EventType.MOTION, device.motionPostRecordSeconds)
+                is IntercomEvent.NoiseStarted -> {
+                    Log.i(tag, "Noise started on ${event.device.name}")
+                    handleTriggerStarted(event.device, settings, EventType.NOISE, record = event.device.recordOnNoise)
                 }
 
-                is IntercomEvent.CallState -> {
-                    Log.d(tag, "Intercom call state: ${event.state} for ${event.device.name}")
-                }
+                is IntercomEvent.MotionEnded -> handleTriggerEnded(event.device, "Motion", EventType.MOTION)
+
+                is IntercomEvent.MotionOnDeviceEnded ->
+                    handleTriggerEnded(event.device, "On-device motion analysis", EventType.MOTION)
+
+                is IntercomEvent.NoiseEnded -> handleTriggerEnded(event.device, "Noise", EventType.NOISE)
 
                 is IntercomEvent.ConnectionState -> {
                     val detail = "Device ${event.device.name} connection: ${event.quality} (${event.message})"
@@ -357,6 +277,72 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         } ?: return
         MonitorStatusHolder.update(deviceId, target)
     }
+
+    /**
+     * Routes a "trigger started" event: mark the device, arm the recording the trigger authorises, then
+     * alert. The three start branches used to carry near-identical copies of this and drifted apart (only
+     * the on-device one drained pre-roll), so the differences stay as explicit arguments here.
+     */
+    private fun handleTriggerStarted(
+        device: DeviceEntity,
+        settings: AppSettingsEntity,
+        eventType: EventType,
+        record: Boolean,
+        preRollFrames: () -> List<PreRollFrame> = { emptyList() }
+    ) {
+        // Motion is the trigger the live card shows as an active event; noise keeps the resting status.
+        if (eventType == EventType.MOTION) MonitorStatusHolder.update(device.id, MonitorStatus.MOTION)
+
+        cancelPostRecordStop(device.id)
+        if (record) {
+            recorder.startRecording(
+                device = device,
+                eventType = eventType,
+                maxDurationSeconds = postRecordSecondsFor(device, eventType) + TRIGGER_RECORD_HEADROOM_SECONDS,
+                preRoll = preRollFrames()
+            )
+        }
+
+        val wake = when (eventType) {
+            EventType.MOTION -> settings.wakeOnMotion
+            EventType.NOISE -> settings.wakeOnNoise
+            EventType.RING, EventType.MANUAL -> settings.wakeOnRing
+        }
+        if (!wake) return
+
+        when (eventType) {
+            EventType.MOTION -> NotificationHelper.showMotionNotification(this@IntercomMonitorService, device)
+            EventType.NOISE -> NotificationHelper.showNoiseNotification(this@IntercomMonitorService, device)
+            // The doorbell owns its richer notification and full-screen intent in the DoorbellRung branch.
+            EventType.RING, EventType.MANUAL -> Unit
+        }
+        startActivity(callActivityIntent(device, eventType))
+    }
+
+    /** Routes a "trigger ended" event: only the post-record buffer length and the log wording differ. */
+    private fun handleTriggerEnded(device: DeviceEntity, label: String, eventType: EventType) {
+        Log.i(tag, "$label ended on ${device.name}")
+        if (eventType == EventType.MOTION) MonitorStatusHolder.update(device.id, MonitorStatus.MONITORING)
+        // Allow post-record time buffer then stop
+        schedulePostRecordStop(device, eventType, postRecordSecondsFor(device, eventType))
+    }
+
+    private fun postRecordSecondsFor(device: DeviceEntity, eventType: EventType): Int = when (eventType) {
+        EventType.MOTION -> device.motionPostRecordSeconds
+        EventType.NOISE -> device.noisePostRecordSeconds
+        EventType.RING, EventType.MANUAL -> device.ringRecordSeconds
+    }
+
+    /** Full-screen call/preview activity for [device]; only a ring carries a caller to display. */
+    private fun callActivityIntent(device: DeviceEntity, eventType: EventType, caller: String? = null) =
+        Intent(this@IntercomMonitorService, IncomingCallActivity::class.java).apply {
+            putExtra(IncomingCallActivity.EXTRA_DEVICE_ID, device.id)
+            putExtra(IncomingCallActivity.EXTRA_EVENT_TYPE, eventType.name)
+            caller?.let { putExtra(IncomingCallActivity.EXTRA_CALLER, it) }
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
 
     /**
      * Handles a ring signalled by an incoming SIP call rather than by the 2N HTTP event stream. This keeps
@@ -463,8 +449,13 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         const val ACTION_STOP = "io.github.mvolkert.entryrecorder.service.ACTION_STOP"
 
         // Rings from one doorbell press reach the app from up to three sources within a second; anything
-        // arriving inside this window after a handled ring is treated as the same press.
+        // arriving inside this window after a handled ring is treated as the same press. Note that this also
+        // swallows a genuine second press inside the window (the recording keeps running, no second alert).
         private const val RING_DEBOUNCE_MS = 5000L
+
+        // Trigger recordings run to the post-record buffer plus this headroom: the *Ended event is what
+        // normally stops them, so the timer only has to outlive a missing end event.
+        private const val TRIGGER_RECORD_HEADROOM_SECONDS = 30
 
         fun start(context: Context) {
             val intent = Intent(context, IntercomMonitorService::class.java)

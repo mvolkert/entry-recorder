@@ -180,7 +180,6 @@ class TwoNIPVersoDevice(
                         if (state.equals("incoming", ignoreCase = true) || state.equals("ringing", ignoreCase = true) || state.equals("dialing", ignoreCase = true)) {
                             listener.onEvent(IntercomEvent.DoorbellRung(deviceEntity, callerNumber = params.get("peer")?.asString))
                         }
-                        listener.onEvent(IntercomEvent.CallState(deviceEntity, state))
                     }
                 }
             }

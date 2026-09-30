@@ -30,8 +30,6 @@ enum class CallUiState {
 
 data class SipSessionState(
     val state: CallUiState = CallUiState.IDLE,
-    val callerAddress: String? = null,
-    val callerDisplayName: String? = null,
     val isMicMuted: Boolean = false,
     val isSpeakerOn: Boolean = true,
     val errorMessage: String? = null,
@@ -59,7 +57,11 @@ class SipCallManager private constructor(private val app: Application) {
      * the 2N HTTP event stream and the SIP call itself, which keeps the doorbell working when SSE has to
      * fall back to status polling (that fallback cannot see rings at all). Duplicate rings from one press
      * are collapsed by the service's per-device debounce, so this must stay a plain notification.
+     *
+     * Volatile because it is assigned by the monitor service and read on the Linphone core thread. A second
+     * consumer should get a Flow rather than another callback property.
      */
+    @Volatile
     var onIncomingCall: ((remoteHost: String, caller: String) -> Unit)? = null
 
     private val coreListener = object : CoreListenerStub() {
@@ -80,8 +82,6 @@ class SipCallManager private constructor(private val app: Application) {
 
                     _sessionState.value = SipSessionState(
                         state = CallUiState.RINGING_INCOMING,
-                        callerAddress = caller,
-                        callerDisplayName = displayName,
                         rawCallState = rawCallState
                     )
                     // Every INVITE is reported; the monitor service's per-device debounce is what collapses
@@ -221,11 +221,11 @@ class SipCallManager private constructor(private val app: Application) {
         }
     }
 
-    /** Drops the terminal call state back to IDLE after [POST_CALL_IDLE_MS], re-armed per terminal event. */
+    /** Drops the terminal call state back to IDLE after [SipCallTiming.POST_CALL_IDLE_MS], re-armed per terminal event. */
     private fun scheduleIdleReset() {
         idleResetJob?.cancel()
         idleResetJob = scope.launch {
-            delay(POST_CALL_IDLE_MS.milliseconds)
+            delay(SipCallTiming.POST_CALL_IDLE_MS.milliseconds)
             _sessionState.value = SipSessionState(state = CallUiState.IDLE)
         }
     }
@@ -304,10 +304,6 @@ class SipCallManager private constructor(private val app: Application) {
     companion object {
         @Volatile
         private var INSTANCE: SipCallManager? = null
-
-        // How long CallUiState.ENDED stays visible before the session drops back to IDLE; the incoming-call
-        // screen uses that window to show its "call ended" line before dismissing itself.
-        private const val POST_CALL_IDLE_MS = 2500L
 
         fun getInstance(context: Context): SipCallManager {
             return INSTANCE ?: synchronized(this) {
