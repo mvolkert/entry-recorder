@@ -24,6 +24,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -63,7 +64,7 @@ class RtspStreamRecorder(
     private val activeRecordings = ConcurrentHashMap<Long, ActiveRecordingJob>()
     // Server-side recordings remember their trigger type too, so a delayed post-record stop from one
     // event type cannot terminate the recording another event type started (see stopRecording).
-    private val activeServerRecordings = ConcurrentHashMap<Long, EventType>()
+    private val activeServerRecordings = ConcurrentHashMap<Long, ActiveServerRecording>()
 
     // Observable recording status: the plain ConcurrentHashMaps above are invisible to Compose, so
     // every mutation also publishes the affected device ids here (local + server recordings). The
@@ -86,6 +87,19 @@ class RtspStreamRecorder(
         val startTimeMs: Long,
         val outputFile: File,
         val job: Job
+    )
+
+    /**
+     * The app's view of a recording the server is running. Kept deliberately thin: the server owns the job
+     * and its duration, so what the phone has to remember is which trigger started it (for the stop guard),
+     * how long it asked for (for the reconcile deadline) and whether the job is even this client's to stop.
+     */
+    private data class ActiveServerRecording(
+        val eventType: EventType,
+        val maxDurationSeconds: Int,
+        val startedByThisRequest: Boolean,
+        /** Server row id, once the server returns one from start (Phase S). Null with today's server. */
+        val recordingId: Long?
     )
 
     fun isRecording(deviceId: Long): Boolean = deviceId in _activeDeviceIds.value
@@ -127,23 +141,21 @@ class RtspStreamRecorder(
                 )
 
                 if (result.isSuccess) {
-                    activeServerRecordings[device.id] = eventType
+                    val start = result.getOrThrow()
+                    activeServerRecordings[device.id] = ActiveServerRecording(
+                        eventType = eventType,
+                        maxDurationSeconds = maxDurationSeconds,
+                        startedByThisRequest = start.startedByThisRequest,
+                        recordingId = start.recordingId
+                    )
                     publishActiveIds()
-                    // The server also auto-stops after duration_seconds, but reconcile explicitly when
-                    // our local timer elapses so app and server state agree instead of drifting. The
-                    // remove() guard prevents a double stop when the user stops early.
-                    launch {
-                        delay(((maxDurationSeconds + 2) * 1000L).milliseconds)
-                        if (activeServerRecordings.remove(device.id) != null) {
-                            publishActiveIds()
-                            val s = repository.getSettings()
-                            serverClient.stopRecording(
-                                serverUrl = s.serverBaseUrl,
-                                apiKey = s.serverApiKey.ifBlank { null },
-                                deviceId = device.id
-                            )
-                        }
+                    if (!start.startedByThisRequest) {
+                        Log.i(tag, "Server was already recording ${device.name}; watching that job instead of arming a stop for it")
                     }
+                    // Reconcile against the server's own job list rather than trusting a blind local timer:
+                    // the job can finish early, be stopped from the server's web UI, or outlive what this
+                    // request asked for, and in every one of those cases the phone has to stop claiming it.
+                    launch { watchServerRecording(device) }
                     return@launch
                 } else {
                     Log.w(tag, "Server recording failed, falling back to local recording: ${result.exceptionOrNull()?.message}")
@@ -223,24 +235,102 @@ class RtspStreamRecorder(
             }
         }
 
-        val serverEventType = activeServerRecordings[deviceId]
+        val serverRecording = activeServerRecordings[deviceId]
         when {
-            serverEventType == null -> Unit
-            reason != null && serverEventType != reason ->
-                Log.i(tag, "Ignoring $reason post-record stop for device $deviceId: server recording is $serverEventType")
+            serverRecording == null -> Unit
+            reason != null && serverRecording.eventType != reason ->
+                Log.i(tag, "Ignoring $reason post-record stop for device $deviceId: server recording is ${serverRecording.eventType}")
             else -> {
                 Log.i(tag, "Stopping active server recording for device $deviceId")
                 activeServerRecordings.remove(deviceId)
                 publishActiveIds()
                 scope.launch {
                     val settings = repository.getSettings()
-                    serverClient.stopRecording(
-                        serverUrl = settings.serverBaseUrl,
-                        apiKey = settings.serverApiKey.ifBlank { null },
-                        deviceId = deviceId
-                    )
+                    requestServerStop(deviceId, "device $deviceId", settings.serverBaseUrl, settings.serverApiKey.ifBlank { null })
                 }
             }
+        }
+    }
+
+    /**
+     * Keeps the app's view of a server recording in step with the server's own job list.
+     *
+     * The old behaviour was a `maxDurationSeconds + 2` sleep and an unconditional stop, which drifted in both
+     * directions: the phone kept showing REC after the server finalized, and it sent a stop for a job that
+     * belongs to an earlier request (`already_recording`) whose duration was never this one's.
+     */
+    private suspend fun watchServerRecording(device: DeviceEntity) {
+        val tracked = activeServerRecordings[device.id] ?: return
+        val stopAtMs = System.currentTimeMillis() + (tracked.maxDurationSeconds * 1000L) + SERVER_STOP_GRACE_MS
+        var failedProbes = 0
+
+        while (currentCoroutineContext().isActive) {
+            delay(SERVER_RECONCILE_INTERVAL_MS.milliseconds)
+            // Cleared by a stop through the app or by a new trigger: this coroutine no longer owns anything.
+            val active = activeServerRecordings[device.id] ?: return
+            val settings = repository.getSettings()
+            val apiKey = settings.serverApiKey.ifBlank { null }
+            val probe = serverClient.activeRecordingFor(settings.serverBaseUrl, apiKey, device.id)
+            val job = probe.getOrNull()
+
+            when {
+                probe.isFailure -> {
+                    failedProbes++
+                    Log.w(
+                        tag,
+                        "Server job for ${device.name} not reconcilable (attempt $failedProbes): " +
+                            probe.exceptionOrNull()?.message
+                    )
+                    if (failedProbes >= SERVER_RECONCILE_GIVE_UP_PROBES) {
+                        if (active.startedByThisRequest) {
+                            requestServerStop(device.id, device.name, settings.serverBaseUrl, apiKey)
+                        }
+                        clearServerRecording(device.id, "status probes stopped working")
+                        return
+                    }
+                }
+
+                // Nothing running on the server anymore: it finalized on its own or was stopped in its web UI.
+                job == null -> {
+                    clearServerRecording(device.id, "the server no longer has a job for it")
+                    return
+                }
+
+                System.currentTimeMillis() >= stopAtMs -> {
+                    if (active.startedByThisRequest) {
+                        Log.i(
+                            tag,
+                            "Server job on ${device.name} still live after ${tracked.maxDurationSeconds}s " +
+                                "(elapsed ${job.elapsedSeconds}s of ${job.maxDurationSeconds}s), asking it to stop"
+                        )
+                        requestServerStop(device.id, device.name, settings.serverBaseUrl, apiKey)
+                        clearServerRecording(device.id, "stopped past the requested duration")
+                        return
+                    }
+                    // Not this request's job to end: it carries its own duration, so keep watching until the
+                    // server drops it instead of truncating someone else's recording.
+                    Log.i(tag, "Server job on ${device.name} outlived the requested duration; leaving it running")
+                }
+            }
+        }
+    }
+
+    /** Drops the app's view of a server recording; the job on the server itself is untouched. */
+    private fun clearServerRecording(deviceId: Long, reason: String) {
+        if (activeServerRecordings.remove(deviceId) != null) {
+            publishActiveIds()
+            Log.i(tag, "No longer tracking the server recording of device $deviceId ($reason)")
+        }
+    }
+
+    private suspend fun requestServerStop(deviceId: Long, label: String, serverUrl: String, apiKey: String?) {
+        val outcome = serverClient.stopRecording(serverUrl, apiKey, deviceId)
+        val answer = outcome.getOrNull()
+        when {
+            answer == null -> Log.w(tag, "Server stop for $label failed: ${outcome.exceptionOrNull()?.message}")
+            answer.hadActiveJob -> Log.i(tag, "Server stopped the recording of $label")
+            // The job had already ended on its own: exactly the drift the reconcile loop exists to catch.
+            else -> Log.i(tag, "Server had no job left to stop for $label (it had already ended)")
         }
     }
 
@@ -397,5 +487,16 @@ class RtspStreamRecorder(
             Log.w(tag, "Recording produced empty file, discarding ${outputFile.name}")
             if (outputFile.exists()) outputFile.delete()
         }
+    }
+
+    companion object {
+        /** How often a server recording is checked against the server's own list of running jobs. */
+        private const val SERVER_RECONCILE_INTERVAL_MS = 10_000L
+
+        /** Extra time past the requested duration before the app asks the server to end the job. */
+        private const val SERVER_STOP_GRACE_MS = 2_000L
+
+        /** Status probes in a row that have to fail before the app stops tracking the job. */
+        private const val SERVER_RECONCILE_GIVE_UP_PROBES = 3
     }
 }
