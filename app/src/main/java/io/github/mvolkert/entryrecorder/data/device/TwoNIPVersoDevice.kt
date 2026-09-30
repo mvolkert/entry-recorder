@@ -1,6 +1,7 @@
 package io.github.mvolkert.entryrecorder.data.device
 
 import android.util.Log
+import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
@@ -26,6 +27,7 @@ import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration.Companion.milliseconds
@@ -138,29 +140,45 @@ class TwoNIPVersoDevice(
 
                 when (eventType) {
                     "MotionDetected" -> {
-                        val state = params.get("state")?.asBoolean ?: (params.get("state")?.asString == "active")
-                        if (state) {
-                            listener.onEvent(IntercomEvent.MotionStarted(deviceEntity))
-                        } else {
-                            listener.onEvent(IntercomEvent.MotionEnded(deviceEntity))
+                        // A missing or unrecognised `state` must not become "no motion": the previous decode
+                        // (`?.asBoolean ?: (asString == "active")`) fabricated a MotionEnded for every payload
+                        // it did not understand, so an unexpected field shape killed the trigger silently.
+                        when (triState(params.get("state")) ?: triState(params.get("active"))) {
+                            true -> listener.onEvent(IntercomEvent.MotionStarted(deviceEntity))
+                            false -> listener.onEvent(IntercomEvent.MotionEnded(deviceEntity))
+                            null -> Log.w(tag, "MotionDetected without a usable state field: ${data.take(160)}")
                         }
                     }
                     "NoiseDetected" -> {
-                        val state = params.get("state")?.asBoolean ?: (params.get("state")?.asString == "active")
-                        if (state) {
-                            listener.onEvent(IntercomEvent.NoiseStarted(deviceEntity))
-                        } else {
-                            listener.onEvent(IntercomEvent.NoiseEnded(deviceEntity))
+                        // `active` is the field name the status endpoints of this API use, so accept it as an
+                        // alternative spelling of the same boolean instead of guessing a new one.
+                        when (triState(params.get("state")) ?: triState(params.get("active"))) {
+                            true -> listener.onEvent(IntercomEvent.NoiseStarted(deviceEntity))
+                            false -> listener.onEvent(IntercomEvent.NoiseEnded(deviceEntity))
+                            null -> Log.w(tag, "NoiseDetected without a usable state field: ${data.take(160)}")
                         }
                     }
                     "KeyPressed" -> {
-                        // Key 1 is typical main doorbell ring button on 2N Verso
-                        listener.onEvent(IntercomEvent.DoorbellRung(deviceEntity, callerNumber = "Doorbell Button"))
+                        // Reported for every key of the device and for both edges of a press. Only the known
+                        // release/hold edges are dropped: the press action string is not documented in this
+                        // repo, so an unknown action still rings and duplicates of one press are collapsed by
+                        // the monitor service's per-device ring debounce.
+                        val action = params.get("action")?.takeIf { it.isJsonPrimitive }?.asString
+                            ?.lowercase(Locale.US).orEmpty()
+                        if (action in KEY_RELEASE_ACTIONS) {
+                            Log.d(tag, "KeyPressed action=$action ignored (not a press edge)")
+                        } else {
+                            listener.onEvent(IntercomEvent.DoorbellRung(deviceEntity, callerNumber = "Doorbell Button"))
+                        }
                     }
                     "CallStateChanged" -> {
                         val state = params.get("state")?.asString ?: ""
                         val direction = params.get("direction")?.asString ?: ""
                         Log.d(tag, "2N CallStateChanged: state=$state direction=$direction")
+                        // "dialing" is kept on purpose: a doorbell press makes the intercom dial this phone,
+                        // so from the device's point of view the ringing call is *outgoing*. Filtering by
+                        // direction would therefore discard the primary ring path; the debounce upstream is
+                        // what makes the overlap with KeyPressed harmless.
                         if (state.equals("incoming", ignoreCase = true) || state.equals("ringing", ignoreCase = true) || state.equals("dialing", ignoreCase = true)) {
                             listener.onEvent(IntercomEvent.DoorbellRung(deviceEntity, callerNumber = params.get("peer")?.asString))
                         }
@@ -177,53 +195,102 @@ class TwoNIPVersoDevice(
         pollingJob?.cancel()
         pollingJob = scope.launch {
             Log.i(tag, "Starting 2N HTTP polling fallback loop")
+            // The fallback can only read the two boolean status endpoints; a doorbell ring has no pollable
+            // endpoint here, so say so instead of letting the user assume the doorbell is broken.
+            listener.onEvent(
+                IntercomEvent.ConnectionState(
+                    deviceEntity,
+                    isConnected = true,
+                    message = "SSE event stream unavailable, polling motion/noise status only. " +
+                        "Doorbell rings are not delivered in this mode."
+                )
+            )
             var lastMotionState = false
             var lastNoiseState = false
+            var consecutiveDeadPolls = 0
 
             while (isActive && isMonitoring.get()) {
-                try {
-                    // Check Motion Status
-                    val motionUrl = "${deviceEntity.httpBaseUrl}/api/motion/status"
-                    val req = Request.Builder().url(motionUrl).get().build()
-                    client.newCall(req).execute().use { response ->
-                        if (response.isSuccessful) {
-                            val body = response.body.string()
-                            val json = JsonParser.parseString(body).asJsonObject
-                            val motion = json.getAsJsonObject("result")?.get("active")?.asBoolean ?: false
-                            if (motion && !lastMotionState) {
-                                listener.onEvent(IntercomEvent.MotionStarted(deviceEntity))
-                            } else if (!motion && lastMotionState) {
-                                listener.onEvent(IntercomEvent.MotionEnded(deviceEntity))
-                            }
-                            lastMotionState = motion
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w(tag, "Motion polling error: ${e.message}")
+                // A null means "this poll told us nothing" (HTTP error, unreachable, or a payload without
+                // result.active) — previously that was indistinguishable from a room with no motion, because
+                // the failure was swallowed and the state simply stayed false.
+                val motion = pollBooleanStatus("${deviceEntity.httpBaseUrl}/api/motion/status", "Motion")
+                when {
+                    motion == null -> Unit
+                    motion && !lastMotionState -> listener.onEvent(IntercomEvent.MotionStarted(deviceEntity))
+                    !motion && lastMotionState -> listener.onEvent(IntercomEvent.MotionEnded(deviceEntity))
+                    else -> Unit
                 }
+                if (motion != null) lastMotionState = motion
 
-                try {
-                    // Check Noise Status
-                    val noiseUrl = "${deviceEntity.httpBaseUrl}/api/noise/status"
-                    val req = Request.Builder().url(noiseUrl).get().build()
-                    client.newCall(req).execute().use { response ->
-                        if (response.isSuccessful) {
-                            val body = response.body.string()
-                            val json = JsonParser.parseString(body).asJsonObject
-                            val noise = json.getAsJsonObject("result")?.get("active")?.asBoolean ?: false
-                            if (noise && !lastNoiseState) {
-                                listener.onEvent(IntercomEvent.NoiseStarted(deviceEntity))
-                            } else if (!noise && lastNoiseState) {
-                                listener.onEvent(IntercomEvent.NoiseEnded(deviceEntity))
-                            }
-                            lastNoiseState = noise
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w(tag, "Noise polling error: ${e.message}")
+                val noise = pollBooleanStatus("${deviceEntity.httpBaseUrl}/api/noise/status", "Noise")
+                when {
+                    noise == null -> Unit
+                    noise && !lastNoiseState -> listener.onEvent(IntercomEvent.NoiseStarted(deviceEntity))
+                    !noise && lastNoiseState -> listener.onEvent(IntercomEvent.NoiseEnded(deviceEntity))
+                    else -> Unit
+                }
+                if (noise != null) lastNoiseState = noise
+
+                val bothDead = motion == null && noise == null
+                consecutiveDeadPolls = if (bothDead) consecutiveDeadPolls + 1 else 0
+                if (consecutiveDeadPolls == DEAD_POLLS_ALERT) {
+                    listener.onEvent(
+                        IntercomEvent.ConnectionState(
+                            deviceEntity,
+                            isConnected = false,
+                            message = "Motion/noise status endpoints returned no usable data $DEAD_POLLS_ALERT times " +
+                                "— wrong path, denied auth or motion detection disabled on the device"
+                        )
+                    )
                 }
 
                 delay(1500.milliseconds)
+            }
+        }
+    }
+
+    /** Reads a 2N status endpoint; null means "no information", never "false". */
+    private suspend fun pollBooleanStatus(url: String, label: String): Boolean? {
+        return try {
+            val request = Request.Builder().url(url).get().build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(tag, "$label status poll rejected: HTTP ${response.code} on $url")
+                    return@use null
+                }
+                val body = response.body.string()
+                val active = runCatching {
+                    triState(
+                        JsonParser.parseString(body).asJsonObject
+                            .getAsJsonObject("result")
+                            ?.get("active")
+                    )
+                }.getOrNull()
+                if (active == null) {
+                    Log.w(tag, "$label status poll returned no result.active from $url: ${body.take(160)}")
+                }
+                active
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "$label status poll error for $url: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Converts a 2N boolean-ish field: real booleans, the truthy/falsy words this firmware family uses
+     * (`active`/`inactive`, `on`/`off`, `true`/`false`) and numbers. Null means the payload does not say,
+     * which callers must handle as "no information" instead of defaulting to a definite state.
+     */
+    private fun triState(element: JsonElement?): Boolean? {
+        val primitive = element?.takeIf { it.isJsonPrimitive }?.asJsonPrimitive ?: return null
+        return when {
+            primitive.isBoolean -> primitive.asBoolean
+            primitive.isNumber -> primitive.asDouble != 0.0
+            else -> when (primitive.asString.lowercase(Locale.US)) {
+                in TRUE_WORDS -> true
+                in FALSE_WORDS -> false
+                else -> null
             }
         }
     }
@@ -246,6 +313,19 @@ class TwoNIPVersoDevice(
             pollingJob = null
             Log.i(tag, "2N monitoring stopped")
         }
+    }
+
+    companion object {
+        // Wording this firmware family uses for boolean-ish event/status fields; anything else is treated as
+        // "unknown" rather than guessed, so a wrong assumption shows up in the log instead of pinning a state.
+        private val TRUE_WORDS = setOf("active", "true", "on", "yes", "start", "detected", "moving")
+        private val FALSE_WORDS = setOf("inactive", "false", "off", "no", "stop", "idle", "clear", "none")
+
+        // KeyPressed edges that are NOT a doorbell press; the press itself is the default, see handleRaw2NEvent.
+        private val KEY_RELEASE_ACTIONS = setOf("released", "release", "up", "long", "hold", "held", "double")
+
+        // Report dead status endpoints once this many polls in a row, then stay quiet until recovery.
+        private const val DEAD_POLLS_ALERT = 4
     }
 }
 

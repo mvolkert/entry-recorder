@@ -29,11 +29,14 @@ import io.github.mvolkert.entryrecorder.data.model.EventType
 /**
  * Top overlay of the incoming-call screen: why the screen opened, which device triggered it and the
  * dismiss action. Sits under the status bar inset because the activity draws edge-to-edge.
+ * [caller] (who/what rang, e.g. the SIP peer or "Doorbell Button") only enriches a ring; motion and noise
+ * previews show the device alone.
  */
 @Composable
 internal fun IncomingCallHeader(
     eventType: EventType,
     deviceName: String?,
+    caller: String?,
     onDismiss: () -> Unit
 ) {
     Surface(
@@ -73,7 +76,11 @@ internal fun IncomingCallHeader(
                     fontSize = 18.sp
                 )
                 Text(
-                    text = deviceName ?: stringResource(R.string.incoming_device_fallback),
+                    text = listOfNotNull(
+                        deviceName,
+                        caller?.takeIf { it.isNotBlank() && eventType == EventType.RING }
+                    ).joinToString(" \u00B7 ")
+                        .ifBlank { stringResource(R.string.incoming_device_fallback) },
                     color = Color.White,
                     fontSize = 14.sp
                 )

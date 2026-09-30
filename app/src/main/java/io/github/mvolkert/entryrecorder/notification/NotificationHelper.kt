@@ -26,9 +26,11 @@ object NotificationHelper {
 
     const val NOTIFICATION_ID_SERVICE = 1001
 
-    // Non-overlapping id space per (event type, device): base + device*4 + slot.
+    // Non-overlapping id space per (event type, device): base + (device % 1000) * 4 + slot.
     // Prevents cross-channel collisions for different devices (the previous 1002/1003/1004 + id
     // scheme let e.g. doorbell id=2 == motion id=1) and bounds the value to avoid Long.toInt() wrap.
+    // Device ids above 999 share a slot with their id % 1000 twin, which would only replace the other
+    // device's notification; far below the Int range and far above this app's realistic device count.
     private const val FIRST_EVENT_NOTIFICATION_ID = 10000
     private const val SLOT_DOORBELL = 1
     private const val SLOT_MOTION = 2

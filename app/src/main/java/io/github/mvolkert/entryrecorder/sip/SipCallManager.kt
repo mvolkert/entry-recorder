@@ -8,10 +8,17 @@ import android.os.Build
 import android.util.Log
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.SipMode
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import org.linphone.core.*
+import kotlin.time.Duration.Companion.milliseconds
 
 enum class CallUiState {
     IDLE,
@@ -38,9 +45,20 @@ class SipCallManager private constructor(private val app: Application) {
     private var core: Core? = null
     private var currentCall: Call? = null
     private val audioManager = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var idleResetJob: Job? = null
 
     private val _sessionState = MutableStateFlow(SipSessionState())
     val sessionState: StateFlow<SipSessionState> = _sessionState.asStateFlow()
+
+    /**
+     * Invoked when the intercom actually rings this phone (SIP INVITE received), with the remote host and
+     * a display name. The monitor service sets this so a ring is detected from two independent sources:
+     * the 2N HTTP event stream and the SIP call itself, which keeps the doorbell working when SSE has to
+     * fall back to status polling (that fallback cannot see rings at all). Duplicate rings from one press
+     * are collapsed by the service's per-device debounce, so this must stay a plain notification.
+     */
+    var onIncomingCall: ((remoteHost: String, caller: String) -> Unit)? = null
 
     private val coreListener = object : CoreListenerStub() {
         override fun onCallStateChanged(
@@ -62,6 +80,10 @@ class SipCallManager private constructor(private val app: Application) {
                         callerAddress = caller,
                         callerDisplayName = displayName
                     )
+                    // Every INVITE is reported; the monitor service's per-device debounce is what collapses
+                    // this against the 2N event stream's own ring notification for the same press.
+                    // Address.domain is the SIP host part, i.e. the intercom's IP in peer-to-peer mode.
+                    onIncomingCall?.invoke(remoteAddress.domain ?: "", displayName)
                 }
                 Call.State.StreamsRunning, Call.State.Connected -> {
                     currentCall = call
@@ -73,9 +95,10 @@ class SipCallManager private constructor(private val app: Application) {
                 }
                 Call.State.End, Call.State.Released -> {
                     currentCall = null
+                    // ENDED has to stay observable: it was previously overwritten by IDLE in the same block,
+                    // so no observer could ever see it and the call screen had no end signal at all.
                     _sessionState.value = SipSessionState(state = CallUiState.ENDED)
-                    // Reset to idle after a moment
-                    _sessionState.value = SipSessionState(state = CallUiState.IDLE)
+                    scheduleIdleReset()
                 }
                 Call.State.Error -> {
                     currentCall = null
@@ -83,6 +106,9 @@ class SipCallManager private constructor(private val app: Application) {
                         state = CallUiState.ERROR,
                         errorMessage = message
                     )
+                    // Same bounded window as ENDED: a failed call used to stay in the flow forever, so the
+                    // next unrelated screen would render a stale failure with dead accept/decline buttons.
+                    scheduleIdleReset()
                 }
                 else -> {}
             }
@@ -186,20 +212,39 @@ class SipCallManager private constructor(private val app: Application) {
         }
     }
 
+    /** Drops the terminal call state back to IDLE after [POST_CALL_IDLE_MS], re-armed per terminal event. */
+    private fun scheduleIdleReset() {
+        idleResetJob?.cancel()
+        idleResetJob = scope.launch {
+            delay(POST_CALL_IDLE_MS.milliseconds)
+            _sessionState.value = SipSessionState(state = CallUiState.IDLE)
+        }
+    }
+
     fun acceptCall() {
         val call = currentCall
-        if (call != null && call.state == Call.State.IncomingReceived) {
-            val params = core?.createCallParams(call)
-            params?.isVideoEnabled = false // Audio intercom call
-            call.acceptWithParams(params)
-            routeAudioToSpeaker(true)
-            Log.i(tag, "Accepted incoming SIP call")
+        if (call == null) {
+            Log.w(tag, "Accept ignored: no current SIP call to answer")
+            return
         }
+        // Accept any pre-answer incoming state. Nothing in this app calls startRinging(), so today the call
+        // stays in IncomingReceived; relying on that single value would make the answer button a silent
+        // no-op as soon as the core advances the call to early media (Linphone 5 has no IncomingRinging).
+        if (call.state != Call.State.IncomingReceived && call.state != Call.State.IncomingEarlyMedia) {
+            Log.w(tag, "Accept ignored: call is in ${call.state}, not incoming")
+            return
+        }
+        val params = core?.createCallParams(call)
+        params?.isVideoEnabled = false // Audio intercom call
+        call.acceptWithParams(params)
+        routeAudioToSpeaker(true)
+        Log.i(tag, "Accepted incoming SIP call")
     }
 
     fun terminateCall() {
         currentCall?.terminate()
         currentCall = null
+        idleResetJob?.cancel()
         _sessionState.value = SipSessionState(state = CallUiState.IDLE)
         Log.i(tag, "Terminated SIP call")
     }
@@ -236,6 +281,10 @@ class SipCallManager private constructor(private val app: Application) {
 
     fun destroy() {
         try {
+            onIncomingCall = null
+            idleResetJob?.cancel()
+            // The manager scope is intentionally not cancelled: this is a process singleton that a restarted
+            // monitor service reuses, and a cancelled scope would silently drop the ENDED -> IDLE reset.
             core?.stop()
             core = null
         } catch (e: Exception) {
@@ -246,6 +295,10 @@ class SipCallManager private constructor(private val app: Application) {
     companion object {
         @Volatile
         private var INSTANCE: SipCallManager? = null
+
+        // How long CallUiState.ENDED stays visible before the session drops back to IDLE; the incoming-call
+        // screen uses that window to show its "call ended" line before dismissing itself.
+        private const val POST_CALL_IDLE_MS = 2500L
 
         fun getInstance(context: Context): SipCallManager {
             return INSTANCE ?: synchronized(this) {

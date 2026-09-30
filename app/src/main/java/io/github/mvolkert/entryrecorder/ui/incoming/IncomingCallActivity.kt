@@ -1,6 +1,7 @@
 package io.github.mvolkert.entryrecorder.ui.incoming
 
 import android.app.KeyguardManager
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -26,8 +27,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
+import io.github.mvolkert.entryrecorder.sip.CallUiState
 import io.github.mvolkert.entryrecorder.sip.SipSessionState
 import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
+import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 
 class IncomingCallActivity : ComponentActivity() {
 
@@ -35,14 +39,33 @@ class IncomingCallActivity : ComponentActivity() {
     private val repository by lazy { app.repository }
     private val sipManager by lazy { app.sipCallManager }
 
+    /**
+     * What this screen is currently showing. The manifest declares `launchMode="singleTask"`, so a second
+     * event intent is delivered to the live instance through [onNewIntent] instead of creating a new one —
+     * the extras therefore have to be re-read there, otherwise a screen first opened for motion and later
+     * reused for a doorbell press would keep showing the old device and event.
+     */
+    private var screen by mutableStateOf(ScreenSpec())
+
+    private data class ScreenSpec(
+        val deviceId: Long = -1L,
+        val eventType: EventType = EventType.RING,
+        val caller: String? = null
+    )
+
+    private fun screenFrom(intent: Intent) = ScreenSpec(
+        deviceId = intent.getLongExtra(EXTRA_DEVICE_ID, -1L),
+        eventType = runCatching {
+            EventType.valueOf(intent.getStringExtra(EXTRA_EVENT_TYPE) ?: EventType.RING.name)
+        }.getOrDefault(EventType.RING),
+        caller = intent.getStringExtra(EXTRA_CALLER)
+    )
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setupLockscreenFlags()
-
-        val deviceId = intent.getLongExtra(EXTRA_DEVICE_ID, -1L)
-        val eventTypeName = intent.getStringExtra(EXTRA_EVENT_TYPE) ?: EventType.RING.name
-        val eventType = try { EventType.valueOf(eventTypeName) } catch (_: Exception) { EventType.RING }
+        screen = screenFrom(intent)
 
         setContent {
             MaterialTheme(
@@ -55,16 +78,31 @@ class IncomingCallActivity : ComponentActivity() {
             ) {
                 var device by remember { mutableStateOf<DeviceEntity?>(null) }
                 val sipState by sipManager.sessionState.collectAsStateWithLifecycle()
+                var sawConnected by remember { mutableStateOf(false) }
 
-                LaunchedEffect(deviceId) {
-                    if (deviceId != -1L) {
-                        device = repository.getDeviceById(deviceId)
+                LaunchedEffect(screen.deviceId) {
+                    device = if (screen.deviceId != -1L) repository.getDeviceById(screen.deviceId) else null
+                }
+
+                // Close the full-screen call once the call behind it is over. This screen is opened either for
+                // a ring or for a motion/noise preview: a ring closes when the call ends or fails (answered or
+                // missed), a preview stays open because it never carries a call of its own.
+                LaunchedEffect(sipState.state, screen.eventType) {
+                    when (sipState.state) {
+                        CallUiState.CONNECTED -> sawConnected = true
+                        CallUiState.ENDED, CallUiState.ERROR -> if (screen.eventType == EventType.RING || sawConnected) {
+                            sawConnected = false
+                            delay(TERMINAL_CALL_DISMISS_MS.milliseconds)
+                            finish()
+                        }
+                        CallUiState.IDLE, CallUiState.RINGING_INCOMING -> Unit
                     }
                 }
 
                 IncomingCallContent(
                     device = device,
-                    eventType = eventType,
+                    eventType = screen.eventType,
+                    caller = screen.caller,
                     sipState = sipState,
                     onAcceptCall = {
                         sipManager.acceptCall()
@@ -85,6 +123,12 @@ class IncomingCallActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        screen = screenFrom(intent)
     }
 
     private fun setupLockscreenFlags() {
@@ -109,6 +153,10 @@ class IncomingCallActivity : ComponentActivity() {
         const val EXTRA_DEVICE_ID = "extra_device_id"
         const val EXTRA_EVENT_TYPE = "extra_event_type"
         const val EXTRA_CALLER = "extra_caller"
+
+        // How long the terminal call bar stays on screen after the call ended or failed, short enough not to
+        // block the lockscreen and still within the window SipCallManager keeps that state before IDLE.
+        private const val TERMINAL_CALL_DISMISS_MS = 1500L
     }
 }
 
@@ -116,6 +164,7 @@ class IncomingCallActivity : ComponentActivity() {
 fun IncomingCallContent(
     device: DeviceEntity?,
     eventType: EventType,
+    caller: String?,
     sipState: SipSessionState,
     onAcceptCall: () -> Unit,
     onDeclineCall: () -> Unit,
@@ -148,6 +197,7 @@ fun IncomingCallContent(
         IncomingCallHeader(
             eventType = eventType,
             deviceName = device?.name,
+            caller = caller,
             onDismiss = onDismiss
         )
 

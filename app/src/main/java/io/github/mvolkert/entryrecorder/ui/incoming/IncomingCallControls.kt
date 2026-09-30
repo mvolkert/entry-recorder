@@ -22,12 +22,15 @@ import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.sip.CallUiState
 import io.github.mvolkert.entryrecorder.sip.SipSessionState
@@ -35,6 +38,7 @@ import io.github.mvolkert.entryrecorder.sip.SipSessionState
 /**
  * Bottom call-action bar. A [BoxScope] extension because it anchors itself to the bottom of the
  * full-screen stream, and it stays clear of the navigation bar inset.
+ * Exhaustive over [CallUiState] on purpose: a new state has to decide here what its action row looks like.
  */
 @Composable
 internal fun BoxScope.IncomingCallControls(
@@ -105,7 +109,18 @@ internal fun BoxScope.IncomingCallControls(
                 }
             }
 
-            else -> Row(
+            // Terminal states: nothing is left to act on, and the screen closes itself (IncomingCallActivity),
+            // so this explains why the buttons disappeared instead of offering a dead accept button.
+            // The SIP failure reason is shown when the core provided one.
+            CallUiState.ENDED, CallUiState.ERROR -> Text(
+                text = sipState.errorMessage ?: stringResource(R.string.incoming_call_ended),
+                color = Color.White,
+                fontSize = 16.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            CallUiState.IDLE, CallUiState.RINGING_INCOMING -> Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically

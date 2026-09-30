@@ -242,6 +242,7 @@
     <string name="incoming_cd_speaker">Speaker</string>
     <string name="incoming_cd_decline">Decline</string>
     <string name="incoming_cd_accept">Accept Call (Gegensprechen)</string>
+    <string name="incoming_call_ended">Call ended</string>
 
     <!-- Stream players -->
     <string name="player_cd_live_feed">Live Camera Feed</string>

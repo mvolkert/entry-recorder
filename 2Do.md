@@ -143,6 +143,210 @@
       which made every latency number in that run meaningless).
       Action: confirm the live-stream path this firmware actually serves, and make `MjpegStreamReader` fail
       loudly on a content type that is not `multipart`/`image` instead of streaming nothing.
+- [x] **App-side motion detection never fires / gives no evidence** (owner-reported 2026-09-30; owner
+      confirmed the camera is snapshot-poll-only and the Live view does show moving pictures, so the
+      endpoint itself is live). Three defects found by reading `video/OnDeviceMotionAnalyzer.kt`, fixed the
+      same day; the sensitivity question stays open until the new health log has real numbers on device.
+      - **Every fetch failure was silent.** `if (responseCode != 200) return null` and
+        `BitmapFactory.decodeByteArray(...) ?: return null` logged nothing, and this device class answers a
+        wrong/under-parameterised path with **HTTP 200 + `application/json`** (see the entry above), so a
+        dead endpoint and an empty room were indistinguishable from logcat — zero lines either way.
+        Fixed: frames now go through `data/network/HttpSnapshotClient` (shared keep-alive OkHttp, same auth
+        and timeout behaviour as the recorder and the live view, no `HttpURLConnection` response-cache
+        surface) and `HttpSnapshotClient` itself rejects a JSON/XML/HTML/plain body with a `Log.w` naming the
+        content type instead of returning it as a "frame" (that body used to be muxed into recordings as a
+        fake frame). The analyzer also prints one health line per 60 s: frames usable / polls, the **peak
+        changed-pixel ratio** against the 3 % trigger, and the current poll interval — i.e. the data needed
+        to retune the thresholds from measurements instead of guesses.
+      - **A settings edit did not take effect.** `service/IntercomMonitorService.kt` recreated the *device*
+        on a row change but kept the old analyzer, which held the `DeviceEntity` captured at creation —
+        editing the snapshot path/credentials left analysis polling the stale URL until the FGS restarted.
+        Fixed: the analyzer is rebuilt when the entity differs (public `deviceEntity` on the class).
+      - **CPU**: the loop decoded the full 1280x720 JPEG every poll; it now decodes with a computed
+        `inSampleSize` down toward the 96x54 analysis grid.
+      - **Still open (needs the health line from the device):** the trigger needs `changedRatio >= 3 %` of
+        96x54 pixels differing by >25 grey levels on **two consecutive** comparisons, while idle polling
+        backs off to 1500 ms — a person crossing the doorway in ~1.5 s can produce only one changed pair and
+        never trigger. `recordOnMotionOnDevice` also defaults to **false**, so "motion does nothing" can
+        simply be the un-enabled trigger (the plain `recordOnMotion` path is the intercom's own SSE
+        `MotionDetected` event, a different pipeline). Note the analyzer is protocol-blind by design: it
+        always reads the snapshot endpoint, never `mjpegUrl` — correct for a snapshot-only camera, still a
+        gap for a real MJPEG-only device (Tier: unprioritised, no such device on this deployment).
+      `compileDebugKotlin` + `lintDebug` green (no new findings); `testDebugUnitTest` NO-SOURCE as usual.
+      🔄 Device gate: read one `Motion analysis on …` health line idle and one while walking past the camera.
+- [x] **Post-record stops were event-type-blind and non-cancellable → recordings cut short or discarded**
+      (found while reviewing the ring/noise paths 2026-09-30, same day). `IntercomMonitorService` scheduled
+      `delay(postRecordSeconds); recorder.stopRecording(device.id)` for MotionEnded, NoiseEnded and
+      MotionOnDeviceEnded, and `RtspStreamRecorder.stopRecording(deviceId)` stopped **whatever** was running
+      on that device. Two concrete losses: (a) a 20 s noise/motion buffer killed a 60 s doorbell recording on
+      the same device, and (b) a flickering event (on → off → on) left the *previous* episode's timer armed,
+      which then stopped the just-started recording of the next episode — when that landed within a second of
+      the start, the clip was a 0-byte file that the recorder discarded as "Recording produced empty file",
+      i.e. **detection fired and no recording showed up**. This is the same symptom as the motion bug above
+      and had to be fixed before any motion/ring/noise device test could be trusted.
+      Fix: `stopRecording(deviceId, reason: EventType?)` only stops a recording whose `eventType` matches the
+      reason (manual stop from the Live view passes null and still stops anything), server recordings now
+      store their `EventType` instead of `true`, and the service keeps at most one pending stop per device
+      (`pendingPostRecordStops` + `schedulePostRecordStop`/`cancelPostRecordStop`), cancelled whenever a new
+      episode of the same event arms a fresh recording. `compileDebugKotlin` + `lintDebug` green (no new
+      findings). 🔄 Untested on device — verify a doorbell press no longer truncates under 20 s.
+
+## Ring / noise / call pipeline review (2026-09-30, all findings fixed same day)
+All line numbers are `data/device/TwoNIPVersoDevice.kt`, `sip/SipCallManager.kt`,
+`ui/incoming/IncomingCallControls.kt`, `notification/NotificationHelper.kt` as of today; they drift with
+every edit to those files, so treat them as pointers rather than exact locations.
+
+- [x] **One doorbell press raised two `DoorbellRung` events.** `handleRaw2NEvent` fired on `KeyPressed`
+      (unconditional — no `action` press/release filter, so the service button and the release edge counted as
+      a doorbell) **and** on `CallStateChanged` for `incoming`/`ringing`/`dialing`. Consequence: two ring
+      notifications and two `startActivity` per press; the recording was only saved by
+      `RtspStreamRecorder.startRecording`'s `isRecording` guard.
+      Fix, two layers: `KeyPressed` is now raised only for a press edge (`action` absent, or in
+      `PRESS_ACTIONS`; an absent field keeps working for firmware that does not send it), and the service
+      debounces rings **per device** over 5 s (`lastRingHandledAt` + `RING_DEBOUNCE_MS`, checked with an
+      atomic `ConcurrentHashMap.put` so it holds even when the events land on different IO threads).
+      Deliberately **not** done: the `direction == incoming` filter that was suggested at first. A doorbell
+      press makes the intercom *dial out* to this phone, so the ringing call is `outgoing`/`dialing` from the
+      device's point of view — filtering on direction would have discarded the primary ring path, and the
+      payload values are not documented in this repo. `direction` stays logged for the device session.
+- [x] **The SSE polling fallback could not deliver doorbell events at all.** `onFailure` →
+      `startPollingFallback` polled `/api/motion/status` and `/api/noise/status` only, so every ring was
+      silently lost while SSE was down. No pollable ring endpoint is known for this firmware (the device is
+      configured with Basic/Digest user auth only, no API-key concept in the code), so instead of inventing a
+      path the fix uses the ring source the app already has: `SipCallManager.onIncomingCall` reports every
+      inbound INVITE, and `IntercomMonitorService.handleSipRing` turns it into the same `DoorbellRung` that
+      the event stream produces — routed through the normal handler (recording, notification, wake) and the
+      same 5 s debounce, so it never double-rings with SSE. A SIP ring is attributed by matching
+      `Address.domain` (= the SIP host, the intercom's IP in peer-to-peer mode) against the monitored
+      devices, falling back to the single monitored device and otherwise logged + ignored. When SIP is
+      disabled (`SipMode.DISABLED`, unregistered P2P) the fallback still cannot see rings, and it now says so
+      through `ConnectionState` instead of failing silently.
+- [x] **The fallback repeated the motion analyzer's silent-failure shape.** `if (response.isSuccessful)
+      { parse }` had no `else`, so a non-200 or an HTTP 200 + JSON error document pinned `lastMotionState` /
+      `lastNoiseState` at `false` forever — a missing endpoint was indistinguishable from a quiet room — and
+      the `?: false` on an unverified `{"result":{"active":bool}}` shape failed the same way.
+      Fix: polling extracted into `pollBooleanStatus(url, label)` returning `Boolean?` where **null means
+      "no information"**, with a `Log.w` per failure class (HTTP code, parse error incl. a 160-char body
+      excerpt so a wrong payload assumption becomes visible, exception). A null no longer overwrites the last
+      known state; after 4 polls with nothing usable on both endpoints the device reports
+      `ConnectionState(isConnected = false, …)`, once per outage instead of every 1.5 s.
+      `IntercomMonitorService` now logs `ConnectionState` at `Log.i`/`Log.w` (was `Log.d` only), so a
+      degraded monitor reaches logcat and crash telemetry.
+- [x] **`CallUiState.ENDED` was unreachable and the incoming-call screen never auto-dismissed.**
+      `SipCallManager` wrote `SipSessionState(ENDED)` and overwrote it with `IDLE` in the same block (dead
+      state, `Dead code removal convention` violation), while `IncomingCallControls` rendered accept/decline
+      for everything but `CONNECTED` — so after the call ended the full-screen activity kept the stream, a
+      dead accept/decline bar and `FLAG_KEEP_SCREEN_ON` until the user tapped.
+      Fix: `ENDED` now stays visible for 2.5 s (`POST_CALL_IDLE_MS`, reset job cancelled/re-armed per call),
+      `IncomingCallControls` has an explicit `ENDED` branch ("Call ended", no buttons) and
+      `IncomingCallActivity` dismisses itself 1.5 s later when the screen belongs to a call
+      (`eventType == RING`, or it observed `CONNECTED`). Motion/noise previews never match that gate, so
+      they stay open for the stream; and because the dismiss lives in a `LaunchedEffect(sipState.state)`, a
+      new ring that reuses the single-top activity cancels the pending `finish()`.
+- [x] **`acceptCall()` could no-op silently** — it accepted only `Call.State.IncomingReceived` with no `else`
+      and no log, which worked only because nothing calls `call.startRinging()`. Fix: it now answers any
+      pre-answer incoming state and logs the reason when it refuses (`no current SIP call` / `call is in
+      <state>`). Correction to the note written at review time: Linphone 5.4 has **no**
+      `IncomingRinging` state — verified against the SDK sources jar, the enum goes `IncomingReceived`,
+      `PushIncomingReceived`, …, `IncomingEarlyMedia` — so the second accepted state is `IncomingEarlyMedia`.
+      `PushIncomingReceived` is deliberately excluded (it needs the push payload fetched before it is
+      answerable). No `startRinging()` call was added: that changes the audio/routing path and is not
+      verifiable from the repo.
+- [ ] 🔄 **Peer-to-peer SIP is unverified, not a known bug.** `configureDeviceSip` in `PEER_TO_PEER` clears
+      proxy configs and auth and rewrites the UDP/TCP ports on an already-started core and never sets an
+      identity address, so inbound INVITE delivery depends on the 2N dialing this phone's IP:port directly.
+      This is now load-bearing, not just convenience: the SIP ring source above is what covers doorbell rings
+      while SSE is in polling fallback. If no INVITE ever reaches the phone, the ring gap stays open and only
+      the `ConnectionState` notice tells the user. Belongs with the Tier G lock-screen ring gate.
+- [x] **Trivial:** `NotificationHelper.eventNotificationId` comment said `base + device*4 + slot` while the
+      code is `base + (deviceId % 1000) * 4 + slot`. Comment corrected to match, including the consequence
+      (device ids 1000 apart share a slot and would replace each other's notification) — harmless at this
+      deployment's device count.
+- ✅ Checked and correct: motion and noise channels are independent per-event notification ids and channels;
+      the app-side analyzer and the device's own `MotionDetected` both record as `EventType.MOTION`, so the
+      `isRecording` guard prevents a double recording when both triggers are enabled; `startRecording`
+      correctly falls back to local recording when the Python server refuses.
+      `compileDebugKotlin` + `lintDebug` + `testDebugUnitTest` (NO-SOURCE) green after these changes, no new
+      lint findings in any touched file. 🔄 Nothing verified against the intercom yet: one press should now
+      produce exactly one notification (look for `Duplicate ring on …, ignoring`), and a call that the
+      intercom hangs up should close its full-screen view by itself.
+
+## Code smell pass over the trigger pipeline (2026-09-30)
+Review of the files changed above and their neighbours, focused on the event → recording → alert path.
+
+- [x] **`MotionDetected` / `NoiseDetected` decoded an unknown payload as "no motion".** The read was
+      `params.get("state")?.asBoolean ?: (params.get("state")?.asString == "active")`, which is `false` for a
+      missing field and for any wording other than exactly `active` — so a firmware that sends `"on"`, `1` or
+      puts the boolean under another key fired **Ended** on every real motion event and motion/noise
+      recording could never start, with only the raw-event `Log.d` as evidence. Now routed through
+      `triState(element): Boolean?` (`TwoNIPVersoDevice`): booleans, numbers and the
+      `active|true|on|yes|start|detected` / `inactive|false|off|no|stop|idle|clear` word families map to a
+      state, **anything else means "no information"** (`Log.w` + the payload excerpt, no state change). The
+      HTTP status poll uses the same helper, so the SSE path and the fallback path cannot disagree about what
+      a payload means.
+- [x] **The `KeyPressed` press allow-list I added in the previous pass was itself a ring-killer.**
+      `PRESS_ACTIONS = {pressed, press, single, click, down}` silently dropped every action string that the
+      firmware spells differently, and that string is not documented anywhere in this repo. Inverted to a
+      release **deny**-list (`KEY_RELEASE_ACTIONS`): an unknown action rings, and duplicates are absorbed by
+      the service debounce. Deliberate fail-safe direction — a missed doorbell is worse than a duplicate
+      alert, and duplicates are already handled downstream.
+- [x] **`CallUiState.ERROR` was terminal in the data but not in the UI.** `Call.State.Error` wrote ERROR and
+      never reset it, so one failed call pinned the session forever: every later screen that renders the
+      action bar showed dead accept/decline buttons. ERROR now shares `scheduleIdleReset()` with ENDED (the
+      four duplicated lines became one function) and both render the same "nothing left to do" bar — which
+      also finally *reads* `SipSessionState.errorMessage`, a field that had been written since the beginning
+      and consumed by nothing.
+- [x] **`EXTRA_CALLER` was written by two call sites and read by none.** The ring overlay showed the device
+      name only, so the caller the service and the notification carefully passed (`Doorbell Button`, the SIP
+      peer) was dead data. `IncomingCallContent` → `IncomingCallHeader` now take `caller` and render
+      `device · caller` for `EventType.RING`; motion/noise previews stay device-only.
+- [x] **The call screen ignored `onNewIntent` while the manifest pins it to `launchMode="singleTask"`.** All
+      three event intents (`RING`, `MOTION`, `NOISE`, plus the full-screen intent) use `CLEAR_TOP`, so the
+      live instance is reused and `intent` is replaced without `onCreate` running again: a motion screen that
+      was re-targeted by a doorbell press kept the **old** device id, event type and caller on screen. The
+      extras are now read through a `ScreenSpec` held in `mutableStateOf`, refreshed in `onNewIntent` (with
+      `setIntent()`), and `LaunchedEffect(screen.deviceId)` re-resolves the device — including clearing it
+      when an intent carries no id, which previously left the old device's stream up.
+- [x] **Silent `catch (_: Exception)` around the MJPEG capture.** A stream that died after a few frames fell
+      back to snapshot polling with no trace, i.e. indistinguishable from a recording of a static scene.
+      Now a `Log.w` naming the device and the reason (`RtspStreamRecorder.recordStreamToMkv`).
+- [x] **Per-device bookkeeping outlived the device.** `pendingPostRecordStops` and `lastRingHandledAt` are
+      keyed by device id and were only cleared on service destroy; a deleted device left a pending stop armed
+      and a re-added id inherited the old ring stamp. Both are now dropped in the same loop that stops the
+      device. While there: the `when (event)` in `IncomingCallControls` no longer needs an `else` (terminal /
+      ringing / connected are all enumerated), so a new `CallUiState` becomes a compile error instead of
+      silently inheriting the accept/decline row.
+- [ ] **Remaining smells, reported and deliberately not fixed:**
+      1. *Duplication in the event router*: `MotionStarted` and `MotionOnDeviceStarted` are ~20 near-identical
+         lines (they differ only in which record flag they test), and the three `*Ended` branches differ only
+         in the `EventType` passed to `schedulePostRecordStop`. Collapsing them is a refactor of the 24/7
+         router → belongs to Tier E with the other service work.
+      2. `IntercomEvent.CallState` has **no consumer**: the service only `Log.d`s it. Either drive
+         `MonitorStatusHolder`/the call UI from it or drop it (dead-code convention).
+      3. `ConnectionState(isConnected = true, message = "SSE event stream unavailable…")` — the boolean says
+         connected while the text says degraded. The event has no third state, so a partially working monitor
+         can only be expressed as a string, and `MonitorStatus` has no "degraded" value either: nothing in the
+         UI can show it, only logcat. Needs a small `IntercomEvent`/`MonitorStatus` API decision, not an
+         invented field.
+      4. *Coupled magic constants in two files*: `POST_CALL_IDLE_MS = 2500` (`SipCallManager`) must stay
+         larger than `TERMINAL_CALL_DISMISS_MS = 1500` (`IncomingCallActivity`) or the auto-dismiss quietly
+         stops firing (the state would flip to IDLE before the screen sees it). Commented at both sites, no
+         compile-time link. Cleaner: one shared constant, or dismiss on IDLE instead of racing it.
+      5. `SipCallManager.onIncomingCall` is a mutable, non-volatile callback property rather than the
+         project's `Channel<UiEvent>` convention, invoked on the Linphone core thread. Fine for the single
+         non-UI consumer it has today; a second consumer should get a Flow.
+      6. `handleSipRing`'s "if exactly one device is monitored, attribute the SIP ring to it" is a
+         by-count heuristic: behind a PBX the remote host is the PBX, not the intercom, so the match is not
+         by identity. Logged at info; only correct for single-device deployments.
+      7. The 5 s ring debounce also swallows a **genuine** second press inside that window — the recording
+         keeps running, but there is no second alert. Intended trade-off; worth knowing when testing.
+      8. `SipSessionState.callerAddress` / `callerDisplayName` are still write-only (the overlay uses the
+         intent's caller). Pick one source or delete the fields.
+      9. Pre-existing and already tracked separately: the snapshot capture loop paces with
+         `delay(1000 / fps)` without subtracting the fetch time, so the real frame rate is below the requested one.
+      `compileDebugKotlin` + `lintDebug` + `testDebugUnitTest` green after this pass, no lint finding in any
+      touched file. 🔄 All of it still needs the intercom: the `triState` change in particular is only
+      *correct* if the payload words match reality, and the log lines now say what the device actually sends.
 
 
 Reorganized from the code & feature review, re-verified against the current codebase

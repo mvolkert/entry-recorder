@@ -45,7 +45,9 @@ class RtspStreamRecorder(
     private val tag = "RtspStreamRecorder"
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val activeRecordings = ConcurrentHashMap<Long, ActiveRecordingJob>()
-    private val activeServerRecordings = ConcurrentHashMap<Long, Boolean>()
+    // Server-side recordings remember their trigger type too, so a delayed post-record stop from one
+    // event type cannot terminate the recording another event type started (see stopRecording).
+    private val activeServerRecordings = ConcurrentHashMap<Long, EventType>()
 
     // Observable recording status: the plain ConcurrentHashMaps above are invisible to Compose, so
     // every mutation also publishes the affected device ids here (local + server recordings). The
@@ -93,7 +95,7 @@ class RtspStreamRecorder(
                 )
 
                 if (result.isSuccess) {
-                    activeServerRecordings[device.id] = true
+                    activeServerRecordings[device.id] = eventType
                     publishActiveIds()
                     // The server also auto-stops after duration_seconds, but reconcile explicitly when
                     // our local timer elapses so app and server state agree instead of drifting. The
@@ -160,27 +162,45 @@ class RtspStreamRecorder(
     }
 
     /**
-     * Stops an ongoing recording and commits it to database or informs the server
+     * Stops an ongoing recording and commits it to database or informs the server.
+     *
+     * [reason] restricts the stop to the recording that this event type started: the motion and noise
+     * post-record buffers stop on a delay, and without the guard a short noise clip ending at 20 s
+     * would cut a 60 s doorbell recording on the same device short. A null reason (the manual stop from
+     * the Live view) stops whatever is running for the device.
      */
     @Synchronized
-    fun stopRecording(deviceId: Long) {
-        val active = activeRecordings.remove(deviceId)
-        if (active != null) {
-            Log.i(tag, "Stopping active local recording for device $deviceId")
-            publishActiveIds()
-            active.job.cancel()
+    fun stopRecording(deviceId: Long, reason: EventType? = null) {
+        val active = activeRecordings[deviceId]
+        when {
+            active == null -> Unit
+            reason != null && active.eventType != reason ->
+                Log.i(tag, "Ignoring $reason post-record stop for device $deviceId: active recording is ${active.eventType}")
+            else -> {
+                Log.i(tag, "Stopping active local recording for device $deviceId")
+                activeRecordings.remove(deviceId)
+                publishActiveIds()
+                active.job.cancel()
+            }
         }
 
-        if (activeServerRecordings.remove(deviceId) != null) {
-            Log.i(tag, "Stopping active server recording for device $deviceId")
-            publishActiveIds()
-            scope.launch {
-                val settings = repository.getSettings()
-                serverClient.stopRecording(
-                    serverUrl = settings.serverBaseUrl,
-                    apiKey = settings.serverApiKey.ifBlank { null },
-                    deviceId = deviceId
-                )
+        val serverEventType = activeServerRecordings[deviceId]
+        when {
+            serverEventType == null -> Unit
+            reason != null && serverEventType != reason ->
+                Log.i(tag, "Ignoring $reason post-record stop for device $deviceId: server recording is $serverEventType")
+            else -> {
+                Log.i(tag, "Stopping active server recording for device $deviceId")
+                activeServerRecordings.remove(deviceId)
+                publishActiveIds()
+                scope.launch {
+                    val settings = repository.getSettings()
+                    serverClient.stopRecording(
+                        serverUrl = settings.serverBaseUrl,
+                        apiKey = settings.serverApiKey.ifBlank { null },
+                        deviceId = deviceId
+                    )
+                }
             }
         }
     }
@@ -217,8 +237,10 @@ class RtspStreamRecorder(
                         if (!isActive || System.currentTimeMillis() >= deadline) return@collect
                         handleJpeg(jpegBytes)
                     }
-                } catch (_: Exception) {
-                    // Fall back to snapshot polling if MJPEG stream drops
+                } catch (e: Exception) {
+                    // Snapshot polling continues below. Not silent: a stream that dies after a few frames
+                    // otherwise looks identical to a recording that simply has no motion in it.
+                    Log.w(tag, "MJPEG stream for ${device.name} ended (${e.message}), continuing with snapshot polling")
                 }
             }
 

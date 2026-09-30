@@ -30,6 +30,11 @@ class IntercomMonitorService : Service(), IntercomEventListener {
 
     private val activeDevices = ConcurrentHashMap<Long, IntercomDevice>()
     private val activeMotionAnalyzers = ConcurrentHashMap<Long, OnDeviceMotionAnalyzer>()
+    // At most one pending post-record stop per device, so a new episode of the same event supersedes
+    // the timer of the previous one instead of truncating the running recording.
+    private val pendingPostRecordStops = ConcurrentHashMap<Long, Job>()
+    // Last handled doorbell ring per device, in wall-clock ms, for the duplicate-ring debounce.
+    private val lastRingHandledAt = ConcurrentHashMap<Long, Long>()
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
 
@@ -60,6 +65,9 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         // Initialize SIP engine
         sipManager.initialize()
 
+        // A SIP INVITE is a second, independent ring source for the doorbell (see handleSipRing).
+        sipManager.onIncomingCall = { remoteHost, caller -> handleSipRing(remoteHost, caller) }
+
         // Observe devices from database and update monitoring
         serviceScope.launch {
             repository.allDevices.collect { devices ->
@@ -89,6 +97,10 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             val device = activeDevices.remove(id)
             device?.stopMonitoring()
             MonitorStatusHolder.remove(id)
+            // Per-device bookkeeping of the two maps below has to go with the device, otherwise a pending
+            // post-record stop could still fire for it and a re-added id would inherit the old ring stamp.
+            pendingPostRecordStops.remove(id)?.cancel()
+            lastRingHandledAt.remove(id)
         }
 
         // Add or update active devices
@@ -105,10 +117,13 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                 sipManager.configureDeviceSip(entity)
             }
 
-            // Manage the on-device (app-side) motion analyzer independently of the device implementation
+            // Manage the on-device (app-side) motion analyzer independently of the device implementation.
+            // It has to be rebuilt when the device row changes, otherwise it keeps polling the URL and
+            // credentials captured at creation time and a settings edit only takes effect after a restart.
             val existingAnalyzer = activeMotionAnalyzers[entity.id]
             if (entity.recordOnMotionOnDevice) {
-                if (existingAnalyzer == null) {
+                if (existingAnalyzer == null || existingAnalyzer.deviceEntity != entity) {
+                    existingAnalyzer?.stop()
                     val analyzer = OnDeviceMotionAnalyzer(entity, this@IntercomMonitorService)
                     activeMotionAnalyzers[entity.id] = analyzer
                     analyzer.start()
@@ -143,7 +158,18 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     val device = event.device
                     Log.i(tag, "Doorbell triggered for ${device.name}")
 
+                    // One press arrives from several sources at once (2N KeyPressed, 2N CallStateChanged and
+                    // the SIP INVITE), so collapse rings per device. The first ring wins; the recording itself
+                    // is additionally guarded by RtspStreamRecorder's isRecording check.
+                    val ringAt = System.currentTimeMillis()
+                    val previousRingAt = lastRingHandledAt.put(device.id, ringAt)
+                    if (previousRingAt != null && ringAt - previousRingAt < RING_DEBOUNCE_MS) {
+                        Log.i(tag, "Duplicate ring on ${device.name} ${ringAt - previousRingAt}ms after the previous one, ignoring")
+                        return@launch
+                    }
+
                     // 1. Start Recording if configured
+                    cancelPostRecordStop(device.id)
                     if (device.recordOnRing) {
                         recorder.startRecording(
                             device = device,
@@ -183,6 +209,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     Log.i(tag, "Motion started on ${device.name}")
                     MonitorStatusHolder.update(device.id, MonitorStatus.MOTION)
 
+                    cancelPostRecordStop(device.id)
                     if (device.recordOnMotion) {
                         recorder.startRecording(
                             device = device,
@@ -207,16 +234,14 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     Log.i(tag, "Motion ended on ${device.name}")
                     MonitorStatusHolder.update(device.id, MonitorStatus.MONITORING)
                     // Allow post-record time buffer then stop
-                    serviceScope.launch {
-                        delay((device.motionPostRecordSeconds * 1000L).milliseconds)
-                        recorder.stopRecording(device.id)
-                    }
+                    schedulePostRecordStop(device, EventType.MOTION, device.motionPostRecordSeconds)
                 }
 
                 is IntercomEvent.NoiseStarted -> {
                     val device = event.device
                     Log.i(tag, "Noise started on ${device.name}")
 
+                    cancelPostRecordStop(device.id)
                     if (device.recordOnNoise) {
                         recorder.startRecording(
                             device = device,
@@ -240,10 +265,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     val device = event.device
                     Log.i(tag, "Noise ended on ${device.name}")
                     // Allow post-record time buffer then stop
-                    serviceScope.launch {
-                        delay((device.noisePostRecordSeconds * 1000L).milliseconds)
-                        recorder.stopRecording(device.id)
-                    }
+                    schedulePostRecordStop(device, EventType.NOISE, device.noisePostRecordSeconds)
                 }
 
                 is IntercomEvent.MotionOnDeviceStarted -> {
@@ -251,6 +273,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     Log.i(tag, "On-device motion analysis started on ${device.name}")
                     MonitorStatusHolder.update(device.id, MonitorStatus.MOTION)
 
+                    cancelPostRecordStop(device.id)
                     if (device.recordOnMotionOnDevice) {
                         recorder.startRecording(
                             device = device,
@@ -274,10 +297,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     val device = event.device
                     Log.i(tag, "On-device motion analysis ended on ${device.name}")
                     MonitorStatusHolder.update(device.id, MonitorStatus.MONITORING)
-                    serviceScope.launch {
-                        delay((device.motionPostRecordSeconds * 1000L).milliseconds)
-                        recorder.stopRecording(device.id)
-                    }
+                    schedulePostRecordStop(device, EventType.MOTION, device.motionPostRecordSeconds)
                 }
 
                 is IntercomEvent.CallState -> {
@@ -285,7 +305,10 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                 }
 
                 is IntercomEvent.ConnectionState -> {
-                    Log.d(tag, "Device ${event.device.name} connection: ${event.isConnected} (${event.message})")
+                    val detail = "Device ${event.device.name} connection: ${event.isConnected} (${event.message})"
+                    // Degraded monitoring (e.g. the 2N polling fallback that cannot see doorbells at all) has
+                    // to be visible in logcat and crash telemetry, not buried at debug level.
+                    if (event.isConnected) Log.i(tag, detail) else Log.w(tag, detail)
                 }
 
                 is IntercomEvent.Error -> {
@@ -293,6 +316,46 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                 }
             }
         }
+    }
+
+    /**
+     * Handles a ring signalled by an incoming SIP call rather than by the 2N HTTP event stream. This keeps
+     * the doorbell working in the SSE polling-fallback mode, which can only read the motion/noise status
+     * endpoints and would otherwise lose every ring. Routed through the normal event path so recording,
+     * notification and wake handling stay in one place, and through the same ring debounce.
+     */
+    private fun handleSipRing(remoteHost: String, caller: String) {
+        val devices = activeDevices.values.map { it.deviceEntity }
+        val device = devices.firstOrNull { it.ipAddress == remoteHost }
+            ?: devices.singleOrNull()?.also {
+                Log.i(tag, "SIP ring from $remoteHost attributed to the only monitored device ${it.name}")
+            }
+        if (device == null) {
+            Log.w(tag, "SIP ring from $remoteHost matches none of the ${devices.size} monitored devices, ignoring")
+            return
+        }
+        onEvent(IntercomEvent.DoorbellRung(device, callerNumber = caller))
+    }
+
+    /**
+     * Arms the post-record buffer for [eventType], then stops exactly the recording that event type
+     * started. Cancelling any previous timer makes a flickering event (on/off/on) extend the running
+     * recording rather than schedule a stop for the episode that is still being recorded — before this,
+     * a trailing stop from the previous episode cut the next one short, often into a 0-byte file that
+     * the recorder then discarded as "empty".
+     */
+    private fun schedulePostRecordStop(device: DeviceEntity, eventType: EventType, seconds: Int) {
+        pendingPostRecordStops.remove(device.id)?.cancel()
+        pendingPostRecordStops[device.id] = serviceScope.launch {
+            delay((seconds * 1000L).milliseconds)
+            pendingPostRecordStops.remove(device.id)
+            recorder.stopRecording(device.id, eventType)
+        }
+    }
+
+    /** Drops a pending delayed stop, because a new episode of the same event started recording. */
+    private fun cancelPostRecordStop(deviceId: Long) {
+        pendingPostRecordStops.remove(deviceId)?.cancel()
     }
 
     private fun acquireWakeAndWifiLocks() {
@@ -346,6 +409,10 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             wifiLock?.let { if (it.isHeld) it.release() }
         } catch (_: Exception) {}
 
+        pendingPostRecordStops.clear()
+        lastRingHandledAt.clear()
+        sipManager.onIncomingCall = null
+
         sipManager.destroy()
     }
 
@@ -354,6 +421,10 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     companion object {
         /** Action used by the persistent foreground notification to stop monitoring in place. */
         const val ACTION_STOP = "io.github.mvolkert.entryrecorder.service.ACTION_STOP"
+
+        // Rings from one doorbell press reach the app from up to three sources within a second; anything
+        // arriving inside this window after a handled ring is treated as the same press.
+        private const val RING_DEBOUNCE_MS = 5000L
 
         fun start(context: Context) {
             val intent = Intent(context, IntercomMonitorService::class.java)
