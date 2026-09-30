@@ -348,6 +348,118 @@ Review of the files changed above and their neighbours, focused on the event →
       touched file. 🔄 All of it still needs the intercom: the `triState` change in particular is only
       *correct* if the payload words match reality, and the log lines now say what the device actually sends.
 
+## Android review — Motion & Doorbell on a snapshot-only camera (2026-09-30; findings 1-4 fixed same day, 5-7 resolved no-code)
+Scope: `app/` only (server excluded), focused on the trigger path for a camera whose video is reachable
+**only** through the HTTP snapshot endpoint. All findings were read/grep-verified against the current source;
+line numbers are pointers that drift with edits. **Owner confirmed the camera is registered as `TWO_N_VERSO`
+and asked for fixes to all findings.** Findings 1-4 were implemented (one commit each, `assembleDebug` green
+before every commit, no push); 5-7 needed no code for a 2N snapshot-only device and are closed with the
+rationale below. None of the code fixes are device-verified yet — each carries a 🔄 gate.
+
+- [x] **`HttpSnapshotClient` cannot do Digest auth — its KDoc says it can.** `data/network/HttpSnapshotClient.kt:27`
+      documents "Tries Basic auth first, then Digest if requested", but the code only ever sends
+      `Credentials.basic(...)` (L38) and its `OkHttpClient` (L20-23) has **no** `authenticator`. The 2N event/status
+      client in `data/device/TwoNIPVersoDevice.kt:46-54` *does* attach `TwoNDigestAuthenticator`. Consequence for a
+      snapshot-only camera whose endpoint requires Digest: every `fetchSnapshotBytes` returns null (401 → L52 `Log.w`),
+      so motion analysis starves silently and recordings finalize as 0-byte files discarded at
+      `RtspStreamRecorder.kt:333-335`. This is the single highest-risk gap for the primary use case, because the
+      snapshot path *is* the whole video pipeline here. Action: either attach a Digest authenticator to the snapshot
+      client (reuse `TwoNDigestAuthenticator`) or correct the KDoc and surface a 401 as a real
+      `IntercomEvent.ConnectionState` instead of a bare `Log.w`. Owner's device currently answers Basic, so this is
+      latent, not active — verify against the actual firmware auth mode before deciding.
+      → **Fixed 2026-09-30 (commit `4b5ed5d`):** `TwoNDigestAuthenticator` extracted to a shared
+      `data/network/DigestAuthenticator`; `HttpSnapshotClient` tags each request with the device credentials and
+      its shared singleton client resolves a Digest challenge through that authenticator (Basic stays the
+      preemptive fast path), and the KDoc now matches the code. `assembleDebug` green. 🔄 Verify a Digest-only
+      snapshot endpoint returns frames instead of a silent 401.
+- [x] **The live-view snapshot loop still paces wrong and never stops when the app backgrounds.**
+      `ui/components/LiveStreamPlayer.kt:192-208` (HTTP_SNAPSHOT branch) does `fetchSnapshotBitmap(...)` **then**
+      `delay(1000/fps)` without subtracting the fetch time — the exact bug the recorder already fixed with a rolling
+      deadline (`RtspStreamRecorder.kt:251-277`). So the Live tab renders below the configured `snapshotFps`. Worse,
+      the `LaunchedEffect(device, activeProtocol, retryCount, autoPlay)` at L106 loops `while (isActive)` with **no**
+      lifecycle gate, and `LiveCamerasScreen` composes every card's player with `autoPlay` defaulting to true
+      (`LiveCamerasScreen.kt:206-210`, no `Lifecycle`/`repeatOnLifecycle`), so the poller keeps hitting the endpoint
+      while the activity is stopped — this is the ~108 KB/s unattended drain the 2026-09-30 measurement block
+      (Bug entry above) left as an open attribution question; the code now confirms it. Action (two independent
+      fixes): subtract elapsed into the delay, and gate the loop on lifecycle-started. Both are low-risk; the
+      lifecycle gate has a visible trade-off (live view must re-warm on return) worth confirming with the owner.
+      Note this supersedes smell item #9 above, which described the recorder loop that is already fixed — the
+      remaining offender is the live view, not the recorder.
+      → **Fixed 2026-09-30 (commit `abb2153`):** the HTTP_SNAPSHOT loop is wrapped in
+      `repeatOnLifecycle(Lifecycle.State.STARTED)` (cancels on STOP, restarts on START) and paces against a rolling
+      `nextFrameAt` deadline that subtracts the fetch time; the outer `withContext(Dispatchers.IO)` was dropped
+      since `fetchSnapshotBitmap` already hops to IO, so the Compose state writes stay on Main. `assembleDebug` +
+      `lintDebug` green. 🔄 Confirm the Live tab stops polling when backgrounded and re-warms on return.
+- [x] **Motion analyzer and recorder poll the same snapshot endpoint concurrently, with no coordination.**
+      `OnDeviceMotionAnalyzer.runLoop` (`video/OnDeviceMotionAnalyzer.kt:74-99`) keeps polling `device.snapshotUrl`
+      at 500 ms base for the whole time it is enabled; when motion fires, `IntercomMonitorService` starts
+      `RtspStreamRecorder`, whose capture loop (`RtspStreamRecorder.kt:254-278`) polls the *same* URL at
+      `snapshotFps`. The analyzer is never paused during a recording. The 2026-09-30 LAN probe measured the 2N
+      serving snapshots serially at ≈5.9 req/s ceiling, so two (or three, with the live view open) concurrent pollers
+      oversubscribe a serial endpoint and mutually drop frames — degrading both the recording and the detection at the
+      exact moment motion matters. Action: pause or slow the analyzer while its device is recording (the recorder
+      already publishes `activeDeviceIds`, `RtspStreamRecorder.kt:55-61`), or share one frame source between them.
+      Design decision needed — flag before implementing.
+      → **Fixed 2026-09-30 (commit `9396b7a`), trade-off accepted via the owner's "implement all" instruction:**
+      the analyzer takes an `isRecording: () -> Boolean` provider (wired to `recorder.isRecording(deviceId)` in
+      `IntercomMonitorService`) and backs off to a fixed coarse `RECORDING_POLL_MS` (1500 ms) while a recording owns
+      the endpoint, instead of pausing — pausing would lose `MotionOnDeviceEnded` and the post-record stop. This
+      reduces, not eliminates, contention. `assembleDebug` green. 🔄 Verify motion still ends recordings on device.
+- [x] **Motion recordings have no pre-roll, so the triggering moment is missed.** `MotionOnDeviceStarted` fires only
+      after `REQUIRED_MOTION_FRAMES = 2` consecutive comparisons over `MOTION_RATIO_THRESHOLD` (3 %) —
+      `OnDeviceMotionAnalyzer.kt:155-158` — and recording starts on that event (`IntercomMonitorService.kt:271-283`).
+      With idle polling backed off to `MAX_IDLE_POLL_MS = 1500` (L210), two consecutive changed frames can be ~1-3 s
+      *after* motion began, and there is no ring buffer of the frames seen before the trigger. Net effect for a
+      doorway camera: the person who caused the recording has often already walked through before frame 1 is written.
+      This compounds the still-open sensitivity item in the Bug block (2026-09-30, "App-side motion detection never
+      fires"). Action: keep a short rolling buffer of the last N analyzed JPEGs and prepend them on trigger —
+      a real trade-off (memory/complexity in the 24/7 path), so confirm before building.
+      → **Fixed 2026-09-30 (commit `a620e29`), trade-off accepted:** the analyzer keeps a bounded ring of the last
+      `PRE_ROLL_FRAMES = 6` raw JPEGs (≈6 full-res frames per motion-enabled device) and exposes `drainPreRoll()`;
+      on `MotionOnDeviceStarted` the service drains it into `recorder.startRecording(..., preRoll)`, and
+      `recordStreamToMkv` writes those frames first against a baseline of the earliest pre-roll timestamp (the
+      recording's `timestamp`/`duration` now cover the arrival). Only the local MJPEG-MKV path is affected; the
+      Python-server path ignores pre-roll (it captures independently). `assembleDebug` green. 🔄 Verify a walk-past
+      recording now includes the approach frames.
+- [ ] **Doorbell trigger has no snapshot-only path at all.** Ring detection comes exclusively from the 2N SSE event
+      stream (`KeyPressed`/`CallStateChanged`, `TwoNIPVersoDevice.kt:161-186`) or an inbound SIP INVITE
+      (`SipCallManager.onIncomingCall` → `IntercomMonitorService.handleSipRing`). A snapshot endpoint carries no ring
+      signal, so for a camera reachable only by snapshot the doorbell depends entirely on either (a) SSE staying up, or
+      (b) the peer-to-peer SIP INVITE that item "🔄 Peer-to-peer SIP is unverified" (2026-09-30) flags as never
+      validated. If both are down, rings are silently lost (the polling fallback already says so via `ConnectionState`,
+      `TwoNIPVersoDevice.kt:200-207`). For a `GENERIC_RTSP_ONVIF` device there is no ring/noise source whatsoever —
+      `GenericRtspDevice.startMonitoring` emits only `ConnectionState` (`GenericRtspDevice.kt:36-43`), which is
+      documented as a limitation but means the doorbell feature does not exist for that device type. Action: none
+      code-side until the owner confirms which device type the snapshot-only camera is registered as; if it is generic,
+      the doorbell expectation itself needs revisiting.
+      → **Resolved 2026-09-30, no code:** the owner confirmed the camera is `TWO_N_VERSO`, so both ring sources
+      (SSE `KeyPressed`/`CallStateChanged` and the SIP INVITE → `handleSipRing`) are active for it — the
+      snapshot-only limitation applies to *video*, not to the 2N event/SIP channels, and the `GENERIC_RTSP_ONVIF`
+      "no ring source" case does not apply here. Residual risk is unchanged and already tracked by the open
+      "🔄 Peer-to-peer SIP is unverified" gate: if SSE is down *and* no INVITE reaches the phone, rings are still
+      lost. Left `[ ]` pending that device gate rather than optimistically closed.
+- [x] **`OnDeviceMotionAnalyzer` is off by default and easy to conflate with the device's own motion.**
+      `recordOnMotionOnDevice` defaults to `false` (`DeviceEntity.kt:43`), while `recordOnMotion` defaults to `true`
+      (L39) and drives the *2N SSE* `MotionDetected` pipeline — a different code path. For a snapshot-only camera the
+      SSE motion event may never arrive, so "motion does nothing" is frequently just the app-side analyzer being
+      un-enabled. Already noted in the Bug block; recorded here because it is the first thing to check when triaging
+      motion on this deployment. Action: documentation/settings-hint, not code.
+      → **Already satisfied, verified 2026-09-30:** the settings hint exists — `DeviceFormTriggersSection.kt`
+      renders `R.string.device_trigger_motion_app_hint` under the toggle ("App analyzes the live video stream itself
+      instead of relying on the device's built-in motion detection"), which is exactly the distinction this finding
+      warns about. The `false` default is intentional (avoids double-recording alongside the SSE `recordOnMotion`
+      path), so no code change; marked `[x]` as documentation-complete.
+- [ ] **Snapshot URL forces `width=1280&height=720` when the path omits them.** `DeviceEntity.snapshotUrl`
+      (`DeviceEntity.kt:76-86`) appends `?width=1280&height=720` if neither key is present — load-bearing per the
+      2026-09-30 probe (the 2N rejects a bare `/api/camera/snapshot` with `code:11 missing mandatory parameter`).
+      But the resolution is hardcoded; a snapshot-only camera that does not accept those exact dimensions (or expects
+      different param names) would return an error the analyzer/recorder read as "no frame". Low risk on the current
+      2N, worth knowing for any other snapshot-only device. Action: consider making the appended size configurable
+      rather than fixed, only if a second snapshot-only device type appears.
+      → **Deferred 2026-09-30, no code:** the deployment has a single 2N device for which `width=1280&height=720`
+      is confirmed load-bearing, so the finding's own action criteria ("only if a second snapshot-only device type
+      appears") are not met. Left `[ ]`, to revisit if a non-2N snapshot-only camera is added.
+
 
 Reorganized from the code & feature review, re-verified against the current codebase
 (`app/`, `server/`, `.github/`) on 2026-09-27; **task list re-sorted by invasiveness (minimal →
