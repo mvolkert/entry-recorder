@@ -20,6 +20,7 @@
     <!-- Shared -->
     <string name="action_cancel">Cancel</string>
     <string name="action_delete">Delete</string>
+    <string name="action_done">Done</string>
     <string name="action_save">Save</string>
 
     <!-- Live screen -->
@@ -163,8 +164,16 @@
 
     <!-- Appearance / accent colors -->
     <string name="settings_section_appearance">Appearance</string>
-    <string name="settings_accent_hint">Pick an accent color for the app.</string>
+    <string name="settings_accent_hint">Pick an accent color. It is applied to every color role at once.</string>
     <string name="settings_accent_selected">Selected accent</string>
+    <string name="settings_accent_roles_summary">Primary: %1$s • Secondary: %2$s • Tertiary: %3$s</string>
+    <string name="settings_accent_customize">Customize color roles…</string>
+    <string name="accent_roles_title">Accent Color Roles</string>
+    <string name="accent_roles_hint">Each role chooses one of the curated palettes, so it keeps that palette\'s contrast-checked on- and container colors. Changes apply immediately.</string>
+    <string name="accent_role_primary">Primary</string>
+    <string name="accent_role_secondary">Secondary</string>
+    <string name="accent_role_tertiary">Tertiary</string>
+    <string name="accent_role_preset_description">%1$s accent: %2$s</string>
     <string name="accent_default">Indigo</string>
     <string name="accent_teal">Teal</string>
     <string name="accent_amber">Amber</string>

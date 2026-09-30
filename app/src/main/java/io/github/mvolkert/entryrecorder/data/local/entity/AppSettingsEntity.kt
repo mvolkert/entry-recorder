@@ -28,7 +28,15 @@ data class AppSettingsEntity(
     // Opt-in archive mirror: copies the original (lossless) MJPEG MKV into exportFolderUri right
     // after a local recording is finalized, so sync tools always see complete, up-to-date files.
     val autoExportOnFinalize: Boolean = false,
-    // Index into ui.theme.accentPresets selecting the app's accent color scheme. 0 = the default
-    // (Material 3 baseline) palette, so existing installs keep their current look after migration.
-    val themeAccentIndex: Int = 0
+    // Legacy v8 field: the single index that used to drive all three accent roles. Superseded by
+    // themePrimaryIndex/Secondary/Tertiary below (MIGRATION_8_9 copies its value into all three).
+    // Nothing reads it; it stays declared because Room validates app_settings against this entity,
+    // so removing the field would require rebuilding the table inside the migration.
+    val themeAccentIndex: Int = 0,
+    // Indices into ui.theme.accentPresets, one per Material color role. All three equal is the
+    // uniform palette the Appearance swatch row applies; the role dialog lets one role deviate.
+    // 0 = the default palette, so existing installs keep their current look after migration.
+    val themePrimaryIndex: Int = 0,
+    val themeSecondaryIndex: Int = 0,
+    val themeTertiaryIndex: Int = 0
 )

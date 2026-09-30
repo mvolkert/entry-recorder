@@ -51,9 +51,11 @@
       Two consequences: index 0 is no longer the M3 baseline, so the **default** look changes on update
       (the old comment claiming otherwise was replaced), and the Settings swatch row now previews
       saturated chips. ⚠️ Still needs an on-device look in Settings → Appearance (compile + lint only
-      prove it builds — same 25 pre-existing findings). Open question for the owner: `secondaryContainer`
-      is not part of `AccentPalette`, so the selected recording card stays the neutral M3 default —
-      deriving that role too would need two new fields per preset and the picker is unaffected.
+      prove it builds — same 25 pre-existing findings).
+      The `secondaryContainer` question raised from this (that role is not part of `AccentPalette`, so the
+      selected recording card stayed the neutral M3 default) was answered by the owner as a **feature
+      request instead**: keep the containers neutral and add per-role palette picking — see the Resolved
+      log entry "Per-role accent selector".
 - [ ] **Snapshot HTTP client times out ~1 min after the display turns off → no continuous observation**
       (owner-reported 2026-09-29, logcat `HttpSnapshotClient D Snapshot fetch exception for 2N IP Verso:
       timeout`). Diagnosed from code, **not yet root-caused on device** — the mechanism matters and the
@@ -484,6 +486,22 @@ none of this is verifiable from the build.
 - [ ] Reboot → `BootReceiver` autostart of the `connectedDevice` foreground service still succeeds
       (`ForegroundServiceStartNotAllowedException` regression check).
 
+## Per-role accent selector 🔄 (added 2026-09-29)
+- [ ] Room **v8→v9** upgrade over real data: install the new build **without uninstalling** → recording
+      archive intact, the accent chosen before the update is still what the app shows, and the new summary
+      line names that one palette for all three roles.
+- [ ] Settings → Appearance: a swatch tap re-themes the whole app and refreshes the summary line;
+      **Customize color roles…** opens the dialog, every tap applies immediately, and the choices survive
+      backgrounding plus an app restart. Expect **Secondary** to visibly change the bottom-nav active pill,
+      the Recordings filter chips and the selected recording card — all `secondaryContainer` consumers.
+      **Tertiary** has no consumer in this UI yet (no component here reads a tertiary role), so its row is
+      persistence-only until something is deliberately re-coloured with it.
+- [ ] Contrast spot-check a deliberately mixed selection (e.g. Primary Teal / Secondary Amber): the nav
+      label, the filter-chip text and the selected recording card must all stay readable.
+- [ ] Backup round trip after using the dialog: export → restore brings the three role indices back.
+      *Caveat to confirm:* a backup written **before** this feature has no role fields, so restoring it
+      resets the accents to preset 0 — its legacy `themeAccentIndex` is no longer read.
+
 ## Pipeline note 🔄
 - [x] Exported H.264 fragmented MP4 plays in strict players like VLC — device-validated 2026-09-28. This
       required fixing the `Fmp4StreamMuxer` container first (in-place durations + `mfra` finalize, plus the
@@ -541,6 +559,33 @@ Compact record of everything completed in the former phases, re-verified 2026-09
   ViewModels) · curated dark-scheme presets in `ui/theme/Theme.kt` from a Settings swatch picker,
   persisted in `AppSettingsEntity.themeAccentIndex` (Room v7→v8 migration, default 0 = the previous
   baseline look). `compileDebugKotlin` + `lintDebug` green; swipe feel → Tier G.
+- **Per-role accent selector (2026-09-29)**: the owner's answer to the `secondaryContainer` question —
+  "add a Primary, secondary, tertiary selector dialog, but all accent colors get the same palette".
+  Settings → Appearance keeps the eight-swatch row and a tap now writes the same preset index to **all
+  three roles** (uniform look, and it clears any earlier override); under the row a summary line
+  ("Primary: Teal • Secondary: Teal • Tertiary: Amber") and **Customize color roles…** open the new
+  `AccentRolePickerDialog`, where each role independently picks one of the **eight curated presets** —
+  never a free color, so the chosen preset's own `on*` pair keeps every combination contrast-checked
+  (the reason a color wheel was not offered). Picked swatches apply immediately (persisted through the
+  Activity-scoped `SettingsViewModel`), the dialog stays open, one **Done** button dismisses it.
+  Storage: three Int columns `themePrimaryIndex`/`themeSecondaryIndex`/`themeTertiaryIndex`, Room
+  **v8→v9** — `MIGRATION_8_9` adds them and backfills all three from `themeAccentIndex`, so an installed
+  build upgrades to exactly the look it had. `themeAccentIndex` stays declared on the entity as a
+  documented legacy field rather than being dropped: the column would remain in `app_settings` where Room
+  validates it against the entity, so removing the field means rebuilding the table inside the migration —
+  more risk than carrying one unused, default-0 field (Gson backups keep round-tripping it harmlessly).
+  `AppTheme` takes the three indices and builds the scheme from three presets (`remember`ed on those
+  keys). Owner choice on the container question: each role also takes **its own preset's** verified
+  `primaryContainer`/`onPrimaryContainer` pair as its `secondaryContainer`/`tertiaryContainer` pair,
+  because grepping showed the app reads no `colorScheme.secondary`/`.tertiary` at all — the only visible
+  consumers of those roles are container-based components (the `NavigationBar` active pill, the
+  `FilterChip` rows, `RecordingCardItem.kt:98`), so without this the Secondary/Tertiary rows would have
+  been inert. No new colors derived, and the pair's contrast is the already-measured one.
+  Remaining gap found while checking this: **no component in this UI reads a tertiary role at all**, so the
+  Tertiary row persists a choice that nothing paints with yet — giving it a real consumer (the live REC
+  badge or the selected-card accent are the candidates) is follow-up UI work, not more color derivation.
+  `compileDebugKotlin` + `lintDebug` green (same 25 pre-existing findings);
+  migration + dialog → Tier G.
 - **Export broadcast + WifiLock SDK branch (2026-09-29, commit `0acd070`)**: exported
   `ExportTriggerReceiver` (action `io.github.mvolkert.entryrecorder.action.EXPORT_RECORDINGS`,
   `--es scope latest|all`) only enqueues the new `worker/ExportTriggerWorker.kt`, which reuses

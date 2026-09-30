@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
         RecordingEntity::class,
         AppSettingsEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -74,6 +74,27 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v8 -> v9: per-role accent selection. Three preset-index columns, each seeded from the old
+        // single themeAccentIndex so an existing install renders exactly as before. The legacy column
+        // is kept (still mapped by the entity) instead of rebuilding app_settings.
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE app_settings ADD COLUMN themePrimaryIndex INTEGER NOT NULL DEFAULT 0"
+                )
+                db.execSQL(
+                    "ALTER TABLE app_settings ADD COLUMN themeSecondaryIndex INTEGER NOT NULL DEFAULT 0"
+                )
+                db.execSQL(
+                    "ALTER TABLE app_settings ADD COLUMN themeTertiaryIndex INTEGER NOT NULL DEFAULT 0"
+                )
+                db.execSQL(
+                    "UPDATE app_settings SET themePrimaryIndex = themeAccentIndex, " +
+                        "themeSecondaryIndex = themeAccentIndex, themeTertiaryIndex = themeAccentIndex"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -82,7 +103,9 @@ abstract class AppDatabase : RoomDatabase() {
                     "entry_recorder_database"
                 )
                     .fallbackToDestructiveMigration(false)
-                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(
+                        MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9
+                    )
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

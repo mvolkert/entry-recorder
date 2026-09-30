@@ -67,7 +67,12 @@ class MainActivity : ComponentActivity() {
             // Settings screen (single source of truth for the chosen accent).
             val settingsViewModel: SettingsViewModel = viewModel()
             val settingsState by settingsViewModel.uiState.collectAsStateWithLifecycle()
-            AppTheme(accentIndex = settingsState.appSettings.themeAccentIndex) {
+            val settings = settingsState.appSettings
+            AppTheme(
+                primaryIndex = settings.themePrimaryIndex,
+                secondaryIndex = settings.themeSecondaryIndex,
+                tertiaryIndex = settings.themeTertiaryIndex,
+            ) {
                 MainAppScaffold(settingsViewModel)
             }
         }

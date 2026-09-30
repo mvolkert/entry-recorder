@@ -5,12 +5,13 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import io.github.mvolkert.entryrecorder.R
 
 /**
- * A curated accent palette. Each preset supplies the visible accent roles (primary/secondary/
- * tertiary plus their "on" and container colors) for the dark scheme; every pairing is derived so
+ * A curated accent palette. Each preset supplies the visible accent roles (primary/secondary/tertiary
+ * plus their "on" colors) and one container pair for the dark scheme; every pairing is derived so
  * foreground/background contrast stays at or above WCAG AA (4.5:1), so users cannot pick a broken
  * combination the way a free color wheel would allow.
  */
@@ -92,26 +93,53 @@ val accentPresets: List<AccentPalette> = listOf(
     ),
 )
 
-private fun AccentPalette.toColorScheme(): ColorScheme = darkColorScheme(
-    primary = primary,
-    onPrimary = onPrimary,
-    primaryContainer = primaryContainer,
-    onPrimaryContainer = onPrimaryContainer,
-    secondary = secondary,
-    onSecondary = onSecondary,
-    tertiary = tertiary,
-    onTertiary = onTertiary,
+private fun buildColorScheme(
+    primary: AccentPalette,
+    secondary: AccentPalette,
+    tertiary: AccentPalette,
+): ColorScheme = darkColorScheme(
+    primary = primary.primary,
+    onPrimary = primary.onPrimary,
+    primaryContainer = primary.primaryContainer,
+    onPrimaryContainer = primary.onPrimaryContainer,
+    secondary = secondary.secondary,
+    onSecondary = secondary.onSecondary,
+    // Each preset derives exactly one container pair (its primary's). Reusing that pair for the role's
+    // own container keeps the nav active indicator, the FilterChips and the selected recording card on
+    // the chosen palette instead of the neutral Material default: same hue family, and the
+    // container/on-container contrast is already the measured one.
+    secondaryContainer = secondary.primaryContainer,
+    onSecondaryContainer = secondary.onPrimaryContainer,
+    tertiary = tertiary.tertiary,
+    onTertiary = tertiary.onTertiary,
+    tertiaryContainer = tertiary.primaryContainer,
+    onTertiaryContainer = tertiary.onPrimaryContainer,
 )
 
-/** Applies the persisted accent preset index (falling back to the first preset when unset). */
+/** The preset at [index], falling back to the first one for stale or out-of-range stored indices. */
+fun accentPresetAt(index: Int): AccentPalette = accentPresets.getOrNull(index) ?: accentPresets.first()
+
+/**
+ * Applies the persisted per-role accent presets. Every role takes its own preset's color plus that
+ * preset's on- and container pair, so any combination of the curated list stays contrast-checked and
+ * visibly themes the container-based components (nav indicator, filter chips, selected card).
+ */
 @Composable
 fun AppTheme(
-    accentIndex: Int,
+    primaryIndex: Int,
+    secondaryIndex: Int,
+    tertiaryIndex: Int,
     content: @Composable () -> Unit,
 ) {
-    val palette = accentPresets.getOrNull(accentIndex) ?: accentPresets.first()
+    val colorScheme = remember(primaryIndex, secondaryIndex, tertiaryIndex) {
+        buildColorScheme(
+            primary = accentPresetAt(primaryIndex),
+            secondary = accentPresetAt(secondaryIndex),
+            tertiary = accentPresetAt(tertiaryIndex),
+        )
+    }
     MaterialTheme(
-        colorScheme = palette.toColorScheme(),
+        colorScheme = colorScheme,
         content = content,
     )
 }
