@@ -277,10 +277,14 @@ class IntercomMonitorService : Service(), IntercomEventListener {
 
                     cancelPostRecordStop(device.id)
                     if (device.recordOnMotionOnDevice) {
+                        // Prepend the frames the analyzer saw just before it confirmed motion, so the
+                        // recording covers the arrival rather than starting ~1s after it.
+                        val preRoll = activeMotionAnalyzers[device.id]?.drainPreRoll().orEmpty()
                         recorder.startRecording(
                             device = device,
                             eventType = EventType.MOTION,
-                            maxDurationSeconds = device.motionPostRecordSeconds + 30
+                            maxDurationSeconds = device.motionPostRecordSeconds + 30,
+                            preRoll = preRoll
                         )
                     }
 

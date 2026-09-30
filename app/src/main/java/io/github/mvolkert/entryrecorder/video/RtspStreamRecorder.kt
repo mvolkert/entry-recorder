@@ -36,6 +36,9 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration.Companion.milliseconds
 
+/** A captured JPEG plus its wall-clock capture time, used to prepend a motion pre-roll to a recording. */
+class PreRollFrame(val timestampMs: Long, val jpeg: ByteArray)
+
 @OptIn(UnstableApi::class)
 class RtspStreamRecorder(
     private val context: Context,
@@ -75,7 +78,12 @@ class RtspStreamRecorder(
      * Evaluates whether to record via Python server or locally in-app (default).
      */
     @Synchronized
-    fun startRecording(device: DeviceEntity, eventType: EventType, maxDurationSeconds: Int = 60) {
+    fun startRecording(
+        device: DeviceEntity,
+        eventType: EventType,
+        maxDurationSeconds: Int = 60,
+        preRoll: List<PreRollFrame> = emptyList()
+    ) {
         if (isRecording(device.id)) {
             Log.d(tag, "Device ${device.id} is already recording")
             return
@@ -119,23 +127,30 @@ class RtspStreamRecorder(
             }
 
             // Local recording (Default or Fallback)
-            startLocalRecording(device, eventType, maxDurationSeconds)
+            startLocalRecording(device, eventType, maxDurationSeconds, preRoll)
         }
     }
 
-    private fun startLocalRecording(device: DeviceEntity, eventType: EventType, maxDurationSeconds: Int) {
+    private fun startLocalRecording(
+        device: DeviceEntity,
+        eventType: EventType,
+        maxDurationSeconds: Int,
+        preRoll: List<PreRollFrame>
+    ) {
         val timestampStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val recordingsDir = File(context.filesDir, "recordings").apply { mkdirs() }
         val outputFile = File(recordingsDir, "REC_${device.id}_${eventType.name}_$timestampStr.mkv")
 
-        val startTime = System.currentTimeMillis()
+        // Start the timeline at the earliest pre-roll frame so the recording's timestamp/duration cover
+        // the moment that triggered motion, not just what happened after detection confirmed it.
+        val startTime = preRoll.firstOrNull()?.timestampMs ?: System.currentTimeMillis()
         Log.i(tag, "Starting local MKV recording for ${device.name} [${eventType.name}] -> ${outputFile.name}")
 
         val firstFrameRef = AtomicReference<ByteArray?>(null)
         val job = scope.launch {
             try {
                 // Recording capture loop: captures snapshot frames / MJPEG stream chunks into crash-safe MKV
-                recordStreamToMkv(device, outputFile, maxDurationSeconds, firstFrameRef)
+                recordStreamToMkv(device, outputFile, maxDurationSeconds, firstFrameRef, startTime, preRoll)
             } catch (_: CancellationException) {
                 Log.d(tag, "Recording cancelled/stopped normally for ${device.name}")
             } catch (e: Exception) {
@@ -217,25 +232,29 @@ class RtspStreamRecorder(
         device: DeviceEntity,
         outputFile: File,
         maxDurationSeconds: Int,
-        firstFrameRef: AtomicReference<ByteArray?>
+        firstFrameRef: AtomicReference<ByteArray?>,
+        baselineMs: Long,
+        preRoll: List<PreRollFrame>
     ) = withContext(Dispatchers.IO) {
         val deadline = System.currentTimeMillis() + (maxDurationSeconds * 1000L)
-        val startTime = System.currentTimeMillis()
         val fps = device.snapshotFps.coerceIn(1, 30)
 
         MkvStreamMuxer(outputFile).use { muxer ->
-            fun handleJpeg(jpeg: ByteArray) {
+            fun handleJpeg(jpeg: ByteArray, atMs: Long) {
                 if (firstFrameRef.get() == null) firstFrameRef.set(jpeg)
-                val relTimeMs = System.currentTimeMillis() - startTime
-                muxer.writeMjpegFrame(jpeg, relTimeMs)
+                muxer.writeMjpegFrame(jpeg, (atMs - baselineMs).coerceAtLeast(0L))
             }
+
+            // Prepend the frames captured just before the trigger; baselineMs is the earliest of them,
+            // so their relative times are >= 0 and stay monotonic against the live frames that follow.
+            preRoll.forEach { handleJpeg(it.jpeg, it.timestampMs) }
 
             if (device.streamProtocol == StreamProtocol.MJPEG_STREAM) {
                 val mjpegReader = MjpegStreamReader()
                 try {
                     mjpegReader.streamRawJpeg(device).collect { jpegBytes ->
                         if (!isActive || System.currentTimeMillis() >= deadline) return@collect
-                        handleJpeg(jpegBytes)
+                        handleJpeg(jpegBytes, System.currentTimeMillis())
                     }
                 } catch (e: Exception) {
                     // Snapshot polling continues below. Not silent: a stream that dies after a few frames
@@ -256,7 +275,7 @@ class RtspStreamRecorder(
                 try {
                     val frameBytes = HttpSnapshotClient.fetchSnapshotBytes(device)
                     if (frameBytes != null && frameBytes.isNotEmpty()) {
-                        handleJpeg(frameBytes)
+                        handleJpeg(frameBytes, System.currentTimeMillis())
                         if (!endpointHealthy) {
                             Log.i(tag, "Snapshot frames from ${device.name} recovered after a gap")
                             endpointHealthy = true

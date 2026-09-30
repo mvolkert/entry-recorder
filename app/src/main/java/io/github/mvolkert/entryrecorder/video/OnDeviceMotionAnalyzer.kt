@@ -36,6 +36,10 @@ class OnDeviceMotionAnalyzer(
     private var consecutiveMotionFrames = 0
     private var consecutiveClearFrames = 0
 
+    // Bounded ring of the most recent raw JPEGs, so a recording triggered by motion can prepend the
+    // frames from just before the trigger instead of starting ~1s after the person already arrived.
+    private val preRoll = ArrayDeque<PreRollFrame>()
+
     // Adaptive idle polling: back off while the scene is static to save CPU/network, but snap
     // straight back to the fast base interval the moment any change is seen, so detection stays
     // responsive (this app runs on a dedicated detection-first device).
@@ -73,6 +77,7 @@ class OnDeviceMotionAnalyzer(
         pollsSinceReport = 0
         framesSinceReport = 0
         peakChangedRatio = 0f
+        synchronized(preRoll) { preRoll.clear() }
     }
 
     private suspend fun runLoop() {
@@ -171,6 +176,7 @@ class OnDeviceMotionAnalyzer(
     private suspend fun fetchGrayscaleFrame(): IntArray? {
         val bytes = HttpSnapshotClient.fetchSnapshotBytes(deviceEntity) ?: return null
         val decoded = decodeDownscaled(bytes) ?: return null
+        bufferPreRoll(bytes)
         val scaled = if (decoded.width == ANALYSIS_WIDTH && decoded.height == ANALYSIS_HEIGHT) {
             decoded
         } else {
@@ -209,6 +215,21 @@ class OnDeviceMotionAnalyzer(
         )
     }
 
+    /** Keeps the last [PRE_ROLL_FRAMES] captured JPEGs, oldest evicted first. */
+    private fun bufferPreRoll(jpeg: ByteArray) {
+        synchronized(preRoll) {
+            preRoll.addLast(PreRollFrame(System.currentTimeMillis(), jpeg))
+            while (preRoll.size > PRE_ROLL_FRAMES) preRoll.removeFirst()
+        }
+    }
+
+    /** Frames captured just before the current trigger, oldest first; empties the buffer. */
+    fun drainPreRoll(): List<PreRollFrame> = synchronized(preRoll) {
+        val copy = preRoll.toList()
+        preRoll.clear()
+        copy
+    }
+
     companion object {
         private const val POLL_INTERVAL_MS = 500L
         private const val POLL_STEP_MS = 250L
@@ -222,5 +243,6 @@ class OnDeviceMotionAnalyzer(
         private const val MOTION_RATIO_THRESHOLD = 0.03f
         private const val REQUIRED_MOTION_FRAMES = 2
         private const val REQUIRED_CLEAR_FRAMES = 4
+        private const val PRE_ROLL_FRAMES = 6
     }
 }
