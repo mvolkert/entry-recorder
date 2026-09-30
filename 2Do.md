@@ -462,18 +462,29 @@ rationale below. None of the code fixes are device-verified yet — each carries
 
 ### Post-fix critical review — open todos (2026-09-30, owner perspective: 2N Verso reliability / side effects / regressions)
 Self-review of commits `4b5ed5d`, `abb2153`, `9396b7a`, `a620e29`, all grep/line-verified against the
-committed source. Two items are genuine regressions worth fixing soon; the rest are accepted trade-offs
-to revisit only if observed on device.
+committed source. The two genuine regressions were fixed the same day in commit `75a1855` (one commit, both
+regressions touched `RtspStreamRecorder.kt`); the remaining items are accepted trade-offs to revisit only if
+observed on device.
 
-- [ ] **Thumbnail regression from pre-roll (fix 4, `a620e29`) — actionable.** `recordStreamToMkv` sets
+- [x] **Thumbnail regression from pre-roll (fix 4, `a620e29`) — actionable.**
+      → **Fixed 2026-09-30 (commit `75a1855`):** `recordStreamToMkv` now sets `firstFrameRef` only from the first
+      **live** frame (pre-roll writes go through a plain `handleJpeg`); a pre-roll-only file falls back to the
+      existing `ThumbnailUtil.extractAndSaveThumbnail` muxer path. `assembleDebug` green. 🔄 Verify a walk-past
+      thumbnail shows the person, not the empty doorway.
+      Original finding: `recordStreamToMkv` sets
       `firstFrameRef` from the *first* pre-roll frame (`RtspStreamRecorder.kt:243-246`), and `finalizeRecording`
       builds the thumbnail from exactly that frame (L316-318). Before the fix the thumbnail showed the trigger
       moment; now it shows the oldest buffered frame — typically an **empty approach scene** (the whole point of
       pre-roll). Recordings list tiles become visually identical "nothing happening" images. Fix: capture the
       thumbnail from the first frame written *after* the pre-roll block (or the frame nearest the trigger
       timestamp), not from `preRoll.first()`.
-- [ ] **Analyzer backoff is counterproductive in `PYTHON_SERVER` recording mode (fix 3, `9396b7a`) — actionable.**
-      `recorder.isRecording(deviceId)` reflects `_activeDeviceIds`, which includes **server-side** recordings. In
+- [x] **Analyzer backoff is counterproductive in `PYTHON_SERVER` recording mode (fix 3, `9396b7a`) — actionable.**
+      → **Fixed 2026-09-30 (commit `75a1855`):** new `RtspStreamRecorder.isLocallyRecording(deviceId)` (backed by the
+      `activeRecordings` map, so server-only recordings are excluded) replaces `isRecording` in the analyzer provider
+      in `IntercomMonitorService`; in PYTHON_SERVER mode the analyzer now keeps its normal adaptive polling.
+      `assembleDebug` green. 🔄 Verify detection speed unchanged in server mode during a server recording.
+      Original finding: `recorder.isRecording(deviceId)` reflects `_activeDeviceIds`, which includes **server-side**
+      recordings. In
       that mode the server polls the snapshot endpoint, not the phone — yet the phone's analyzer still slows to
       `RECORDING_POLL_MS = 1500` (`OnDeviceMotionAnalyzer.kt:98-104`), degrading on-device motion detection for a
       contention that doesn't exist. Fix: only back off when the *local* capture loop owns the endpoint (e.g. gate
