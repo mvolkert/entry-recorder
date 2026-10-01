@@ -184,12 +184,6 @@ fun SettingsScreen(
                 )
             }
 
-            item { SettingsSectionHeader(R.string.settings_section_alerts, Modifier.padding(top = 16.dp)) }
-
-            item {
-                SettingsAlertsCard(settings = state.appSettings, onSettingsChange = updateSettings)
-            }
-
             item { SettingsSectionHeader(R.string.settings_section_appearance, Modifier.padding(top = 16.dp)) }
 
             item {

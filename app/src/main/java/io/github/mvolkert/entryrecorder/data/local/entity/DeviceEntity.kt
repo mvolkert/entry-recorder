@@ -44,6 +44,14 @@ data class DeviceEntity(
     val motionPostRecordSeconds: Int = 20,
     val noisePostRecordSeconds: Int = 20,
     val ringRecordSeconds: Int = 60,
+
+    // Per-device alert & lockscreen behavior (was global app settings). Defaults true to match the
+    // previous global behavior; the Room migration seeds them from the old app_settings row.
+    val wakeOnRing: Boolean = true,
+    val soundOnRing: Boolean = true,
+    val vibrateOnRing: Boolean = true,
+    val wakeOnMotion: Boolean = true,
+    val wakeOnNoise: Boolean = true,
     val isEnabled: Boolean = true
 ) {
     val httpBaseUrl: String

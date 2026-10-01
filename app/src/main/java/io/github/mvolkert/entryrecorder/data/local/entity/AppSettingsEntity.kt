@@ -14,6 +14,9 @@ data class AppSettingsEntity(
     val retentionDays: Int = 14,             // Auto-delete recordings older than N days (0 = disabled)
     val maxStorageUsageMb: Long = 10240,     // 10 GB limit before purging oldest unprotected recordings
     val autoCleanupEnabled: Boolean = true,
+    // Legacy: alert & lockscreen behavior is now configured per device (see DeviceEntity). These
+    // columns are kept declared (like themeAccentIndex below) so Room need not rebuild app_settings;
+    // nothing reads them anymore.
     val wakeOnMotion: Boolean = true,
     val wakeOnRing: Boolean = true,
     val wakeOnNoise: Boolean = true,

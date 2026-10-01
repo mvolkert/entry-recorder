@@ -50,6 +50,13 @@ class DeviceFormState(
     var recordOnNoise by mutableStateOf(initial?.recordOnNoise ?: true)
     var recordOnMotionOnDevice by mutableStateOf(initial?.recordOnMotionOnDevice ?: false)
 
+    // Per-device alert & lockscreen behavior (moved off the global app settings).
+    var wakeOnRing by mutableStateOf(initial?.wakeOnRing ?: true)
+    var soundOnRing by mutableStateOf(initial?.soundOnRing ?: true)
+    var vibrateOnRing by mutableStateOf(initial?.vibrateOnRing ?: true)
+    var wakeOnMotion by mutableStateOf(initial?.wakeOnMotion ?: true)
+    var wakeOnNoise by mutableStateOf(initial?.wakeOnNoise ?: true)
+
     /**
      * Which detector starts a motion recording. Backed by the two existing booleans so no entity or
      * Room change is needed: [MotionSource.CAMERA] -> [recordOnMotion], [MotionSource.APP] ->
@@ -152,6 +159,11 @@ class DeviceFormState(
             recordOnRing = recordOnRing,
             recordOnNoise = recordOnNoise,
             recordOnMotionOnDevice = recordOnMotionOnDevice,
+            wakeOnRing = wakeOnRing,
+            soundOnRing = soundOnRing,
+            vibrateOnRing = vibrateOnRing,
+            wakeOnMotion = wakeOnMotion,
+            wakeOnNoise = wakeOnNoise,
             ringRecordSeconds = ringRecordSeconds.toIntOrNull() ?: 60,
             motionPostRecordSeconds = motionPostRecordSeconds.toIntOrNull() ?: 20,
             noisePostRecordSeconds = noisePostRecordSeconds.toIntOrNull() ?: 20,

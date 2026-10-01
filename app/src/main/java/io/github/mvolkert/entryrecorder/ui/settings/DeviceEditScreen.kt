@@ -117,6 +117,10 @@ fun DeviceEditScreen(
 
             FormDivider()
 
+            DeviceFormAlertsSection(form)
+
+            FormDivider()
+
             DeviceFormDurationsSection(form)
 
             DeviceFormTestSection(form)

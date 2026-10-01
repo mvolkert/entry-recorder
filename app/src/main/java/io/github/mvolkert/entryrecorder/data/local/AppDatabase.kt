@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
         RecordingEntity::class,
         AppSettingsEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -95,6 +95,27 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v9 -> v10: alert & lockscreen behavior moves from global app_settings onto each device. The
+        // five new columns default to 1, then every existing device is seeded from the current global
+        // app_settings row so an install keeps the behavior the user already chose.
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE devices ADD COLUMN wakeOnRing INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE devices ADD COLUMN soundOnRing INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE devices ADD COLUMN vibrateOnRing INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE devices ADD COLUMN wakeOnMotion INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE devices ADD COLUMN wakeOnNoise INTEGER NOT NULL DEFAULT 1")
+                db.execSQL(
+                    "UPDATE devices SET " +
+                        "wakeOnRing = (SELECT wakeOnRing FROM app_settings WHERE id = 1), " +
+                        "soundOnRing = (SELECT soundOnRing FROM app_settings WHERE id = 1), " +
+                        "vibrateOnRing = (SELECT vibrateOnRing FROM app_settings WHERE id = 1), " +
+                        "wakeOnMotion = (SELECT wakeOnMotion FROM app_settings WHERE id = 1), " +
+                        "wakeOnNoise = (SELECT wakeOnNoise FROM app_settings WHERE id = 1)"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -104,7 +125,8 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     .fallbackToDestructiveMigration(false)
                     .addMigrations(
-                        MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9
+                        MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
+                        MIGRATION_9_10
                     )
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

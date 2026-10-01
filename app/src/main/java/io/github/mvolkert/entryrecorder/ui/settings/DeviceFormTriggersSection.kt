@@ -68,6 +68,37 @@ internal fun DeviceFormTriggersSection(form: DeviceFormState) {
     )
 }
 
+/** Per-device alert & lockscreen behavior for the events this camera can produce. */
+@Composable
+internal fun DeviceFormAlertsSection(form: DeviceFormState) {
+    FormSectionLabel(R.string.settings_section_alerts)
+    SettingsSwitchRow(
+        title = stringResource(R.string.settings_wake_ring),
+        checked = form.wakeOnRing,
+        onCheckedChange = { form.wakeOnRing = it }
+    )
+    SettingsSwitchRow(
+        title = stringResource(R.string.settings_sound_ring),
+        checked = form.soundOnRing,
+        onCheckedChange = { form.soundOnRing = it }
+    )
+    SettingsSwitchRow(
+        title = stringResource(R.string.settings_vibrate_ring),
+        checked = form.vibrateOnRing,
+        onCheckedChange = { form.vibrateOnRing = it }
+    )
+    SettingsSwitchRow(
+        title = stringResource(R.string.settings_wake_motion),
+        checked = form.wakeOnMotion,
+        onCheckedChange = { form.wakeOnMotion = it }
+    )
+    SettingsSwitchRow(
+        title = stringResource(R.string.settings_wake_noise),
+        checked = form.wakeOnNoise,
+        onCheckedChange = { form.wakeOnNoise = it }
+    )
+}
+
 /** Per-event lengths plus the master enable switch the monitor service checks before arming a device. */
 @Composable
 internal fun DeviceFormDurationsSection(form: DeviceFormState) {

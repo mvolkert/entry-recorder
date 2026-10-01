@@ -10,7 +10,6 @@ import android.os.PowerManager
 import android.util.Log
 import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory
-import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.ConnectionCapability
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
@@ -173,8 +172,6 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     override fun onEvent(event: IntercomEvent) {
         Log.i(tag, "Received IntercomEvent: $event")
         serviceScope.launch {
-            val settings = repository.getSettings()
-
             when (event) {
                 is IntercomEvent.DoorbellRung -> {
                     val device = event.device
@@ -205,29 +202,28 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                         this@IntercomMonitorService,
                         device,
                         event.callerNumber,
-                        playSound = settings.soundOnRing,
-                        vibrate = settings.vibrateOnRing
+                        playSound = device.soundOnRing,
+                        vibrate = device.vibrateOnRing
                     )
 
                     // 3. Launch IncomingCallActivity directly for immediate lockscreen display.
                     // NOTE (targetSdk 36+): background Activity Launch is restricted, so this
                     // direct startActivity is best-effort. The doorbell path stays reliable because
                     // NotificationHelper attaches a full-screen intent to the ring notification.
-                    if (settings.wakeOnRing) {
+                    if (device.wakeOnRing) {
                         startActivity(callActivityIntent(device, EventType.RING, event.callerNumber ?: "2N IP Verso"))
                     }
                 }
 
                 is IntercomEvent.MotionStarted -> {
                     Log.i(tag, "Motion started on ${event.device.name}")
-                    handleTriggerStarted(event.device, settings, EventType.MOTION, record = event.device.recordOnMotion)
+                    handleTriggerStarted(event.device, EventType.MOTION, record = event.device.recordOnMotion)
                 }
 
                 is IntercomEvent.MotionOnDeviceStarted -> {
                     Log.i(tag, "On-device motion analysis started on ${event.device.name}")
                     handleTriggerStarted(
                         device = event.device,
-                        settings = settings,
                         eventType = EventType.MOTION,
                         record = event.device.recordOnMotionOnDevice,
                         // Prepend the frames the analyzer saw just before it confirmed motion, so the
@@ -238,7 +234,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
 
                 is IntercomEvent.NoiseStarted -> {
                     Log.i(tag, "Noise started on ${event.device.name}")
-                    handleTriggerStarted(event.device, settings, EventType.NOISE, record = event.device.recordOnNoise)
+                    handleTriggerStarted(event.device, EventType.NOISE, record = event.device.recordOnNoise)
                 }
 
                 is IntercomEvent.MotionEnded -> handleTriggerEnded(event.device, "Motion", EventType.MOTION)
@@ -295,7 +291,6 @@ class IntercomMonitorService : Service(), IntercomEventListener {
      */
     private fun handleTriggerStarted(
         device: DeviceEntity,
-        settings: AppSettingsEntity,
         eventType: EventType,
         record: Boolean,
         preRollFrames: () -> List<PreRollFrame> = { emptyList() }
@@ -314,9 +309,9 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         }
 
         val wake = when (eventType) {
-            EventType.MOTION -> settings.wakeOnMotion
-            EventType.NOISE -> settings.wakeOnNoise
-            EventType.RING, EventType.MANUAL -> settings.wakeOnRing
+            EventType.MOTION -> device.wakeOnMotion
+            EventType.NOISE -> device.wakeOnNoise
+            EventType.RING, EventType.MANUAL -> device.wakeOnRing
         }
         if (!wake) return
 
