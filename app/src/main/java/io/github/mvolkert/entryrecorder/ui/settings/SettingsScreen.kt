@@ -36,7 +36,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
-import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 
 /**
  * Configuration hub: intercom devices, recording engine, storage & retention, alerts, appearance and
@@ -47,14 +46,14 @@ import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 @Composable
 fun SettingsScreen(
     modifier: Modifier = Modifier,
-    viewModel: SettingsViewModel = viewModel()
+    viewModel: SettingsViewModel = viewModel(),
+    onEditDevice: (Long) -> Unit = {},
+    onAddDevice: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val backupFileName = stringResource(R.string.settings_backup_filename)
 
-    var editingDevice by remember { mutableStateOf<DeviceEntity?>(null) }
-    var showAddDeviceDialog by remember { mutableStateOf(false) }
     var isTestingServer by remember { mutableStateOf(false) }
 
     val updateSettings = { settings: AppSettingsEntity -> viewModel.updateSettings(settings) }
@@ -120,7 +119,7 @@ fun SettingsScreen(
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = { showAddDeviceDialog = true },
+                onClick = onAddDevice,
                 icon = { Icon(Icons.Default.Add, contentDescription = stringResource(R.string.settings_cd_add)) },
                 text = { Text(stringResource(R.string.settings_add_device)) }
             )
@@ -143,7 +142,7 @@ fun SettingsScreen(
                         device = device,
                         eventQuality = state.eventQualities[device.id],
                         snapshotQuality = state.snapshotQualities[device.id],
-                        onEdit = { editingDevice = device },
+                        onEdit = { onEditDevice(device.id) },
                         onDelete = { viewModel.deleteDevice(device) }
                     )
                 }
@@ -212,27 +211,5 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(72.dp))
             }
         }
-    }
-
-    if (showAddDeviceDialog) {
-        DeviceEditDialog(
-            initialDevice = null,
-            onDismiss = { showAddDeviceDialog = false },
-            onSave = { dev ->
-                viewModel.saveDevice(dev)
-                showAddDeviceDialog = false
-            }
-        )
-    }
-
-    editingDevice?.let { dev ->
-        DeviceEditDialog(
-            initialDevice = dev,
-            onDismiss = { editingDevice = null },
-            onSave = { updated ->
-                viewModel.saveDevice(updated)
-                editingDevice = null
-            }
-        )
     }
 }

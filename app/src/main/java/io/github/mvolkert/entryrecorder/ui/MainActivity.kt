@@ -28,10 +28,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.service.IntercomMonitorService
 import io.github.mvolkert.entryrecorder.ui.live.LiveCamerasScreen
 import io.github.mvolkert.entryrecorder.ui.recordings.RecordingsScreen
+import io.github.mvolkert.entryrecorder.ui.settings.DeviceEditScreen
+import io.github.mvolkert.entryrecorder.ui.settings.NEW_DEVICE_ID
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsScreen
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsViewModel
 import io.github.mvolkert.entryrecorder.ui.theme.AppTheme
@@ -44,6 +51,12 @@ sealed class Screen(val route: String, @StringRes val labelRes: Int, val icon: I
     object Recordings : Screen("recordings", R.string.nav_recordings, Icons.Default.VideoLibrary)
     object Settings : Screen("settings", R.string.nav_settings, Icons.Default.Settings)
 }
+
+// NavHost graph below the pager. "main" keeps the swipeable 3-tab experience; editing a device is a
+// sibling fullscreen destination, so the bottom NavigationBar is not shown while the form is open.
+private const val ROUTE_MAIN = "main"
+private const val ROUTE_DEVICE_EDIT = "device_edit/{deviceId}"
+private const val ARG_DEVICE_ID = "deviceId"
 
 class MainActivity : ComponentActivity() {
 
@@ -73,7 +86,32 @@ class MainActivity : ComponentActivity() {
                 secondaryIndex = settings.themeSecondaryIndex,
                 tertiaryIndex = settings.themeTertiaryIndex,
             ) {
-                MainAppScaffold(settingsViewModel)
+                AppNavHost(settingsViewModel)
+            }
+        }
+    }
+
+    @Composable
+    fun AppNavHost(settingsViewModel: SettingsViewModel) {
+        val navController = rememberNavController()
+        NavHost(navController = navController, startDestination = ROUTE_MAIN) {
+            composable(ROUTE_MAIN) {
+                MainAppScaffold(
+                    settingsViewModel = settingsViewModel,
+                    onEditDevice = { id -> navController.navigate("device_edit/$id") },
+                    onAddDevice = { navController.navigate("device_edit/$NEW_DEVICE_ID") }
+                )
+            }
+            composable(
+                route = ROUTE_DEVICE_EDIT,
+                arguments = listOf(navArgument(ARG_DEVICE_ID) { type = NavType.LongType })
+            ) { entry ->
+                val deviceId = entry.arguments?.getLong(ARG_DEVICE_ID) ?: NEW_DEVICE_ID
+                DeviceEditScreen(
+                    viewModel = settingsViewModel,
+                    deviceId = deviceId,
+                    onDone = { navController.popBackStack() }
+                )
             }
         }
     }
@@ -94,7 +132,11 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun MainAppScaffold(settingsViewModel: SettingsViewModel) {
+    fun MainAppScaffold(
+        settingsViewModel: SettingsViewModel,
+        onEditDevice: (Long) -> Unit,
+        onAddDevice: () -> Unit
+    ) {
         val items = listOf(Screen.Live, Screen.Recordings, Screen.Settings)
         // Swipeable navigation: the pager owns the selected index and the NavigationBar mirrors it.
         // Per-screen state survives swipes because each screen's ViewModel is Activity-scoped.
@@ -164,7 +206,11 @@ class MainActivity : ComponentActivity() {
                         // Recording status + devices arrive as observable state via LiveViewModel.
                         0 -> LiveCamerasScreen()
                         1 -> RecordingsScreen()
-                        else -> SettingsScreen(viewModel = settingsViewModel)
+                        else -> SettingsScreen(
+                            viewModel = settingsViewModel,
+                            onEditDevice = onEditDevice,
+                            onAddDevice = onAddDevice
+                        )
                     }
                 }
             }

@@ -235,6 +235,8 @@
     <string name="device_test_success">Connection Successful!</string>
     <string name="device_test_failed">Failed: %1$s</string>
     <string name="device_save">Save Device</string>
+    <string name="device_edit_back">Back</string>
+    <string name="device_edit_footer_hint">Changes are saved with \"Save Device\" at the top.</string>
     <string name="device_toast_name_ip_required">Please enter name and IP address</string>
 
     <!-- Device card capability display -->

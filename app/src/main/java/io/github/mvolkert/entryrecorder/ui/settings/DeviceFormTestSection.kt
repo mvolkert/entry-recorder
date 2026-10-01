@@ -31,7 +31,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Probes the device with the values currently typed in, before anything is saved. The result is
- * local to this section: closing the dialog discards it along with the running probe.
+ * local to this section: leaving the screen discards it along with the running probe.
  */
 @Composable
 internal fun DeviceFormTestSection(form: DeviceFormState) {

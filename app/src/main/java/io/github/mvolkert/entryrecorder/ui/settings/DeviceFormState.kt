@@ -12,7 +12,7 @@ import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 internal enum class MotionSource { OFF, CAMERA, APP }
 
 /**
- * Editable values behind [DeviceEditDialog], seeded from an existing device or from the built-in
+ * Editable values behind [DeviceEditScreen], seeded from an existing device or from the built-in
  * defaults for a new one.
  *
  * Numeric fields are deliberately kept as the strings the text fields show, so typing into a port
