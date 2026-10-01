@@ -49,3 +49,14 @@ enum class ConnectionQuality {
     DEGRADED,     // Reachable but reduced: fallback polling only, or frames intermittently missing
     OFFLINE       // Nothing usable arrives for an extended stretch
 }
+
+/**
+ * Which of a device's two independent delivery paths a [ConnectionQuality] describes. They fail
+ * separately: a camera can serve snapshots fine (live view, recording and in-app motion analysis
+ * work) while its own event stream is dead (doorbell rings, camera-reported motion and noise never
+ * arrive), and a single conflated status made those indistinguishable to the UI.
+ */
+enum class ConnectionCapability {
+    DEVICE_EVENTS,  // The device's own event stream: doorbell ring, camera motion, noise
+    SNAPSHOT        // The HTTP snapshot/image path: live view, recording, in-app motion analysis
+}

@@ -1,5 +1,6 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,11 +28,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
+import io.github.mvolkert.entryrecorder.data.model.DeviceType
 
-/** One configured intercom: identity, network/SIP summary and the edit / delete actions. */
+/**
+ * One configured intercom: identity, network/SIP summary, the per-path capability the monitor service
+ * last measured, and the edit / delete actions. The two capability lines separate the camera's own
+ * event stream from the snapshot path, because one can be down while the other works — which is why a
+ * camera-driven trigger can silently never fire even though the device looks "online".
+ */
 @Composable
 internal fun DeviceCard(
     device: DeviceEntity,
+    eventQuality: ConnectionQuality?,
+    snapshotQuality: ConnectionQuality?,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -76,6 +86,33 @@ internal fun DeviceCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                // Two independent delivery paths, shown apart so a dead camera event stream (which only
+                // breaks ring/camera-motion/noise) is not confused with a working snapshot path.
+                val eventSupported = device.deviceType == DeviceType.TWO_N_VERSO
+                val eventValueRes = when {
+                    !eventSupported -> R.string.status_not_supported
+                    eventQuality == ConnectionQuality.ONLINE -> R.string.status_online
+                    eventQuality == ConnectionQuality.DEGRADED -> R.string.status_reduced
+                    eventQuality == ConnectionQuality.OFFLINE -> R.string.status_offline
+                    else -> R.string.status_unknown
+                }
+                CapabilityLine(
+                    formatRes = R.string.settings_device_event_status,
+                    valueRes = eventValueRes,
+                    offline = eventSupported && eventQuality == ConnectionQuality.OFFLINE
+                )
+                val snapshotValueRes = when (snapshotQuality) {
+                    ConnectionQuality.ONLINE -> R.string.status_online
+                    ConnectionQuality.DEGRADED -> R.string.status_reduced
+                    ConnectionQuality.OFFLINE -> R.string.status_offline
+                    null -> R.string.status_unknown
+                }
+                CapabilityLine(
+                    formatRes = R.string.settings_device_snapshot_status,
+                    valueRes = snapshotValueRes,
+                    offline = snapshotQuality == ConnectionQuality.OFFLINE
+                )
             }
 
             IconButton(onClick = onEdit) {
@@ -87,6 +124,20 @@ internal fun DeviceCard(
             }
         }
     }
+}
+
+/** Capability summary line; the whole line turns red only when that path is fully offline. */
+@Composable
+private fun CapabilityLine(
+    @StringRes formatRes: Int,
+    @StringRes valueRes: Int,
+    offline: Boolean
+) {
+    Text(
+        text = stringResource(formatRes, stringResource(valueRes)),
+        style = MaterialTheme.typography.bodySmall,
+        color = if (offline) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+    )
 }
 
 /** Placeholder shown while no device has been configured yet. */

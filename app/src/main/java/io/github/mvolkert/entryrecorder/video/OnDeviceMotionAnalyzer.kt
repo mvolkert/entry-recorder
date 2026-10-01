@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.util.Log
 import androidx.core.graphics.scale
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.data.model.ConnectionCapability
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
@@ -130,7 +131,9 @@ class OnDeviceMotionAnalyzer(
         val message = if (quality == ConnectionQuality.ONLINE)
             "Snapshot frames recovered after $failures missed polls"
         else "Snapshot endpoint delivered no frame for $failures polls in a row"
-        listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, quality, message))
+        listener.onEvent(
+            IntercomEvent.ConnectionState(deviceEntity, quality, message, ConnectionCapability.SNAPSHOT)
+        )
     }
 
     /** Periodic self-report: whether frames arrive at all, and how strong the biggest change was. */

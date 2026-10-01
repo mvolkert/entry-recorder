@@ -11,7 +11,9 @@ import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.backup.AppBackup
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
+import io.github.mvolkert.entryrecorder.service.MonitorStatusHolder
 import io.github.mvolkert.entryrecorder.worker.RetentionCleanupWorker
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +25,10 @@ data class SettingsUiState(
     val devices: List<DeviceEntity> = emptyList(),
     val appSettings: AppSettingsEntity = AppSettingsEntity(),
     val totalStorageBytes: Long = 0,
+    /** Per-device health of the camera event stream (doorbell / camera-motion / noise), for capability display. */
+    val eventQualities: Map<Long, ConnectionQuality> = emptyMap(),
+    /** Per-device health of the HTTP snapshot path (live view / recording / in-app motion analysis). */
+    val snapshotQualities: Map<Long, ConnectionQuality> = emptyMap(),
     val isLoading: Boolean = true
 )
 
@@ -37,12 +43,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val uiState: StateFlow<SettingsUiState> = combine(
         repository.allDevices,
         repository.settingsFlow,
-        repository.allRecordings
-    ) { devices, settings, recordings ->
+        repository.allRecordings,
+        MonitorStatusHolder.eventQualities,
+        MonitorStatusHolder.snapshotQualities
+    ) { devices, settings, recordings, eventQualities, snapshotQualities ->
         SettingsUiState(
             devices = devices,
             appSettings = settings ?: AppSettingsEntity(),
             totalStorageBytes = recordings.sumOf { it.fileSizeBytes },
+            eventQualities = eventQualities,
+            snapshotQualities = snapshotQualities,
             isLoading = false
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsUiState())

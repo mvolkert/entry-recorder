@@ -141,6 +141,8 @@ fun SettingsScreen(
                 items(state.devices, key = { it.id }) { device ->
                     DeviceCard(
                         device = device,
+                        eventQuality = state.eventQualities[device.id],
+                        snapshotQuality = state.snapshotQualities[device.id],
                         onEdit = { editingDevice = device },
                         onDelete = { viewModel.deleteDevice(device) }
                     )

@@ -1,6 +1,7 @@
 package io.github.mvolkert.entryrecorder.domain.device
 
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.data.model.ConnectionCapability
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 
 sealed class IntercomEvent {
@@ -12,7 +13,14 @@ sealed class IntercomEvent {
     data class MotionOnDeviceStarted(val device: DeviceEntity, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
     data class MotionOnDeviceEnded(val device: DeviceEntity, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
     data class DoorbellRung(val device: DeviceEntity, val callerNumber: String? = null, val timestamp: Long = System.currentTimeMillis()) : IntercomEvent()
-    data class ConnectionState(val device: DeviceEntity, val quality: ConnectionQuality, val message: String? = null) : IntercomEvent()
+    data class ConnectionState(
+        val device: DeviceEntity,
+        val quality: ConnectionQuality,
+        val message: String? = null,
+        // Which path this report is about. Defaults to the device event stream; the snapshot pollers
+        // (motion analyzer, recorder) pass SNAPSHOT so the two health signals stay separate.
+        val capability: ConnectionCapability = ConnectionCapability.DEVICE_EVENTS
+    ) : IntercomEvent()
     data class Error(val device: DeviceEntity, val error: Throwable) : IntercomEvent()
 }
 

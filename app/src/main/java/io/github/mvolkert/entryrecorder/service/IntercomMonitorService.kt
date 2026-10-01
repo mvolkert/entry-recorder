@@ -12,6 +12,7 @@ import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.data.model.ConnectionCapability
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
@@ -253,6 +254,15 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     // has to be visible in logcat and on the live card, not only in logcat.
                     if (event.quality == ConnectionQuality.ONLINE) Log.i(tag, detail) else Log.w(tag, detail)
                     applyConnectionQuality(event.device.id, event.quality)
+                    // Keep the two delivery paths tracked separately so Settings can say which one is
+                    // down: a dead event stream only breaks the camera-driven triggers, a dead snapshot
+                    // path only breaks live/recording/in-app analysis.
+                    when (event.capability) {
+                        ConnectionCapability.DEVICE_EVENTS ->
+                            MonitorStatusHolder.updateEventQuality(event.device.id, event.quality)
+                        ConnectionCapability.SNAPSHOT ->
+                            MonitorStatusHolder.updateSnapshotQuality(event.device.id, event.quality)
+                    }
                 }
 
                 is IntercomEvent.Error -> {

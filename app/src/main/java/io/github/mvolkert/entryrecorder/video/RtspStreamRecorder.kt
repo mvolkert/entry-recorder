@@ -7,6 +7,7 @@ import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import io.github.mvolkert.entryrecorder.data.model.ConnectionCapability
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
@@ -410,6 +411,7 @@ class RtspStreamRecorder(
                             IntercomEvent.ConnectionState(
                                 device = device,
                                 quality = quality,
+                                capability = ConnectionCapability.SNAPSHOT,
                                 message = if (quality == ConnectionQuality.ONLINE)
                                     "Snapshot frames recovered after $failures missed polls"
                                 else "Snapshot endpoint delivered no frame for $failures polls in a row"

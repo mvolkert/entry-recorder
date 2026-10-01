@@ -237,6 +237,15 @@
     <string name="device_save">Save Device</string>
     <string name="device_toast_name_ip_required">Please enter name and IP address</string>
 
+    <!-- Device card capability display -->
+    <string name="settings_device_event_status">Camera events (ring/motion/noise): %1$s</string>
+    <string name="settings_device_snapshot_status">Snapshot (live/record/in-app motion): %1$s</string>
+    <string name="status_online">online</string>
+    <string name="status_reduced">reduced</string>
+    <string name="status_offline">offline</string>
+    <string name="status_unknown">not measured yet</string>
+    <string name="status_not_supported">not supported</string>
+
     <!-- Incoming call screen -->
     <string name="incoming_header_ring">🔔 Doorbell Ringing</string>
     <string name="incoming_header_motion">👁 Motion Detected</string>
