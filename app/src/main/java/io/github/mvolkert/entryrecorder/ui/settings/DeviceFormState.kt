@@ -8,6 +8,9 @@ import io.github.mvolkert.entryrecorder.data.model.DeviceType
 import io.github.mvolkert.entryrecorder.data.model.SipMode
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 
+/** Motion detector that arms a recording, presented as a single choice in the device form. */
+internal enum class MotionSource { OFF, CAMERA, APP }
+
 /**
  * Editable values behind [DeviceEditDialog], seeded from an existing device or from the built-in
  * defaults for a new one.
@@ -46,6 +49,24 @@ class DeviceFormState(
     var recordOnRing by mutableStateOf(initial?.recordOnRing ?: true)
     var recordOnNoise by mutableStateOf(initial?.recordOnNoise ?: true)
     var recordOnMotionOnDevice by mutableStateOf(initial?.recordOnMotionOnDevice ?: false)
+
+    /**
+     * Which detector starts a motion recording. Backed by the two existing booleans so no entity or
+     * Room change is needed: [MotionSource.CAMERA] -> [recordOnMotion], [MotionSource.APP] ->
+     * [recordOnMotionOnDevice], [MotionSource.OFF] -> neither. The two independent switches used to
+     * read almost identically and could both be on; this collapses them into one exhaustive choice.
+     * A legacy device saved with both flags on resolves to [MotionSource.APP] (the reliable path).
+     */
+    internal var motionSource: MotionSource
+        get() = when {
+            recordOnMotionOnDevice -> MotionSource.APP
+            recordOnMotion -> MotionSource.CAMERA
+            else -> MotionSource.OFF
+        }
+        set(value) {
+            recordOnMotion = value == MotionSource.CAMERA
+            recordOnMotionOnDevice = value == MotionSource.APP
+        }
 
     var useHttps by mutableStateOf(initial?.useHttps ?: false)
     var httpsPort by mutableStateOf(initial?.httpsPort?.toString() ?: "443")

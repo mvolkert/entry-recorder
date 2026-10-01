@@ -218,10 +218,14 @@
     <string name="device_sip_password">SIP Password</string>
     <string name="device_triggers_section">Recording Triggers</string>
     <string name="device_trigger_ring">Record on Doorbell Ring</string>
-    <string name="device_trigger_motion">Record on Motion Detected</string>
+    <string name="device_trigger_ring_hint">Reported by the camera; unavailable on generic cameras or when its event stream is down</string>
     <string name="device_trigger_noise">Record on Noise Detected</string>
-    <string name="device_trigger_motion_app">Record on Motion (Analyzed On-Device by App)</string>
-    <string name="device_trigger_motion_app_hint">App analyzes the live video stream itself instead of relying on the device\'s built-in motion detection</string>
+    <string name="device_trigger_noise_hint">Reported by the camera; unavailable on generic cameras or when its event stream is down</string>
+    <string name="device_motion_source_label">Motion source</string>
+    <string name="device_motion_source_off">Off</string>
+    <string name="device_motion_source_camera">From camera (built-in detection)</string>
+    <string name="device_motion_source_app">Analyzed in-app (video stream)</string>
+    <string name="device_motion_source_hint">In-app analysis reads the video stream itself and works even when the camera cannot detect motion. "From camera" relies on the device reporting motion events.</string>
     <string name="device_durations_section">Recording Durations (seconds)</string>
     <string name="device_duration_ring">Ring</string>
     <string name="device_duration_motion_post">Motion post</string>

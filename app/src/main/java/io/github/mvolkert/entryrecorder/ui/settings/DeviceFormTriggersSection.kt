@@ -11,9 +11,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
+import io.github.mvolkert.entryrecorder.data.model.DeviceType
 
 /** Which events start a recording on this device. */
 @Composable
@@ -21,31 +23,49 @@ internal fun DeviceFormTriggersSection(form: DeviceFormState) {
     FormSectionLabel(R.string.device_triggers_section)
     SettingsSwitchRow(
         title = stringResource(R.string.device_trigger_ring),
+        subtitle = stringResource(R.string.device_trigger_ring_hint),
         checked = form.recordOnRing,
         onCheckedChange = { form.recordOnRing = it }
     )
     SettingsSwitchRow(
-        title = stringResource(R.string.device_trigger_motion),
-        checked = form.recordOnMotion,
-        onCheckedChange = { form.recordOnMotion = it }
-    )
-    SettingsSwitchRow(
         title = stringResource(R.string.device_trigger_noise),
+        subtitle = stringResource(R.string.device_trigger_noise_hint),
         checked = form.recordOnNoise,
         onCheckedChange = { form.recordOnNoise = it }
     )
-    Column {
-        SettingsSwitchRow(
-            title = stringResource(R.string.device_trigger_motion_app),
-            checked = form.recordOnMotionOnDevice,
-            onCheckedChange = { form.recordOnMotionOnDevice = it }
+
+    // Motion source is one exhaustive choice, not two look-alike switches that could both be on.
+    // Generic RTSP/ONVIF cameras expose no event bus, so "From camera" motion cannot exist there and
+    // is not offered.
+    Text(
+        stringResource(R.string.device_motion_source_label),
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Medium
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        FormRadioRow(
+            selected = form.motionSource == MotionSource.OFF,
+            label = stringResource(R.string.device_motion_source_off),
+            onClick = { form.motionSource = MotionSource.OFF }
         )
-        Text(
-            stringResource(R.string.device_trigger_motion_app_hint),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+        if (form.deviceType == DeviceType.TWO_N_VERSO) {
+            FormRadioRow(
+                selected = form.motionSource == MotionSource.CAMERA,
+                label = stringResource(R.string.device_motion_source_camera),
+                onClick = { form.motionSource = MotionSource.CAMERA }
+            )
+        }
+        FormRadioRow(
+            selected = form.motionSource == MotionSource.APP,
+            label = stringResource(R.string.device_motion_source_app),
+            onClick = { form.motionSource = MotionSource.APP }
         )
     }
+    Text(
+        stringResource(R.string.device_motion_source_hint),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
 }
 
 /** Per-event lengths plus the master enable switch the monitor service checks before arming a device. */
