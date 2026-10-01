@@ -8,9 +8,10 @@ Legend: `[x]` done · `[~]` partial / needs validation · `[ ]` open · 🔄 on-
 🔭 long-term / not scheduled · 🖥️ server-side scope
 
 ## Feature
-- Now/Stop Monitor button in the @RecordingScreen
-- Alerts & Lockscreen Behavior per camera setting not global
-- Make Camera Edit Screen a full sized Screen as dialog its too much settings for a dialog
+- [] Now/Stop Monitor button in the @RecordingScreen
+- [x] Alerts & Lockscreen Behavior per camera setting not global
+- [x] Make Camera Edit Screen a full sized Screen as dialog its too much settings for a dialog
+- [] 
 
 ## How to read the phases
 - **Phase 1–5** — Android app (`app/`, Kotlin). Do these in order; each phase is smaller-blast-radius than the next.

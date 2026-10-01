@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
 import io.github.mvolkert.entryrecorder.service.MonitorStatusHolder
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 data class LiveUiState(
     val devices: List<DeviceEntity> = emptyList(),
@@ -19,6 +21,8 @@ data class LiveUiState(
     val recordingDeviceIds: Set<Long> = emptySet(),
     /** Per-device monitoring status published by IntercomMonitorService — drives the status dot. */
     val monitorStatuses: Map<Long, MonitorStatus> = emptyMap(),
+    /** Health of each device's own event stream — dims the doorbell / camera-motion / noise glyphs. */
+    val eventQualities: Map<Long, ConnectionQuality> = emptyMap(),
     val isLoading: Boolean = true
 )
 
@@ -33,12 +37,14 @@ class LiveViewModel(application: Application) : AndroidViewModel(application) {
     val uiState: StateFlow<LiveUiState> = combine(
         repository.allDevices,
         app.recorder.activeDeviceIds,
-        MonitorStatusHolder.statuses
-    ) { devices, recordingIds, monitorStatuses ->
+        MonitorStatusHolder.statuses,
+        MonitorStatusHolder.eventQualities
+    ) { devices, recordingIds, monitorStatuses, eventQualities ->
         LiveUiState(
             devices = devices,
             recordingDeviceIds = recordingIds,
             monitorStatuses = monitorStatuses,
+            eventQualities = eventQualities,
             isLoading = false
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), LiveUiState())
@@ -49,5 +55,16 @@ class LiveViewModel(application: Application) : AndroidViewModel(application) {
 
     fun stopManualRecording(device: DeviceEntity) {
         app.recorder.stopRecording(device.id)
+    }
+
+    /**
+     * Arms or disarms event monitoring for [device] by persisting its isEnabled flag; the monitor
+     * service reacts to the device flow and starts/stops it. Only touches monitoring, never an
+     * in-flight recording — a triggered/manual capture is allowed to run out on its own.
+     */
+    fun toggleMonitoring(device: DeviceEntity) {
+        viewModelScope.launch {
+            repository.saveDevice(device.copy(isEnabled = !device.isEnabled))
+        }
     }
 }

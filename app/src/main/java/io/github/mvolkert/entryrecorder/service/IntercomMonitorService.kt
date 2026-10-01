@@ -57,7 +57,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
 
         // Start as Foreground Service immediately
         val serviceNotification = NotificationHelper.buildServiceNotification(this, 0)
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NotificationHelper.NOTIFICATION_ID_SERVICE,
                 serviceNotification,
@@ -249,15 +249,19 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     // Degraded monitoring (e.g. the 2N polling fallback that cannot see doorbells at all)
                     // has to be visible in logcat and on the live card, not only in logcat.
                     if (event.quality == ConnectionQuality.ONLINE) Log.i(tag, detail) else Log.w(tag, detail)
-                    applyConnectionQuality(event.device.id, event.quality)
-                    // Keep the two delivery paths tracked separately so Settings can say which one is
-                    // down: a dead event stream only breaks the camera-driven triggers, a dead snapshot
-                    // path only breaks live/recording/in-app analysis.
+                    // Keep the two delivery paths tracked separately so the live card and Settings can
+                    // say which one is down: a dead event stream only breaks the camera-driven triggers,
+                    // a dead snapshot path only breaks live/recording/in-app analysis. The overall status
+                    // dot follows the snapshot path specifically — it is what the live view, recordings
+                    // and in-app motion all depend on — so a dead event stream no longer marks an
+                    // otherwise-working camera offline. Camera-event health is shown on the trigger glyphs.
                     when (event.capability) {
                         ConnectionCapability.DEVICE_EVENTS ->
                             MonitorStatusHolder.updateEventQuality(event.device.id, event.quality)
-                        ConnectionCapability.SNAPSHOT ->
+                        ConnectionCapability.SNAPSHOT -> {
                             MonitorStatusHolder.updateSnapshotQuality(event.device.id, event.quality)
+                            applyConnectionQuality(event.device.id, event.quality)
+                        }
                     }
                 }
 
@@ -269,7 +273,9 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     }
 
     /**
-     * Maps connection quality onto the device's [MonitorStatus] so the live card can show it.
+     * Maps the snapshot-path connection quality onto the device's overall [MonitorStatus] so the live
+     * card dot can show it. Only the snapshot path drives this (see the ConnectionState handler); a
+     * degraded or offline camera event stream is surfaced separately, on the trigger glyphs.
      *
      * A recovery must not erase a running motion alert, so ONLINE only replaces MONITORING; a degraded
      * or offline source cannot deliver trustworthy events at all, so it always wins over MOTION.

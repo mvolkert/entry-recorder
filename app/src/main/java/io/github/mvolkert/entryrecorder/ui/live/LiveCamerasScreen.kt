@@ -25,6 +25,8 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material.icons.filled.VideocamOff
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
 import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
 
@@ -113,17 +116,21 @@ fun LiveCamerasScreen(
                         val isRecording = device.id in state.recordingDeviceIds
                         val monitorStatus = if (!device.isEnabled) MonitorStatus.DISABLED
                         else state.monitorStatuses[device.id] ?: MonitorStatus.DISABLED
+                        val eventQuality = state.eventQualities[device.id]
                         LiveDeviceCard(
                             device = device,
                             isRecording = isRecording,
+                            isMonitored = device.isEnabled,
                             monitorStatus = monitorStatus,
+                            eventQuality = eventQuality,
                             onToggleRecord = {
                                 if (isRecording) {
                                     viewModel.stopManualRecording(device)
                                 } else {
                                     viewModel.startManualRecording(device)
                                 }
-                            }
+                            },
+                            onToggleMonitor = { viewModel.toggleMonitoring(device) }
                         )
                     }
                 }
@@ -136,8 +143,11 @@ fun LiveCamerasScreen(
 fun LiveDeviceCard(
     device: DeviceEntity,
     isRecording: Boolean,
+    isMonitored: Boolean,
     monitorStatus: MonitorStatus,
-    onToggleRecord: () -> Unit
+    eventQuality: ConnectionQuality?,
+    onToggleRecord: () -> Unit,
+    onToggleMonitor: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -153,44 +163,41 @@ fun LiveDeviceCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .background(monitorStatusColor(monitorStatus), shape = RoundedCornerShape(50))
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = device.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Text(
+                    text = device.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
 
-                if (isRecording) {
-                    // Compact badge: total height stays below the device-name line height, so the
-                    // header row (and the card/video layout) never grows or shrinks when it appears.
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color.Red
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                // All card status is grouped on the right: the monitoring pill, then the REC badge.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    MonitorStatusPill(monitorStatus)
+                    if (isRecording) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        // Compact badge: total height stays below the device-name line height, so the
+                        // header row (and the card/video layout) never grows or shrinks when it appears.
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.Red
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(5.dp)
-                                    .background(Color.White, shape = RoundedCornerShape(50))
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                stringResource(R.string.live_rec_badge),
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 9.sp,
-                                lineHeight = 12.sp
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(5.dp)
+                                        .background(Color.White, shape = RoundedCornerShape(50))
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    stringResource(R.string.live_rec_badge),
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 9.sp,
+                                    lineHeight = 12.sp
+                                )
+                            }
                         }
                     }
                 }
@@ -218,15 +225,33 @@ fun LiveDeviceCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = stringResource(R.string.live_device_addr, device.ipAddress, device.rtspPort),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
+                // Left: identity + the triggers this camera is armed for.
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TriggerIndicators(device = device, monitorStatus = monitorStatus)
+                    Text(
+                        text = stringResource(R.string.live_device_addr, device.ipAddress, device.rtspPort),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Spacer(modifier = Modifier.width(10.dp))
+                    TriggerIndicators(
+                        device = device,
+                        monitorStatus = monitorStatus,
+                        eventQuality = eventQuality
+                    )
+                }
+
+                // Right: the card's actions — monitor on/off, then manual record.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onToggleMonitor) {
+                        Icon(
+                            imageVector = if (isMonitored) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                            contentDescription = stringResource(
+                                if (isMonitored) R.string.live_cd_stop_monitor else R.string.live_cd_monitor
+                            ),
+                            tint = if (isMonitored) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     IconButton(onClick = onToggleRecord) {
                         if (isRecording) {
                             Icon(
@@ -257,9 +282,45 @@ fun LiveDeviceCard(
 }
 
 /**
- * The card's connection dot: the one place the device's live health is shown, driven by the
- * [MonitorStatus] the monitor service publishes (degraded polling fallback and an offline camera used to
- * both look exactly like a healthy green dot).
+ * Card status pill: the monitoring-state dot and its label, grouped on the header's right with the
+ * REC badge so all card status reads together. DISABLED covers both an unmonitored device
+ * (isEnabled = false) and one the service has not taken over yet.
+ */
+@Composable
+private fun MonitorStatusPill(status: MonitorStatus) {
+    val labelRes = when (status) {
+        MonitorStatus.DISABLED -> R.string.live_status_disabled
+        MonitorStatus.MONITORING -> R.string.live_status_monitoring
+        MonitorStatus.MOTION -> R.string.live_status_motion
+        MonitorStatus.DEGRADED -> R.string.live_status_degraded
+        MonitorStatus.OFFLINE -> R.string.live_status_offline
+    }
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .background(monitorStatusColor(status), shape = CircleShape)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = stringResource(labelRes),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/**
+ * Color of the device's live health, driven by the [MonitorStatus] the monitor service publishes
+ * (degraded polling fallback and an offline camera used to both look exactly like a healthy green).
  */
 @Composable
 private fun monitorStatusColor(status: MonitorStatus): Color = when (status) {
@@ -275,15 +336,27 @@ private fun monitorStatusColor(status: MonitorStatus): Color = when (status) {
  * bell = record on doorbell ring, walking man = record on motion (native or on-device
  * analysis; turns amber while motion is currently detected), speaker = record on noise.
  *
- * The tint doubles as the monitor-service status (replacing the earlier standalone dot):
- * faded = the service has not taken this camera over yet, normal = actively monitored.
+ * The status dot is snapshot-driven, so a degraded/offline camera event stream is shown here instead:
+ * the triggers it feeds (doorbell, camera-reported motion, noise) fade when [eventQuality] is not
+ * healthy. In-app motion rides the snapshot path and stays judged by the dot, so an event outage does
+ * not fade it. Faded also means the service has not taken this camera over yet (not monitored).
  */
 @Composable
-private fun TriggerIndicators(device: DeviceEntity, monitorStatus: MonitorStatus) {
-    val idleTint = if (monitorStatus == MonitorStatus.DISABLED)
-        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
-    else MaterialTheme.colorScheme.onSurfaceVariant
+private fun TriggerIndicators(
+    device: DeviceEntity,
+    monitorStatus: MonitorStatus,
+    eventQuality: ConnectionQuality?
+) {
+    val monitored = monitorStatus != MonitorStatus.DISABLED
+    val normal = MaterialTheme.colorScheme.onSurfaceVariant
+    val faded = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+    val eventsDown = eventQuality == ConnectionQuality.DEGRADED || eventQuality == ConnectionQuality.OFFLINE
+    val eventTint = if (monitored && !eventsDown) normal else faded
+    val baseTint = if (monitored) normal else faded
     val motionNow = monitorStatus == MonitorStatus.MOTION
+    // Camera-reported motion depends on the event stream; in-app motion does not.
+    val walkUsesEvents = device.recordOnMotion && !device.recordOnMotionOnDevice
+    val walkTint = if (walkUsesEvents) eventTint else baseTint
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (device.isEnabled && device.recordOnRing) {
             Spacer(modifier = Modifier.width(8.dp))
@@ -291,7 +364,7 @@ private fun TriggerIndicators(device: DeviceEntity, monitorStatus: MonitorStatus
                 imageVector = Icons.Default.Notifications,
                 contentDescription = stringResource(R.string.live_cd_ring),
                 modifier = Modifier.size(16.dp),
-                tint = idleTint
+                tint = eventTint
             )
         }
         if (device.isEnabled && (device.recordOnMotion || device.recordOnMotionOnDevice)) {
@@ -302,7 +375,7 @@ private fun TriggerIndicators(device: DeviceEntity, monitorStatus: MonitorStatus
                     if (motionNow) R.string.live_cd_motion_now else R.string.live_cd_motion
                 ),
                 modifier = Modifier.size(16.dp),
-                tint = if (motionNow) Color(0xFFFFB300) else idleTint
+                tint = if (motionNow) Color(0xFFFFB300) else walkTint
             )
         }
         if (device.isEnabled && device.recordOnNoise) {
@@ -311,7 +384,7 @@ private fun TriggerIndicators(device: DeviceEntity, monitorStatus: MonitorStatus
                 imageVector = Icons.AutoMirrored.Filled.VolumeUp,
                 contentDescription = stringResource(R.string.live_cd_noise),
                 modifier = Modifier.size(16.dp),
-                tint = idleTint
+                tint = eventTint
             )
         }
     }

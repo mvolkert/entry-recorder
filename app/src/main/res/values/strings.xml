@@ -34,6 +34,13 @@
     <string name="live_cd_motion_now">Motion detected</string>
     <string name="live_cd_motion">Records on motion</string>
     <string name="live_cd_noise">Records on noise</string>
+    <string name="live_cd_monitor">Start monitoring</string>
+    <string name="live_cd_stop_monitor">Stop monitoring</string>
+    <string name="live_status_monitoring">Monitoring</string>
+    <string name="live_status_motion">Motion</string>
+    <string name="live_status_degraded">Degraded</string>
+    <string name="live_status_offline">Offline</string>
+    <string name="live_status_disabled">Disabled</string>
 
     <!-- Recordings screen -->
     <string name="recordings_title">Recordings Archive</string>
