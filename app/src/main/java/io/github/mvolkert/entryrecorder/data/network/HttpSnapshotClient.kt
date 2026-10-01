@@ -41,6 +41,12 @@ object HttpSnapshotClient {
     /** A rate estimate older than this is reported as "not measured", not as the last good number. */
     private const val RATE_STALE_MS = 5_000L
 
+    /** How long the device form's "Get FPS" probe runs, to let the encoder reach and hold its ceiling. */
+    private const val PROBE_DURATION_MS = 8_000L
+
+    /** Dead-endpoint guard: this many back-to-back failures abort the probe instead of hammering. */
+    private const val PROBE_MAX_FAILURES = 3
+
     /** Carries the per-device credentials so the shared [httpClient] can answer a Digest challenge. */
     private class SnapshotAuth(val deviceId: Long, val username: String, val password: String)
 
@@ -117,6 +123,40 @@ object HttpSnapshotClient {
         rateEstimates.remove(deviceId)
         lastFrameAtMs.remove(deviceId)
         digestChallenges.remove(deviceId)
+    }
+
+    /**
+     * One-time burst measurement of what the snapshot endpoint can actually serve, for the device form's
+     * "Get FPS" button. Fires back-to-back raw fetches for [PROBE_DURATION_MS] and returns the **peak**
+     * rate in frames per second (the fastest steady fetch), or 0f if the endpoint never answered.
+     *
+     * Peak, not average: a max-rate burst provokes the 2N's serialised encoder into occasional stalls, and
+     * an average reports the worst of those rather than the camera's real ceiling. The fastest fetch reflects
+     * what it can genuinely serve; the first sample is dropped because it pays TCP/TLS/auth connection
+     * setup and is never the camera's pace.
+     *
+     * Routes through [fetchSnapshotBytes] on purpose: that path rejects a non-image body (a wrong snapshot
+     * path answers HTTP 200 + a JSON error document on some firmwares), so a misconfigured camera measures
+     * 0 instead of a flattering fake rate. Unlike the passive [achievedFps] — which only has a number once
+     * the live view or a recording is already polling — this works on an unsaved device built from the form.
+     */
+    suspend fun probeSnapshotFps(device: DeviceEntity): Float {
+        val deadline = System.currentTimeMillis() + PROBE_DURATION_MS
+        val durations = ArrayList<Long>()
+        var failures = 0
+        while (System.currentTimeMillis() < deadline) {
+            val fetchStart = System.currentTimeMillis()
+            if (fetchSnapshotBytes(device) != null) {
+                durations += System.currentTimeMillis() - fetchStart
+                failures = 0
+            } else if (++failures >= PROBE_MAX_FAILURES) {
+                break
+            }
+        }
+        if (durations.size <= 1) return 0f
+        val fastest = durations.drop(1).min()
+        if (fastest <= 0) return 0f
+        return 1000f / fastest
     }
 
     /**

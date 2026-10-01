@@ -3,17 +3,25 @@ package io.github.mvolkert.entryrecorder.ui.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -22,6 +30,8 @@ import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
@@ -64,29 +74,76 @@ internal fun DeviceFormStreamSection(form: DeviceFormState) {
     }
 
     if (form.streamProtocol == StreamProtocol.HTTP_SNAPSHOT || form.streamProtocol == StreamProtocol.AUTO) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = form.snapshotPath,
-                onValueChange = { form.snapshotPath = it },
-                label = { Text(stringResource(R.string.device_snapshot_path_label)) },
-                modifier = Modifier.weight(2f)
-            )
+        // Snapshot path takes its own full-width row; the rate field and the measure button share the
+        // next row so the button sits to the right of the FPS value.
+        OutlinedTextField(
+            value = form.snapshotPath,
+            onValueChange = { form.snapshotPath = it },
+            label = { Text(stringResource(R.string.device_snapshot_path_label)) },
+            modifier = Modifier.fillMaxWidth()
+        )
+        // One-time burst measurement of what this endpoint can actually serve, so the rate stops being a
+        // per-device-type guess. Writes the measured number straight back into the field beside it.
+        val scope = rememberCoroutineScope()
+        var probing by remember(form.deviceId) { mutableStateOf(false) }
+        var probeResult by remember(form.deviceId) { mutableStateOf(-1f) }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             OutlinedTextField(
                 value = form.snapshotFps,
                 onValueChange = { form.snapshotFps = it },
                 label = { Text(stringResource(R.string.device_snapshot_fps)) },
                 modifier = Modifier.weight(1f),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                isError = form.isSnapshotFpsAboveCeiling,
-                supportingText = {
-                    Text(
-                        text = stringResource(
-                            if (form.isSnapshotFpsAboveCeiling) R.string.device_snapshot_fps_above_ceiling
-                            else R.string.device_snapshot_fps_ceiling,
-                            form.maxSnapshotFps
-                        )
-                    )
+                isError = form.isSnapshotFpsAboveCeiling
+            )
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        probing = true
+                        probeResult = -1f
+                        val fps = HttpSnapshotClient.probeSnapshotFps(form.buildTestCandidate())
+                        if (fps > 0f) {
+                            form.snapshotFps = fps.roundToInt().coerceIn(1, form.maxSnapshotFps).toString()
+                        }
+                        probeResult = fps
+                        probing = false
+                    }
+                },
+                enabled = !probing
+            ) {
+                if (probing) {
+                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(stringResource(R.string.device_snapshot_fps_probing))
+                } else {
+                    Text(stringResource(R.string.device_snapshot_fps_get))
                 }
+            }
+        }
+        // The ceiling hint sits under both the rate field and the button, in the field's error colour
+        // once the typed rate is over the limit.
+        Text(
+            text = stringResource(
+                if (form.isSnapshotFpsAboveCeiling) R.string.device_snapshot_fps_above_ceiling
+                else R.string.device_snapshot_fps_ceiling,
+                form.maxSnapshotFps
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = if (form.isSnapshotFpsAboveCeiling) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (!probing && probeResult >= 0f) {
+            Text(
+                text = if (probeResult > 0f)
+                    stringResource(R.string.device_snapshot_fps_probe_result, probeResult)
+                else
+                    stringResource(R.string.device_snapshot_fps_probe_failed),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
         // The rate the endpoint really delivered lately, measured by the shared snapshot client while the

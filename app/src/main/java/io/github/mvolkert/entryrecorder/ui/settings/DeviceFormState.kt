@@ -91,8 +91,8 @@ class DeviceFormState(
     /** Row id of the edited device, or 0 for a new one — the key the snapshot rate is measured under. */
     val deviceId: Long get() = initial?.id ?: 0L
 
-    /** Snapshot rate ceiling of the selected device type; what a higher input will be clamped to. */
-    val maxSnapshotFps: Int get() = DeviceEntity.maxSnapshotFpsFor(deviceType)
+    /** Snapshot rate sanity ceiling; what a higher input will be clamped to. */
+    val maxSnapshotFps: Int get() = DeviceEntity.SNAPSHOT_FPS_HARD_MAX
 
     /** True while the typed rate is above the ceiling, so the field can say it will not be honoured. */
     val isSnapshotFpsAboveCeiling: Boolean
@@ -146,8 +146,8 @@ class DeviceFormState(
             streamProtocol = streamProtocol,
             mjpegPath = mjpegPath.trim(),
             snapshotPath = snapshotPath.trim(),
-            // Capped on save: a rate above the endpoint's ceiling cannot be delivered, and storing it
-            // would make the recording pace itself by a number that is unreachable by construction.
+            // Capped on save to a sanity bound: above it the poll interval is shorter than an HTTP round
+            // trip, so no snapshot camera can deliver it. The real per-camera rate comes from "Get FPS".
             snapshotFps = clampedSnapshotFps,
             sipMode = sipMode,
             sipLocalPort = sipLocalPort.toIntOrNull() ?: 5060,

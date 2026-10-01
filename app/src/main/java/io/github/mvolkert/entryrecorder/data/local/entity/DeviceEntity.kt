@@ -101,30 +101,22 @@ data class DeviceEntity(
         }
 
     /**
-     * Snapshot polling rate actually worth asking for: [snapshotFps] clamped to what this device type
-     * can serve. The 2N serialises snapshot encoding (~5.9 req/s measured on this LAN), so a higher
-     * configured value does not deliver more frames — it only makes the setting lie about the result.
+     * Snapshot polling rate actually worth asking for: [snapshotFps] clamped to [SNAPSHOT_FPS_HARD_MAX].
+     * The ceiling used to be a per-device-type guess (6 for the 2N), which fought real cameras that can
+     * serve more — the device form now measures each endpoint directly ("Get FPS"), so only this sanity
+     * bound remains: past it the poll interval falls below a realistic HTTP round trip.
      */
     val effectiveSnapshotFps: Int
         get() = snapshotFps.coerceIn(1, maxSnapshotFps)
 
     /** Upper bound [effectiveSnapshotFps] clamps to, surfaced to the user wherever the rate is edited. */
     val maxSnapshotFps: Int
-        get() = maxSnapshotFpsFor(deviceType)
+        get() = SNAPSHOT_FPS_HARD_MAX
 
     companion object {
-        // Ceiling measured on the deployed 2N IP Verso firmware (≈5.9 req/s sustained over one
-        // keep-alive connection); polling faster just queues requests behind the encoder.
-        const val TWO_N_SNAPSHOT_FPS_CEILING = 6
-
-        // Ceiling for devices with no measured endpoint limit: the frame interval still has to stay
-        // above a realistic HTTP round trip, so nothing above this is achievable through a snapshot.
+        // Single sanity ceiling for every device: beyond it the frame interval drops below a realistic
+        // HTTP round trip, so no snapshot endpoint can deliver it. Per-camera capability is measured in
+        // the device form rather than guessed from the type (a 2N once forced this down to a static 6).
         const val SNAPSHOT_FPS_HARD_MAX = 30
-
-        /** The snapshot rate ceiling for a device type, also what the edit form warns about. */
-        fun maxSnapshotFpsFor(deviceType: DeviceType): Int = when (deviceType) {
-            DeviceType.TWO_N_VERSO -> TWO_N_SNAPSHOT_FPS_CEILING
-            DeviceType.GENERIC_RTSP_ONVIF -> SNAPSHOT_FPS_HARD_MAX
-        }
     }
 }
