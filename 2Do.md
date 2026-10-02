@@ -192,7 +192,7 @@ cross-layer design pivot except where noted.
       Files: `sip/SipCallManager.kt`, `ui/incoming/*`
 
 ## Phase 4 — Service & data-layer refactors (larger blast radius)
-- [~] **Server-mode stop reconciliation.** Auto-stop used a fixed `maxDurationSeconds + 2` local timer with an
+- [x] **Server-mode stop reconciliation.** Auto-stop used a fixed `maxDurationSeconds + 2` local timer with an
       unconditional stop, so app and server drifted both ways: the phone kept showing REC after the server had
       finalized, and a `maxDurationSeconds + 2` stop could cut short a job the server reported as
       `already_recording` (someone else's duration). Done (app side): the recorder tracks an
@@ -202,9 +202,22 @@ cross-layer design pivot except where noted.
       (or after 3 failed probes, where it is the safe fallback), and a job that outlived the requested duration is
       left alone. `ServerRecordingClient` now reads the start/stop bodies (`started` vs `already_recording`,
       `stopped` vs `not_recording`) and an optional `recording_id` instead of trusting HTTP 200.
-      **Remaining:** the id is only held in memory — persisting it (so a post-restart reconcile survives) still
-      needs the app to store it; the server now returns it from *start* (Phase S done), so `GET /api/recordings/{id}`
-      is usable for an in-progress auto-stop. Files: `video/RtspStreamRecorder.kt`, `data/server/ServerRecordingClient.kt`
+      **Done (persistence):** the in-flight server recording is now persisted, so the reconcile survives a process
+      restart. New transient Room table `active_server_recordings` (v11→v12; one row per device: `deviceId` PK,
+      `recordingId`, `eventType`, `maxDurationSeconds`, `startedByThisRequest`, `startedAtMs`) behind
+      `ActiveServerRecordingDao` + repository methods; `RtspStreamRecorder` is a process singleton, so its map alone
+      died with the process. The recorder writes the row on a successful server start and deletes it on every clear
+      path (`clearServerRecording`, the app-initiated stop). The reconcile deadline is now anchored to the persisted
+      `startedAtMs` (`startedAtMs + maxDurationSeconds + grace`) instead of "now", so a resumed watcher honours the
+      time already elapsed rather than granting a fresh duration. `IntercomMonitorService.updateMonitoredDevices`
+      calls `resumePersistedServerRecordings(enabledDevices)` (idempotent) to re-adopt rows and relaunch watchers;
+      rows whose device is unmonitored or whose mode is no longer `PYTHON_SERVER` are dropped (the server finalizes
+      on its own). Reconcile still keys off `/api/status` by `deviceId`; the persisted `recordingId` is carried for
+      identity and the Phase 5 surfacing work, and `GET /api/recordings/{id}` remains the id-based alternative if
+      device-keyed probing ever proves insufficient. Compile + `lintDebug` green; the live server+reboot check is a
+      Phase G gate. Files: `video/RtspStreamRecorder.kt`, `data/server/ServerRecordingClient.kt`,
+      `data/local/entity/ActiveServerRecordingEntity.kt`, `data/local/dao/ActiveServerRecordingDao.kt`,
+      `data/local/AppDatabase.kt`, `data/repository/IntercomRepository.kt`, `service/IntercomMonitorService.kt`
 - 🔭 **RTSP H.264 passthrough** (demux → re-mux, zero re-encode/CPU) for stream-capable cameras — capture-pipeline
       rewrite, only for future RTSP-only devices. Not scheduled.
 
@@ -362,6 +375,11 @@ against a live server before closing.
       `already_recording` with the in-flight job's `recording_id`, not null.
 - [ ] 🔄 **Empty capture discards the row.** Stop a job that produced 0 bytes → the pre-inserted row is deleted
       (no ghost `recording`/0-byte row lingers in `GET /api/recordings/{id}`).
+- [ ] 🔄 **Process-restart resume (Phase 4 persistence).** Start a long server recording, then kill the app process
+      (swipe-away or reboot with autostart) while it is still running: the app must re-adopt it — show REC, keep
+      reconciling, and auto-stop only if `startedByThisRequest` — honouring the deadline from `startedAtMs` (not a
+      fresh duration), then delete the `active_server_recordings` row once it ends. Also confirm a row whose device
+      was disabled/removed, or left over after switching off `PYTHON_SERVER`, is dropped on the next service pass.
 - [ ] 🔄 **Migration over real data.** Boot the server against the existing `data/recordings.db` without wiping it:
       `status` column added, every legacy row backfills to `completed`, gallery count unchanged.
 

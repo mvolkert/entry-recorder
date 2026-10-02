@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
+import io.github.mvolkert.entryrecorder.data.local.entity.ActiveServerRecordingEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import io.github.mvolkert.entryrecorder.data.model.ConnectionCapability
@@ -93,14 +94,17 @@ class RtspStreamRecorder(
     /**
      * The app's view of a recording the server is running. Kept deliberately thin: the server owns the job
      * and its duration, so what the phone has to remember is which trigger started it (for the stop guard),
-     * how long it asked for (for the reconcile deadline) and whether the job is even this client's to stop.
+     * how long it asked for (for the reconcile deadline), whether the job is even this client's to stop, and
+     * when it began (so a resume after a process restart honours the time already elapsed).
      */
     private data class ActiveServerRecording(
         val eventType: EventType,
         val maxDurationSeconds: Int,
         val startedByThisRequest: Boolean,
         /** Server row id, once the server returns one from start (Phase S). Null with today's server. */
-        val recordingId: Long?
+        val recordingId: Long?,
+        /** Wall-clock ms of the successful start; the reconcile deadline is anchored to this. */
+        val startedAtMs: Long
     )
 
     fun isRecording(deviceId: Long): Boolean = deviceId in _activeDeviceIds.value
@@ -143,13 +147,27 @@ class RtspStreamRecorder(
 
                 if (result.isSuccess) {
                     val start = result.getOrThrow()
+                    val startedAt = System.currentTimeMillis()
                     activeServerRecordings[device.id] = ActiveServerRecording(
                         eventType = eventType,
                         maxDurationSeconds = maxDurationSeconds,
                         startedByThisRequest = start.startedByThisRequest,
-                        recordingId = start.recordingId
+                        recordingId = start.recordingId,
+                        startedAtMs = startedAt
                     )
                     publishActiveIds()
+                    // Persist so a process restart can resume reconciling and auto-stopping this job: the
+                    // recorder is a process singleton, so the in-memory map alone dies with the process.
+                    repository.saveActiveServerRecording(
+                        ActiveServerRecordingEntity(
+                            deviceId = device.id,
+                            recordingId = start.recordingId,
+                            eventType = eventType,
+                            maxDurationSeconds = maxDurationSeconds,
+                            startedByThisRequest = start.startedByThisRequest,
+                            startedAtMs = startedAt
+                        )
+                    )
                     if (!start.startedByThisRequest) {
                         Log.i(tag, "Server was already recording ${device.name}; watching that job instead of arming a stop for it")
                     }
@@ -247,6 +265,7 @@ class RtspStreamRecorder(
                 publishActiveIds()
                 scope.launch {
                     val settings = repository.getSettings()
+                    repository.deleteActiveServerRecording(deviceId)
                     requestServerStop(deviceId, "device $deviceId", settings.serverBaseUrl, settings.serverApiKey.ifBlank { null })
                 }
             }
@@ -262,7 +281,10 @@ class RtspStreamRecorder(
      */
     private suspend fun watchServerRecording(device: DeviceEntity) {
         val tracked = activeServerRecordings[device.id] ?: return
-        val stopAtMs = System.currentTimeMillis() + (tracked.maxDurationSeconds * 1000L) + SERVER_STOP_GRACE_MS
+        // Anchor the deadline to the recorded start rather than to when this coroutine begins, so a watcher
+        // resumed after a process restart honours the time already elapsed instead of granting a fresh
+        // maxDurationSeconds. For a fresh start (startedAtMs == now) this equals the previous value.
+        val stopAtMs = tracked.startedAtMs + (tracked.maxDurationSeconds * 1000L) + SERVER_STOP_GRACE_MS
         var failedProbes = 0
 
         while (currentCoroutineContext().isActive) {
@@ -317,10 +339,44 @@ class RtspStreamRecorder(
     }
 
     /** Drops the app's view of a server recording; the job on the server itself is untouched. */
-    private fun clearServerRecording(deviceId: Long, reason: String) {
+    private suspend fun clearServerRecording(deviceId: Long, reason: String) {
         if (activeServerRecordings.remove(deviceId) != null) {
             publishActiveIds()
+            repository.deleteActiveServerRecording(deviceId)
             Log.i(tag, "No longer tracking the server recording of device $deviceId ($reason)")
+        }
+    }
+
+    /**
+     * Rebuilds the app's view of server recordings that were in flight when the process died, so a reboot
+     * still shows REC, reconciles against the server and auto-stops a job this client started. Called from
+     * the monitor service once the enabled devices are known. Rows whose device is no longer monitored, or
+     * left over while the recording mode is no longer the server, are dropped: the server finalizes on its
+     * own, so the only thing lost is the app claiming it. Idempotent — a device already tracked live is
+     * skipped, so repeated device-list emissions never stack watchers on one job.
+     */
+    suspend fun resumePersistedServerRecordings(devices: List<DeviceEntity>) {
+        val persisted = repository.getActiveServerRecordings()
+        if (persisted.isEmpty()) return
+        val recordingMode = repository.getSettings().recordingMode
+        val byId = devices.associateBy { it.id }
+        for (row in persisted) {
+            if (activeServerRecordings.containsKey(row.deviceId)) continue
+            val device = byId[row.deviceId]
+            if (device == null || recordingMode != RecordingMode.PYTHON_SERVER) {
+                repository.deleteActiveServerRecording(row.deviceId)
+                continue
+            }
+            activeServerRecordings[device.id] = ActiveServerRecording(
+                eventType = row.eventType,
+                maxDurationSeconds = row.maxDurationSeconds,
+                startedByThisRequest = row.startedByThisRequest,
+                recordingId = row.recordingId,
+                startedAtMs = row.startedAtMs
+            )
+            publishActiveIds()
+            Log.i(tag, "Resumed tracking a server recording on ${device.name} across restart (id ${row.recordingId ?: "none"})")
+            scope.launch { watchServerRecording(device) }
         }
     }
 

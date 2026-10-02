@@ -6,9 +6,11 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import io.github.mvolkert.entryrecorder.data.local.dao.ActiveServerRecordingDao
 import io.github.mvolkert.entryrecorder.data.local.dao.AppSettingsDao
 import io.github.mvolkert.entryrecorder.data.local.dao.DeviceDao
 import io.github.mvolkert.entryrecorder.data.local.dao.RecordingDao
+import io.github.mvolkert.entryrecorder.data.local.entity.ActiveServerRecordingEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
@@ -20,15 +22,17 @@ import kotlinx.coroutines.launch
     entities = [
         DeviceEntity::class,
         RecordingEntity::class,
-        AppSettingsEntity::class
+        AppSettingsEntity::class,
+        ActiveServerRecordingEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun deviceDao(): DeviceDao
     abstract fun recordingDao(): RecordingDao
     abstract fun appSettingsDao(): AppSettingsDao
+    abstract fun activeServerRecordingDao(): ActiveServerRecordingDao
 
     companion object {
         @Volatile
@@ -126,6 +130,24 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v11 -> v12: persisted in-flight server recordings, so a process restart can resume reconciling
+        // and auto-stopping a job the server is still running. Transient table: rows live only while the
+        // app tracks the job. eventType uses Room's enum-as-TEXT mapping (the enum name), like the
+        // other enum columns already in this database.
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS active_server_recordings (" +
+                        "deviceId INTEGER NOT NULL PRIMARY KEY, " +
+                        "recordingId INTEGER, " +
+                        "eventType TEXT NOT NULL, " +
+                        "maxDurationSeconds INTEGER NOT NULL, " +
+                        "startedByThisRequest INTEGER NOT NULL, " +
+                        "startedAtMs INTEGER NOT NULL)"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -136,7 +158,7 @@ abstract class AppDatabase : RoomDatabase() {
                     .fallbackToDestructiveMigration(false)
                     .addMigrations(
                         MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
-                        MIGRATION_9_10, MIGRATION_10_11
+                        MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12
                     )
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

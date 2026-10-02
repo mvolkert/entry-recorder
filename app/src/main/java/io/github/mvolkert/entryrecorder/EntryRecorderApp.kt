@@ -23,7 +23,8 @@ class EntryRecorderApp : Application() {
         IntercomRepository(
             deviceDao = database.deviceDao(),
             recordingDao = database.recordingDao(),
-            appSettingsDao = database.appSettingsDao()
+            appSettingsDao = database.appSettingsDao(),
+            activeServerRecordingDao = database.activeServerRecordingDao()
         )
     }
     val recorder by lazy { RtspStreamRecorder(this, repository) }

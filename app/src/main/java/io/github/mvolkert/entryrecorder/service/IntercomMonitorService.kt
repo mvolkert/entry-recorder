@@ -163,6 +163,11 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             activeMotionAnalyzers.remove(id)?.stop()
         }
 
+        // Re-adopt any server recordings that were running when the process died, so a reboot still shows
+        // REC and auto-stops a job this client started. Idempotent, so the repeated device-list emissions
+        // from the Flow above never stack a second watcher on a job already tracked live.
+        recorder.resumePersistedServerRecordings(enabledDevices)
+
         // No camera is enabled: drop the foreground notification a running service must otherwise keep
         // showing, then end the service. The Application observer restarts it as soon as a camera is
         // enabled again; stopping here (rather than the observer calling stopService) is what keeps a

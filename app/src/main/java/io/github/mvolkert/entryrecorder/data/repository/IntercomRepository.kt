@@ -1,8 +1,10 @@
 package io.github.mvolkert.entryrecorder.data.repository
 
+import io.github.mvolkert.entryrecorder.data.local.dao.ActiveServerRecordingDao
 import io.github.mvolkert.entryrecorder.data.local.dao.AppSettingsDao
 import io.github.mvolkert.entryrecorder.data.local.dao.DeviceDao
 import io.github.mvolkert.entryrecorder.data.local.dao.RecordingDao
+import io.github.mvolkert.entryrecorder.data.local.entity.ActiveServerRecordingEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
@@ -13,7 +15,8 @@ import java.io.File
 class IntercomRepository(
     private val deviceDao: DeviceDao,
     private val recordingDao: RecordingDao,
-    private val appSettingsDao: AppSettingsDao
+    private val appSettingsDao: AppSettingsDao,
+    private val activeServerRecordingDao: ActiveServerRecordingDao
 ) {
     // Devices
     val allDevices: Flow<List<DeviceEntity>> = deviceDao.getAllDevicesFlow()
@@ -117,4 +120,15 @@ class IntercomRepository(
     suspend fun updateSettings(settings: AppSettingsEntity) {
         appSettingsDao.insertOrUpdate(settings)
     }
+
+    // Active server recordings: transient rows tracking a job the server runs, so a process restart can
+    // resume reconciling and auto-stopping it. A row lives only while the app is watching the job.
+    suspend fun getActiveServerRecordings(): List<ActiveServerRecordingEntity> =
+        activeServerRecordingDao.getAll()
+
+    suspend fun saveActiveServerRecording(entity: ActiveServerRecordingEntity) =
+        activeServerRecordingDao.upsert(entity)
+
+    suspend fun deleteActiveServerRecording(deviceId: Long) =
+        activeServerRecordingDao.deleteByDeviceId(deviceId)
 }
