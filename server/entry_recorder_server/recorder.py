@@ -11,7 +11,11 @@ from PIL import Image
 import io
 
 from .config import settings
-from .database import insert_recording
+from .database import (
+    start_recording_row,
+    finalize_recording,
+    delete_recording_row,
+)
 from .models import EventType, ActiveRecordingInfo
 
 def fetch_single_snapshot(
@@ -60,7 +64,8 @@ class ActiveJob:
         username: Optional[str] = None,
         password: Optional[str] = None,
         process: Optional[asyncio.subprocess.Process] = None,
-        task: Optional[asyncio.Task] = None
+        task: Optional[asyncio.Task] = None,
+        recording_id: Optional[int] = None
     ):
         self.device_id = device_id
         self.device_name = device_name
@@ -72,6 +77,7 @@ class ActiveJob:
         self.password = password
         self.process = process
         self.task = task
+        self.recording_id = recording_id
         self.stop_requested = asyncio.Event()
         self.first_frame_bytes: Optional[bytes] = None
 
@@ -82,6 +88,11 @@ class StreamRecorder:
 
     def is_recording(self, device_id: int) -> bool:
         return device_id in self._active_jobs
+
+    def get_active_recording_id(self, device_id: int) -> Optional[int]:
+        """The persistable row id of the job running for this device, or None when it has none."""
+        job = self._active_jobs.get(device_id)
+        return job.recording_id if job else None
 
     def get_active_recordings(self) -> list[ActiveRecordingInfo]:
         now_ms = int(time.time() * 1000)
@@ -95,7 +106,8 @@ class StreamRecorder:
                     event_type=job.event_type,
                     start_time_ms=job.start_time_ms,
                     elapsed_seconds=elapsed,
-                    max_duration_seconds=job.max_duration_seconds
+                    max_duration_seconds=job.max_duration_seconds,
+                    recording_id=job.recording_id
                 )
             )
         return infos
@@ -112,10 +124,10 @@ class StreamRecorder:
         password: Optional[str] = None,
         source_mode: Optional[str] = "auto",
         note: Optional[str] = None
-    ) -> bool:
+    ) -> Optional[int]:
         async with self._lock:
             if device_id in self._active_jobs:
-                return False
+                return None
 
             timestamp_str = time.strftime("%Y%m%d_%H%M%S")
             start_time_ms = int(time.time() * 1000)
@@ -130,21 +142,21 @@ class StreamRecorder:
                 elif rtsp_url and ffmpeg_bin:
                     use_snapshot = False
                 else:
-                    return False
+                    return None
             elif source_mode == "rtsp":
                 if rtsp_url and ffmpeg_bin:
                     use_snapshot = False
                 elif snapshot_url:
                     use_snapshot = True
                 else:
-                    return False
+                    return None
             else: # "auto"
                 if rtsp_url and ffmpeg_bin:
                     use_snapshot = False
                 elif snapshot_url:
                     use_snapshot = True
                 else:
-                    return False
+                    return None
 
             # Dual-container split: encoded paths (RTSP H.264 copy, snapshot libx264) emit
             # fragmented MP4 for universal playback; the no-ffmpeg raw-JPEG snapshot fallback
@@ -154,6 +166,18 @@ class StreamRecorder:
             filename = f"REC_{device_id}_{event_type.value}_{timestamp_str}.{ext}"
             output_file = settings.recordings_dir / filename
 
+            # Persist the row now, in the 'recording' state, so a stable id can be handed back to the
+            # client for auto-stop reconciliation. _finalize_recording flips it to 'completed' (or
+            # deletes it if the capture ends up empty).
+            recording_id = start_recording_row(
+                device_id=device_id,
+                device_name=device_name,
+                event_type=event_type.value,
+                timestamp=start_time_ms,
+                file_path=str(output_file),
+                note=note
+            )
+
             job = ActiveJob(
                 device_id=device_id,
                 device_name=device_name,
@@ -162,7 +186,8 @@ class StreamRecorder:
                 start_time_ms=start_time_ms,
                 output_file=output_file,
                 username=username,
-                password=password
+                password=password,
+                recording_id=recording_id
             )
 
             if use_snapshot:
@@ -177,7 +202,7 @@ class StreamRecorder:
                 job.task = task
 
             self._active_jobs[device_id] = job
-            return True
+            return recording_id
 
     async def stop_recording(self, device_id: int) -> bool:
         async with self._lock:
@@ -333,22 +358,37 @@ class StreamRecorder:
         if file_size > 0:
             # Generate thumbnail
             thumb_path = await self._generate_thumbnail(job)
-            rec_id = insert_recording(
-                device_id=job.device_id,
-                device_name=job.device_name,
-                event_type=job.event_type.value,
-                timestamp=job.start_time_ms,
-                duration_seconds=duration_sec,
-                file_path=str(file_path.resolve()),
-                file_size_bytes=file_size,
-                thumbnail_path=str(thumb_path.resolve()) if thumb_path else None,
-                is_protected=False,
-                note=note
-            )
-            print(f"[Recorder] Saved recording #{rec_id} for {job.device_name} ({file_size} bytes)")
+            if job.recording_id is not None:
+                finalize_recording(
+                    recording_id=job.recording_id,
+                    duration_seconds=duration_sec,
+                    file_path=str(file_path.resolve()),
+                    file_size_bytes=file_size,
+                    thumbnail_path=str(thumb_path.resolve()) if thumb_path else None
+                )
+                print(f"[Recorder] Finalized recording #{job.recording_id} for {job.device_name} ({file_size} bytes)")
+            else:
+                rec_id = start_recording_row(
+                    device_id=job.device_id,
+                    device_name=job.device_name,
+                    event_type=job.event_type.value,
+                    timestamp=job.start_time_ms,
+                    file_path=str(file_path.resolve()),
+                    note=note
+                )
+                finalize_recording(
+                    recording_id=rec_id,
+                    duration_seconds=duration_sec,
+                    file_path=str(file_path.resolve()),
+                    file_size_bytes=file_size,
+                    thumbnail_path=str(thumb_path.resolve()) if thumb_path else None
+                )
+                print(f"[Recorder] Saved recording #{rec_id} for {job.device_name} ({file_size} bytes)")
         else:
             if file_path.exists():
                 file_path.unlink()
+            if job.recording_id is not None:
+                delete_recording_row(job.recording_id)
             print(f"[Recorder] Discarded empty recording for {job.device_name}")
 
     async def _generate_thumbnail(self, job: ActiveJob) -> Optional[Path]:

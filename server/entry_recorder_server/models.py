@@ -37,6 +37,10 @@ class RecordingResponse(BaseModel):
     note: Optional[str] = None
     video_url: str
     thumbnail_url: Optional[str] = None
+    # 'recording' while the capture is in progress, 'completed' once finalized. Lets the app
+    # reconcile an auto-stop through `GET /api/recordings/{id}` instead of polling `/api/status`.
+    status: str = "completed"
+
 
 class ActiveRecordingInfo(BaseModel):
     device_id: int
@@ -45,6 +49,7 @@ class ActiveRecordingInfo(BaseModel):
     start_time_ms: int
     elapsed_seconds: int
     max_duration_seconds: int
+    recording_id: Optional[int] = None
 
 class ServerStatusResponse(BaseModel):
     status: str = "ok"

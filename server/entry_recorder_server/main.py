@@ -144,7 +144,11 @@ async def start_recording(
     _key: Optional[str] = Depends(verify_api_key)
 ):
     if recorder.is_recording(req.device_id):
-        return {"status": "already_recording", "device_id": req.device_id}
+        return {
+            "status": "already_recording",
+            "device_id": req.device_id,
+            "recording_id": recorder.get_active_recording_id(req.device_id)
+        }
 
     # Fall back to credentials/URLs stored server-side for known devices, so a client no longer
     # needs to receive the device password (GET /api/devices redacts it).
@@ -154,7 +158,7 @@ async def start_recording(
     username = req.username if req.username is not None else (stored.get("username") if stored else None)
     password = req.password if req.password is not None else (stored.get("password") if stored else None)
 
-    started = await recorder.start_recording(
+    recording_id = await recorder.start_recording(
         device_id=req.device_id,
         device_name=req.device_name,
         event_type=req.event_type,
@@ -167,7 +171,7 @@ async def start_recording(
         note=req.note
     )
 
-    if not started:
+    if recording_id is None:
         if rtsp_url and not snapshot_url and not shutil.which(settings.FFMPEG_PATH):
             detail = (
                 "Could not start recording: ffmpeg is not installed or not on the server's PATH. "
@@ -177,7 +181,7 @@ async def start_recording(
             detail = "Could not start recording. Provide a valid RTSP or Snapshot URL."
         raise HTTPException(status_code=400, detail=detail)
 
-    return {"status": "started", "device_id": req.device_id}
+    return {"status": "started", "device_id": req.device_id, "recording_id": recording_id}
 
 @app.post("/api/recordings/stop")
 async def stop_recording(
@@ -241,7 +245,8 @@ async def get_recording(
         is_protected=bool(r["is_protected"]),
         note=r["note"],
         video_url=f"/api/recordings/{r['id']}/video",
-        thumbnail_url=thumb_url
+        thumbnail_url=thumb_url,
+        status=r.get("status", "completed")
     )
 
 @app.get("/api/recordings/{recording_id}/video")

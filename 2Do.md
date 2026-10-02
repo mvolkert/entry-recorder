@@ -191,9 +191,9 @@ cross-layer design pivot except where noted.
       (or after 3 failed probes, where it is the safe fallback), and a job that outlived the requested duration is
       left alone. `ServerRecordingClient` now reads the start/stop bodies (`started` vs `already_recording`,
       `stopped` vs `not_recording`) and an optional `recording_id` instead of trusting HTTP 200.
-      **Remaining:** the id is only held in memory — persisting it needs a server-recording column, which belongs
-      to the Phase 5 UI-model abstraction, and `GET /api/recordings/{id}` only becomes usable once the server
-      returns the id from *start* (Phase S). Files: `video/RtspStreamRecorder.kt`, `data/server/ServerRecordingClient.kt`
+      **Remaining:** the id is only held in memory — persisting it (so a post-restart reconcile survives) still
+      needs the app to store it; the server now returns it from *start* (Phase S done), so `GET /api/recordings/{id}`
+      is usable for an in-progress auto-stop. Files: `video/RtspStreamRecorder.kt`, `data/server/ServerRecordingClient.kt`
 - 🔭 **RTSP H.264 passthrough** (demux → re-mux, zero re-encode/CPU) for stream-capable cameras — capture-pipeline
       rewrite, only for future RTSP-only devices. Not scheduled.
 
@@ -253,11 +253,18 @@ running in a real browser — that is the one owner session covering the Firefox
 - [ ] **Server ↔ app device sync** — the app never registers devices server-side, so `/api/live/{id}/mjpeg` only
       works for server-UI-created devices. New sync API + pairing flow + conflict handling. Blocker for Phase 5
       "Live view through the server". Files: `data/server/ServerRecordingClient.kt`, `server/.../main.py`
-- [ ] **Server: return + expose the recording id** (feeds Phase 4 stop reconciliation) — start does not hand back
-      a persistable id, so `/api/recordings/{id}` can't reconcile an auto-stop. Return the id from start and keep
-      `GET /api/recordings/{id}` available to the app. The app is already ready for it: `ServerStartResponse`
-      parses `recording_id`, the recorder stores it, and reconciliation falls back to `/api/status` while it is
-      null. Files: `server/.../main.py`, `server/.../recorder.py`
+- [x] **Server: return + expose the recording id** (feeds Phase 4 stop reconciliation) — start did not hand
+      back a persistable id, so `/api/recordings/{id}` couldn't reconcile an auto-stop. Done: the `recordings`
+      table gains a `status` column (`recording` → `completed`) migrated via the same `PRAGMA`+`ALTER` pattern as
+      `devices.live_mode`; `start_recording` now pre-inserts the row in `recording` state and returns its id (and
+      `already_recording` returns the running job's id via `get_active_recording_id`); `_finalize_recording` updates
+      that row (or deletes it when the capture ends empty) instead of inserting a new one; the list/stats/cleanup
+      queries filter to `completed` so in-progress rows never surface, while `GET /api/recordings/{id}` still returns
+      them (now carrying `status`) for reconciliation. The app was already ready: `ServerStartResponse` parses
+      `recording_id`, the recorder stores it. Verified headless (`py_compile` + DB lifecycle/migration/import smoke
+      tests green). ⚠️ Owner gate → Phase G "Server recording-id reconciliation" (live-server checks + migration
+      over real data). Files: `server/.../main.py`, `server/.../recorder.py`, `server/.../database.py`,
+      `server/.../models.py`
 - [ ] **Server: HTTPS-first** (unlocks Phase 6 network-transport cleanup) — mandatory auth is in place but the
       server is still plain HTTP behind global cleartext. TLS, or an explicit decision to stay LAN-only HTTP,
       before dropping user-CA trust app-side. Files: `server/.../main.py`, `server/docker-compose.yml`, `server/Dockerfile`
@@ -320,6 +327,21 @@ Compile-green ≠ done; run on the owner's real hardware before closing.
 ### Pipeline note
 - [ ] After Phase 6's color-format change (if/when done): re-run the exported-fMP4-in-VLC gate (the change could
       regress playback) — same spec as the original export validation.
+
+### Server recording-id reconciliation (needs the server running) — Phase S ✅ code, unverified
+The `recording_id`-from-start work is `py_compile` + headless DB-lifecycle/migration/import green only; confirm
+against a live server before closing.
+- [ ] 🔄 **Start returns a persistable id, finalize flips it.** `POST /api/recordings/start` → non-null
+      `recording_id`; `GET /api/recordings/{id}` shows `status: recording` while running, `completed` after stop;
+      the app logs "server recording id …" and reconciles an auto-stop off that row instead of `/api/status`.
+- [ ] 🔄 **In-progress rows stay hidden.** While a capture runs it must NOT appear in `/api/recordings` (list),
+      the `total_recordings_count`/storage stats, or the web gallery; it appears only once `completed`.
+- [ ] 🔄 **`already_recording` carries the running id.** A second `/start` for a busy device returns
+      `already_recording` with the in-flight job's `recording_id`, not null.
+- [ ] 🔄 **Empty capture discards the row.** Stop a job that produced 0 bytes → the pre-inserted row is deleted
+      (no ghost `recording`/0-byte row lingers in `GET /api/recordings/{id}`).
+- [ ] 🔄 **Migration over real data.** Boot the server against the existing `data/recordings.db` without wiping it:
+      `status` column added, every legacy row backfills to `completed`, gallery count unchanged.
 
 ---
 

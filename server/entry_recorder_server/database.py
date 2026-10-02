@@ -24,7 +24,8 @@ def init_db():
                 file_size_bytes INTEGER NOT NULL,
                 thumbnail_path TEXT,
                 is_protected INTEGER NOT NULL DEFAULT 0,
-                note TEXT
+                note TEXT,
+                status TEXT NOT NULL DEFAULT 'completed'
             );
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_recordings_timestamp ON recordings(timestamp);")
@@ -41,7 +42,11 @@ def init_db():
                 live_mode TEXT NOT NULL DEFAULT 'rtsp'
             );
         """)
-        # Migrate older databases that may be missing the live_mode column
+        # Migrate older databases that may be missing added columns. SQLite fills the ALTER default for
+        # existing rows, so every pre-migration recording becomes 'completed' (they all finished on disk).
+        existing_rec_columns = {row[1] for row in conn.execute("PRAGMA table_info(recordings)").fetchall()}
+        if "status" not in existing_rec_columns:
+            conn.execute("ALTER TABLE recordings ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'")
         existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(devices)").fetchall()}
         if "live_mode" not in existing_columns:
             conn.execute("ALTER TABLE devices ADD COLUMN live_mode TEXT NOT NULL DEFAULT 'rtsp'")
@@ -57,30 +62,89 @@ def insert_recording(
     file_size_bytes: int,
     thumbnail_path: Optional[str] = None,
     is_protected: bool = False,
-    note: Optional[str] = None
+    note: Optional[str] = None,
+    status: str = "completed"
 ) -> int:
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO recordings (
                 device_id, device_name, event_type, timestamp, duration_seconds,
-                file_path, file_size_bytes, thumbnail_path, is_protected, note
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                file_path, file_size_bytes, thumbnail_path, is_protected, note, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             device_id, device_name, event_type, timestamp, duration_seconds,
-            file_path, file_size_bytes, thumbnail_path, 1 if is_protected else 0, note
+            file_path, file_size_bytes, thumbnail_path, 1 if is_protected else 0, note, status
         ))
         conn.commit()
         return cursor.lastrowid
 
+def start_recording_row(
+    device_id: int,
+    device_name: str,
+    event_type: str,
+    timestamp: int,
+    file_path: str,
+    note: Optional[str] = None
+) -> int:
+    """Create the row for a recording that is in progress so its id can be handed back from
+    `POST /api/recordings/start`; the job finalizes it (or deletes it if it turns out empty)."""
+    return insert_recording(
+        device_id=device_id,
+        device_name=device_name,
+        event_type=event_type,
+        timestamp=timestamp,
+        duration_seconds=0,
+        file_path=file_path,
+        file_size_bytes=0,
+        note=note,
+        status="recording"
+    )
+
+def finalize_recording(
+    recording_id: int,
+    duration_seconds: int,
+    file_path: str,
+    file_size_bytes: int,
+    thumbnail_path: Optional[str] = None
+) -> bool:
+    """Close out a row created by [start_recording_row]: fill in the real size/duration/thumbnail and
+    flip it to `completed` so it appears in the gallery."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE recordings
+            SET duration_seconds = ?, file_path = ?, file_size_bytes = ?,
+                thumbnail_path = ?, status = 'completed'
+            WHERE id = ?
+            """,
+            (duration_seconds, file_path, file_size_bytes, thumbnail_path, recording_id)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+def delete_recording_row(recording_id: int) -> bool:
+    """Remove a recording row without touching files (used to discard an empty in-progress capture,
+    whose media file the caller unlinks separately)."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM recordings WHERE id = ?", (recording_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
 def get_recordings(
     device_id: Optional[int] = None,
     event_type: Optional[str] = None,
+    include_in_progress: bool = False,
     limit: int = 100,
     offset: int = 0
 ) -> List[Dict[str, Any]]:
     query = "SELECT * FROM recordings WHERE 1=1"
     params = []
+
+    if not include_in_progress:
+        query += " AND status = 'completed'"
 
     if device_id is not None:
         query += " AND device_id = ?"
@@ -134,7 +198,11 @@ def delete_recording(recording_id: int) -> Optional[Dict[str, Any]]:
 def get_storage_stats() -> Dict[str, Any]:
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) as cnt, COALESCE(SUM(file_size_bytes), 0) as total_size FROM recordings")
+        # In-progress rows are excluded: they carry 0 bytes and are not part of the delivered gallery.
+        cursor.execute(
+            "SELECT COUNT(*) as cnt, COALESCE(SUM(file_size_bytes), 0) as total_size "
+            "FROM recordings WHERE status = 'completed'"
+        )
         row = cursor.fetchone()
         return {
             "total_count": row["cnt"],
@@ -164,7 +232,7 @@ def cleanup_recordings(retention_days: int, max_storage_bytes: int) -> Dict[str,
         if retention_days > 0:
             cutoff_ms = int((time.time() - (retention_days * 86400)) * 1000)
             cursor.execute(
-                "SELECT id, file_path, thumbnail_path, file_size_bytes FROM recordings WHERE timestamp < ? AND is_protected = 0",
+                "SELECT id, file_path, thumbnail_path, file_size_bytes FROM recordings WHERE timestamp < ? AND is_protected = 0 AND status = 'completed'",
                 (cutoff_ms,)
             )
             old_recs = cursor.fetchall()
@@ -177,12 +245,12 @@ def cleanup_recordings(retention_days: int, max_storage_bytes: int) -> Dict[str,
             conn.commit()
 
         # 2. Storage quota check
-        cursor.execute("SELECT COALESCE(SUM(file_size_bytes), 0) as total FROM recordings")
+        cursor.execute("SELECT COALESCE(SUM(file_size_bytes), 0) as total FROM recordings WHERE status = 'completed'")
         current_total = cursor.fetchone()["total"]
 
         if max_storage_bytes > 0 and current_total > max_storage_bytes:
             cursor.execute(
-                "SELECT id, file_path, thumbnail_path, file_size_bytes FROM recordings WHERE is_protected = 0 ORDER BY timestamp ASC"
+                "SELECT id, file_path, thumbnail_path, file_size_bytes FROM recordings WHERE is_protected = 0 AND status = 'completed' ORDER BY timestamp ASC"
             )
             candidates = cursor.fetchall()
             for r in candidates:
