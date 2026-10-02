@@ -48,7 +48,9 @@ class EntryRecorderApp : Application() {
         // 3. Keep the monitoring foreground service aligned with the enabled-camera set. A running
         //    foreground service must show a persistent notification, so rather than display
         //    "Monitoring 0 devices" when nothing is watched, the service runs only while at least one
-        //    camera is enabled: enabling a camera starts it, disabling the last one stops it.
+        //    camera is enabled. This observer only ever *starts* the service; disabling the last camera
+        //    is handled by the service stopping itself, because calling stopService() here could cancel a
+        //    pending startForegroundService() before its onCreate reaches startForeground().
         observeMonitorDemand()
     }
 
@@ -57,8 +59,6 @@ class EntryRecorderApp : Application() {
             repository.allDevices.collect { devices ->
                 if (devices.any { it.isEnabled }) {
                     IntercomMonitorService.start(this@EntryRecorderApp)
-                } else {
-                    IntercomMonitorService.stop(this@EntryRecorderApp)
                 }
             }
         }

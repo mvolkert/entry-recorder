@@ -53,12 +53,10 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         Log.i(tag, "IntercomMonitorService creating...")
         NotificationHelper.createNotificationChannels(this)
 
-        acquireWakeAndWifiLocks()
-
-        // Start as Foreground Service immediately
-        // startForeground must post a notification before the first device emission lands, so show a
-        // neutral "Starting…" rather than a momentary "Monitoring 0 devices" flash; the count follows
-        // on the next updateMonitoredDevices pass.
+        // Call startForeground() before anything else: the system gives a service launched with
+        // startForegroundService() only ~5s to reach startForeground(), and a slow lock acquire or SIP
+        // init ahead of it triggers ForegroundServiceDidNotStartInTimeException. Show a neutral
+        // "Starting…" now; the real device count follows on the first updateMonitoredDevices pass.
         val serviceNotification = NotificationHelper.buildServiceNotification(this, 0, starting = true)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
@@ -69,6 +67,8 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         } else {
             startForeground(NotificationHelper.NOTIFICATION_ID_SERVICE, serviceNotification)
         }
+
+        acquireWakeAndWifiLocks()
 
         // Initialize SIP engine
         sipManager.initialize()
@@ -163,10 +163,12 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             activeMotionAnalyzers.remove(id)?.stop()
         }
 
-        // No camera is enabled: leave the foreground entirely so the persistent notification a running
-        // foreground service must show disappears, rather than reading "Monitoring 0 devices". The
-        // Application observer restarts this service as soon as a camera is enabled again.
+        // No camera is enabled: drop the foreground notification a running service must otherwise keep
+        // showing, then end the service. The Application observer restarts it as soon as a camera is
+        // enabled again; stopping here (rather than the observer calling stopService) is what keeps a
+        // startForegroundService()/startForeground() pair from ever being torn apart mid-flight.
         if (activeDevices.isEmpty()) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return@withContext
         }
