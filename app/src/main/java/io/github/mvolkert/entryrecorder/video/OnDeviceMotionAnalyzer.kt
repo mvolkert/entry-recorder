@@ -7,6 +7,7 @@ import androidx.core.graphics.scale
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.ConnectionCapability
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
+import io.github.mvolkert.entryrecorder.data.model.MotionSensitivity
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
@@ -44,10 +45,17 @@ class OnDeviceMotionAnalyzer(
     // frames from just before the trigger instead of starting ~1s after the person already arrived.
     private val preRoll = ArrayDeque<PreRollFrame>()
 
+    /**
+     * Trigger bar, frame counts and polling intervals resolved from the device's chosen
+     * [MotionSensitivity]. BALANCED equals the analyzer's original fixed constants, so a device that
+     * never touched the setting behaves as before.
+     */
+    private val tuning = motionTuningFor(deviceEntity.motionSensitivity)
+
     // Adaptive idle polling: back off while the scene is static to save CPU/network, but snap
     // straight back to the fast base interval the moment any change is seen, so detection stays
     // responsive (this app runs on a dedicated detection-first device).
-    private var currentPollMs = POLL_INTERVAL_MS
+    private var currentPollMs = tuning.pollIntervalMs
     @Volatile private var recentActivity = false
 
     // Health window: a dead or misconfigured endpoint used to be indistinguishable from a static
@@ -81,7 +89,7 @@ class OnDeviceMotionAnalyzer(
         isMotionActive = false
         consecutiveMotionFrames = 0
         consecutiveClearFrames = 0
-        currentPollMs = POLL_INTERVAL_MS
+        currentPollMs = tuning.pollIntervalMs
         recentActivity = false
         pollsSinceReport = 0
         framesSinceReport = 0
@@ -109,8 +117,8 @@ class OnDeviceMotionAnalyzer(
                 // Recording in progress: the recorder owns the endpoint at snapshotFps, so poll slowly
                 // to avoid oversubscribing it, while still catching motion-end to schedule the stop.
                 isRecording() -> RECORDING_POLL_MS
-                recentActivity -> POLL_INTERVAL_MS
-                else -> (currentPollMs + POLL_STEP_MS).coerceAtMost(MAX_IDLE_POLL_MS)
+                recentActivity -> tuning.pollIntervalMs
+                else -> (currentPollMs + POLL_STEP_MS).coerceAtMost(tuning.maxIdlePollMs)
             }
             currentPollMs = poll
             recentActivity = false
@@ -158,7 +166,8 @@ class OnDeviceMotionAnalyzer(
                 tag,
                 "Motion analysis on ${deviceEntity.name}: $framesSinceReport/$pollsSinceReport frames, " +
                     "peak change ${(peakChangedRatio * 100).toInt()}% of ${ANALYSIS_WIDTH}x$ANALYSIS_HEIGHT " +
-                    "(needs ${(MOTION_RATIO_THRESHOLD * 100).toInt()}% twice in a row), " +
+                    "(needs ${(tuning.ratioThreshold * 100).toInt()}% on ${tuning.requiredMotionFrames} in a row, " +
+                    "${deviceEntity.motionSensitivity}), " +
                     "poll ${currentPollMs}ms, %.1f fps achieved (configured ${deviceEntity.effectiveSnapshotFps})".format(achievedFps)
             )
         }
@@ -186,7 +195,7 @@ class OnDeviceMotionAnalyzer(
             recentActivity = true
         }
 
-        if (changedRatio >= MOTION_RATIO_THRESHOLD) {
+        if (changedRatio >= tuning.ratioThreshold) {
             consecutiveMotionFrames++
             consecutiveClearFrames = 0
         } else {
@@ -194,11 +203,11 @@ class OnDeviceMotionAnalyzer(
             consecutiveMotionFrames = 0
         }
 
-        if (!isMotionActive && consecutiveMotionFrames >= REQUIRED_MOTION_FRAMES) {
+        if (!isMotionActive && consecutiveMotionFrames >= tuning.requiredMotionFrames) {
             isMotionActive = true
             Log.i(tag, "Motion start on ${deviceEntity.name}: ${(changedRatio * 100).toInt()}% changed pixels")
             listener.onEvent(IntercomEvent.MotionOnDeviceStarted(deviceEntity))
-        } else if (isMotionActive && consecutiveClearFrames >= REQUIRED_CLEAR_FRAMES) {
+        } else if (isMotionActive && consecutiveClearFrames >= tuning.requiredClearFrames) {
             isMotionActive = false
             Log.i(tag, "Motion end on ${deviceEntity.name}")
             listener.onEvent(IntercomEvent.MotionOnDeviceEnded(deviceEntity))
@@ -266,18 +275,34 @@ class OnDeviceMotionAnalyzer(
     }
 
     companion object {
-        private const val POLL_INTERVAL_MS = 500L
         private const val POLL_STEP_MS = 250L
-        private const val MAX_IDLE_POLL_MS = 1500L
         private const val RECORDING_POLL_MS = 1500L
         private const val HEALTH_REPORT_MS = 60_000L
         private const val ANALYSIS_WIDTH = 96
         private const val ANALYSIS_HEIGHT = 54
         private const val PIXEL_DIFF_THRESHOLD = 25
-        private const val ACTIVITY_HINT_RATIO = 0.01f   // below MOTION_RATIO_THRESHOLD; speeds polling back up
-        private const val MOTION_RATIO_THRESHOLD = 0.03f
-        private const val REQUIRED_MOTION_FRAMES = 2
-        private const val REQUIRED_CLEAR_FRAMES = 4
+        // Well below every preset's trigger bar: any real movement only snaps polling back to the
+        // preset's base interval, it never triggers a recording on its own.
+        private const val ACTIVITY_HINT_RATIO = 0.01f
         private const val PRE_ROLL_FRAMES = 6
     }
+}
+
+/**
+ * Analyzer numbers for one [MotionSensitivity] preset. BALANCED reproduces the constants shipped before
+ * the setting existed (3% / 2 frames / 500→1500 ms idle backoff); SENSITIVE loosens and speeds them for
+ * fast crossers at a higher battery/network cost, POWER_SAVER tightens and slows them for calm scenes.
+ */
+private class MotionTuning(
+    val ratioThreshold: Float,
+    val requiredMotionFrames: Int,
+    val requiredClearFrames: Int,
+    val pollIntervalMs: Long,
+    val maxIdlePollMs: Long,
+)
+
+private fun motionTuningFor(sensitivity: MotionSensitivity): MotionTuning = when (sensitivity) {
+    MotionSensitivity.SENSITIVE -> MotionTuning(0.02f, 1, 3, 400L, 900L)
+    MotionSensitivity.BALANCED -> MotionTuning(0.03f, 2, 4, 500L, 1500L)
+    MotionSensitivity.POWER_SAVER -> MotionTuning(0.05f, 3, 6, 800L, 2500L)
 }

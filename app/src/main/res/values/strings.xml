@@ -238,6 +238,13 @@
     <string name="device_motion_source_camera">From camera (built-in detection)</string>
     <string name="device_motion_source_app">Analyzed in-app (video stream)</string>
     <string name="device_motion_source_hint">In-app analysis reads the video stream itself and works even when the camera cannot detect motion. "From camera" relies on the device reporting motion events.</string>
+    <string name="device_motion_sensitivity_label">Motion sensitivity</string>
+    <string name="device_motion_sensitivity_sensitive">Sensitive (catch quick passes)</string>
+    <string name="device_motion_sensitivity_balanced">Balanced (default)</string>
+    <string name="device_motion_sensitivity_power_saver">Power saver (fewest triggers)</string>
+    <string name="device_motion_sensitivity_sensitive_hint">Triggers on a 2 percent change in a single frame and polls down to 400 ms. Best at catching someone who crosses fast, but uses the most battery/network and can fire on pets, leaves or light flicker.</string>
+    <string name="device_motion_sensitivity_balanced_hint">The shipped setting: a 3 percent change over two consecutive frames, polling 500 ms and backing off to 1500 ms when idle. A good battery/reliability compromise for a dedicated device.</string>
+    <string name="device_motion_sensitivity_power_saver_hint">Needs a stronger 5 percent change over three frames and idles down to 2500 ms. Lightest on battery/network and least likely to over-trigger, but a quick walk-by may be missed.</string>
     <string name="device_durations_section">Recording Durations (seconds)</string>
     <string name="device_duration_ring">Ring</string>
     <string name="device_duration_motion_post">Motion post</string>

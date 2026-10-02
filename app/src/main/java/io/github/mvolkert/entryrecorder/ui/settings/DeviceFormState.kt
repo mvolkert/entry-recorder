@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.DeviceType
+import io.github.mvolkert.entryrecorder.data.model.MotionSensitivity
 import io.github.mvolkert.entryrecorder.data.model.SipMode
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 
@@ -49,6 +50,7 @@ class DeviceFormState(
     var recordOnRing by mutableStateOf(initial?.recordOnRing ?: true)
     var recordOnNoise by mutableStateOf(initial?.recordOnNoise ?: true)
     var recordOnMotionOnDevice by mutableStateOf(initial?.recordOnMotionOnDevice ?: false)
+    var motionSensitivity by mutableStateOf(initial?.motionSensitivity ?: MotionSensitivity.BALANCED)
 
     // Per-device alert & lockscreen behavior (moved off the global app settings).
     var wakeOnRing by mutableStateOf(initial?.wakeOnRing ?: true)
@@ -159,6 +161,7 @@ class DeviceFormState(
             recordOnRing = recordOnRing,
             recordOnNoise = recordOnNoise,
             recordOnMotionOnDevice = recordOnMotionOnDevice,
+            motionSensitivity = motionSensitivity,
             wakeOnRing = wakeOnRing,
             soundOnRing = soundOnRing,
             vibrateOnRing = vibrateOnRing,

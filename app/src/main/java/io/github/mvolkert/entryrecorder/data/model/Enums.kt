@@ -18,6 +18,18 @@ enum class SipMode {
     DISABLED
 }
 
+/**
+ * How eagerly the in-app motion analyzer triggers a recording, chosen per device. BALANCED reproduces
+ * the analyzer's original fixed constants, so a device saved before this setting behaves identically.
+ * The other two trade detection speed against battery/network for the owner to pick from the live
+ * health line. Applies only to in-app analysis, never the camera's own motion events.
+ */
+enum class MotionSensitivity {
+    SENSITIVE,   // low bar + fast polling: catches quick crossers, costs battery, can over-trigger
+    BALANCED,    // the shipped default = the analyzer's original numbers
+    POWER_SAVER  // high bar + slow idle polling: calmest and cheapest, may miss a fast walk-by
+}
+
 enum class EventType {
     MOTION,
     RING,

@@ -82,15 +82,21 @@ deadline) is already fixed in the recorder and live view — what remains is rob
       `width`/`height` returns `{"code":11 …missing mandatory parameter}` — `DeviceEntity.snapshotUrl`'s parameter
       appending is load-bearing and the derived stream URL inherits it.
       Files: `data/network/MjpegStreamReader.kt`, `data/local/entity/DeviceEntity.kt`
-- [ ] 🔄 **Retune motion sensitivity from the health line (needs device numbers).** The trigger needs
-      `changedRatio >= 3 %` of the 96x54 grid differing by >25 grey levels on **two consecutive** comparisons,
-      while idle polling backs off to `MAX_IDLE_POLL_MS = 1500` — a person crossing in ~1.5 s can produce only
-      one changed pair and never trigger. `OnDeviceMotionAnalyzer` now prints one health line / 60 s (usable
-      frames / polls, peak changed ratio, poll interval). Read one idle line + one walk-past line on the Verso,
-      then adjust `MOTION_RATIO_THRESHOLD` / `REQUIRED_MOTION_FRAMES` / backoff from data, not guesses.
-      Also open: `recordOnMotionOnDevice` defaults **false** (the plain `recordOnMotion` path is the 2N's own
-      SSE `MotionDetected`, a different pipeline) — first thing to check when motion "does nothing".
-      File: `video/OnDeviceMotionAnalyzer.kt`
+- [x] 🔄 **Motion sensitivity is now a per-device pick (this retunes item 4 from data, no rebuild).** The trigger
+      used to be fixed constants (`changedRatio >= 3 %` on **two consecutive** frames, idle backoff
+      `MAX_IDLE_POLL_MS = 1500`), so a person crossing in ~1.5 s could yield only one changed pair and never trigger
+      — and any retune meant editing constants and rebuilding. Done: a `MotionSensitivity` preset (Room **v10→v11**,
+      default `BALANCED` reproducing the exact old numbers so no device changes behavior) now drives the analyzer's
+      ratio / required-frames / poll-base / idle-backoff, surfaced in the device form's Triggers section (shown only
+      when motion source = "Analyzed in-app", since the 2N's own SSE motion ignores it) with each tier's battery /
+      latency trade-off spelled out — `SENSITIVE` (2 % / 1 frame / 400→900 ms) catches fast crossers at more
+      battery/network, `POWER_SAVER` (5 % / 3 frames / 800→2500 ms) is calmest but may miss a quick walk-by. The
+      60 s health line now prints the active preset + its bar. `recordOnMotionOnDevice` still defaults **false** (the
+      plain `recordOnMotion` path is the 2N's own SSE `MotionDetected`, a different pipeline) — first thing to check
+      when motion "does nothing". **Residual device gate → Phase G:** read one idle + one walk-past health line on
+      the Verso and pick the tier from data, not guesses.
+      Files: `video/OnDeviceMotionAnalyzer.kt`, `data/model/Enums.kt`, `data/local/entity/DeviceEntity.kt`,
+      `data/local/AppDatabase.kt`, `ui/settings/DeviceFormTriggersSection.kt`
 
 ## Phase 2 — Motion feature close-out & accepted trade-offs
 Follow-ups from the four snapshot-only fixes (`4b5ed5d` Digest, `abb2153` live loop, `9396b7a` analyzer
@@ -321,7 +327,9 @@ Compile-green ≠ done; run on the owner's real hardware before closing.
 - [ ] 🔄 A doorbell press no longer truncates a longer recording under 20 s (post-record stop is event-type-aware).
 
 ### Motion health (needs the Verso)
-- [ ] 🔄 Read one `Motion analysis on …` health line idle and one walking past the camera (feeds Phase 1 retune).
+- [ ] 🔄 Read one `Motion analysis on …` health line idle and one walking past the camera, then pick the device's
+      **Motion sensitivity** tier (Sensitive / Balanced / Power saver) from the measured peak-change percentage and
+      achieved poll rate — the presets replaced editing the analyzer constants.
 - [ ] 🔄 **MJPEG live path (Phase 1 item 3, code done via 2N docs).** With a `TWO_N_VERSO` set to `MJPEG_STREAM`
       (or `AUTO` reaching the MJPEG fallback), the derived `snapshotUrl&fps=N` must actually paint in the live view
       and a motion recording must contain stream frames — confirming the documented endpoint serves this firmware

@@ -16,6 +16,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.model.DeviceType
+import io.github.mvolkert.entryrecorder.data.model.MotionSensitivity
 
 /** Which events start a recording on this device. */
 @Composable
@@ -66,6 +67,44 @@ internal fun DeviceFormTriggersSection(form: DeviceFormState) {
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
+
+    // Sensitivity only steers the in-app analyzer; the camera's own motion events ignore these numbers,
+    // so the picker appears only once "Analyzed in-app" is the chosen source.
+    if (form.motionSource == MotionSource.APP) {
+        Text(
+            stringResource(R.string.device_motion_sensitivity_label),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Medium
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            FormRadioRow(
+                selected = form.motionSensitivity == MotionSensitivity.SENSITIVE,
+                label = stringResource(R.string.device_motion_sensitivity_sensitive),
+                onClick = { form.motionSensitivity = MotionSensitivity.SENSITIVE }
+            )
+            FormRadioRow(
+                selected = form.motionSensitivity == MotionSensitivity.BALANCED,
+                label = stringResource(R.string.device_motion_sensitivity_balanced),
+                onClick = { form.motionSensitivity = MotionSensitivity.BALANCED }
+            )
+            FormRadioRow(
+                selected = form.motionSensitivity == MotionSensitivity.POWER_SAVER,
+                label = stringResource(R.string.device_motion_sensitivity_power_saver),
+                onClick = { form.motionSensitivity = MotionSensitivity.POWER_SAVER }
+            )
+        }
+        Text(
+            stringResource(
+                when (form.motionSensitivity) {
+                    MotionSensitivity.SENSITIVE -> R.string.device_motion_sensitivity_sensitive_hint
+                    MotionSensitivity.BALANCED -> R.string.device_motion_sensitivity_balanced_hint
+                    MotionSensitivity.POWER_SAVER -> R.string.device_motion_sensitivity_power_saver_hint
+                }
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }
 
 /** Per-device alert & lockscreen behavior for the events this camera can produce. */

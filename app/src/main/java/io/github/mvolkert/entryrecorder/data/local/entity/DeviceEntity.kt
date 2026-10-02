@@ -3,6 +3,7 @@ package io.github.mvolkert.entryrecorder.data.local.entity
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import io.github.mvolkert.entryrecorder.data.model.DeviceType
+import io.github.mvolkert.entryrecorder.data.model.MotionSensitivity
 import io.github.mvolkert.entryrecorder.data.model.SipMode
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 
@@ -41,6 +42,8 @@ data class DeviceEntity(
     val recordOnNoise: Boolean = true,
     // Motion is analyzed locally in-app from the video stream instead of relying on the device's own detection
     val recordOnMotionOnDevice: Boolean = false,
+    // Sensitivity of that in-app analyzer; only consulted while recordOnMotionOnDevice is true.
+    val motionSensitivity: MotionSensitivity = MotionSensitivity.BALANCED,
     val motionPostRecordSeconds: Int = 20,
     val noisePostRecordSeconds: Int = 20,
     val ringRecordSeconds: Int = 60,
