@@ -1,6 +1,8 @@
+# Project Description
+- A client App for IP Cameras, SIP Calling on triggers and recording triggers via camera or on device analyzation.
+
 # Project
 Modern Android app in Kotlin with Jetpack Compose.
-
 - Read SDK levels, package names, modules, and libraries from the Gradle files. Do not assume them.
 - Dependencies and plugin versions live in `gradle/libs.versions.toml` if it exists. Add new ones there.
 - Existing project conventions override this file. Match the style of neighboring code.
@@ -39,6 +41,12 @@ Run from the project root. On Windows use `gradlew.bat`. Unqualified tasks run o
 - KDoc only on public or non-obvious APIs.
 - No comments describing what code does. A one-line why-comment is fine for non-obvious workarounds.
 - User-facing strings go in `strings.xml`.
+
+# Comments
+- KDoc on public or non-obvious APIs.
+- No inline comments by default; only for real workarounds (platform quirks, tricky logic).
+- No changelog comments ("Fixed:", "Definite Fix:", "Updated to..."). That belongs in the commit message, not the file.
+- Remove comments that don't fit that structure.
 
 # Error Handling
 - Errors are data in the UI: a sealed `UiEvent.Error` or part of UI state.
