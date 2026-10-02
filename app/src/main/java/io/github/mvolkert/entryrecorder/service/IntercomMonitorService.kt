@@ -56,7 +56,10 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         acquireWakeAndWifiLocks()
 
         // Start as Foreground Service immediately
-        val serviceNotification = NotificationHelper.buildServiceNotification(this, 0)
+        // startForeground must post a notification before the first device emission lands, so show a
+        // neutral "Starting…" rather than a momentary "Monitoring 0 devices" flash; the count follows
+        // on the next updateMonitoredDevices pass.
+        val serviceNotification = NotificationHelper.buildServiceNotification(this, 0, starting = true)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NotificationHelper.NOTIFICATION_ID_SERVICE,
@@ -158,6 +161,14 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         // Stop analyzers for devices that were removed/disabled entirely
         for (id in activeMotionAnalyzers.keys.toSet() - newIds) {
             activeMotionAnalyzers.remove(id)?.stop()
+        }
+
+        // No camera is enabled: leave the foreground entirely so the persistent notification a running
+        // foreground service must show disappears, rather than reading "Monitoring 0 devices". The
+        // Application observer restarts this service as soon as a camera is enabled again.
+        if (activeDevices.isEmpty()) {
+            stopSelf()
+            return@withContext
         }
 
         // Update foreground notification with count

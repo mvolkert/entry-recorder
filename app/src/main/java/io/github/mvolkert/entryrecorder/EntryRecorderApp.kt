@@ -10,6 +10,10 @@ import io.github.mvolkert.entryrecorder.sip.SipCallManager
 import io.github.mvolkert.entryrecorder.video.RtspStreamRecorder
 import io.github.mvolkert.entryrecorder.worker.RetentionCleanupWorker
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 class EntryRecorderApp : Application() {
@@ -25,6 +29,10 @@ class EntryRecorderApp : Application() {
     val recorder by lazy { RtspStreamRecorder(this, repository) }
     val sipCallManager by lazy { SipCallManager.getInstance(this) }
 
+    // Lives for the whole process; used only to react to the enabled-camera set and start/stop the
+    // monitoring service. Cancelling it would stop the service, so it is deliberately never cancelled.
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     override fun onCreate() {
         super.onCreate()
 
@@ -37,8 +45,23 @@ class EntryRecorderApp : Application() {
         // 2. Schedule daily retention cleanup worker
         scheduleRetentionCleanup()
 
-        // 3. Start background monitoring service
-        IntercomMonitorService.start(this)
+        // 3. Keep the monitoring foreground service aligned with the enabled-camera set. A running
+        //    foreground service must show a persistent notification, so rather than display
+        //    "Monitoring 0 devices" when nothing is watched, the service runs only while at least one
+        //    camera is enabled: enabling a camera starts it, disabling the last one stops it.
+        observeMonitorDemand()
+    }
+
+    private fun observeMonitorDemand() {
+        appScope.launch {
+            repository.allDevices.collect { devices ->
+                if (devices.any { it.isEnabled }) {
+                    IntercomMonitorService.start(this@EntryRecorderApp)
+                } else {
+                    IntercomMonitorService.stop(this@EntryRecorderApp)
+                }
+            }
+        }
     }
 
     private fun scheduleRetentionCleanup() {

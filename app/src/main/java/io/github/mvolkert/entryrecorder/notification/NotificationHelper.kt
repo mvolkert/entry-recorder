@@ -97,7 +97,11 @@ object NotificationHelper {
         manager.createNotificationChannels(listOf(serviceChannel, doorbellChannel, motionChannel, noiseChannel))
     }
 
-    fun buildServiceNotification(context: Context, activeDevicesCount: Int): Notification {
+    fun buildServiceNotification(
+        context: Context,
+        activeDevicesCount: Int,
+        starting: Boolean = false
+    ): Notification {
         val intent = Intent(context, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             context, 0, intent,
@@ -117,7 +121,8 @@ object NotificationHelper {
         return NotificationCompat.Builder(context, CHANNEL_SERVICE)
             .setContentTitle(context.getString(R.string.notif_service_title))
             .setContentText(
-                context.resources.getQuantityString(
+                if (starting) context.getString(R.string.notif_service_starting)
+                else context.resources.getQuantityString(
                     R.plurals.notif_service_text, activeDevicesCount, activeDevicesCount
                 )
             )
