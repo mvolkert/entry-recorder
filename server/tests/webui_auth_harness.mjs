@@ -1,17 +1,17 @@
-// Off-browser unit check of the Web UI auth helpers extracted from index.html.
-// Runs the real inline script in a vm context with DOM/fetch stubs, then asserts behaviour.
+// Off-browser unit check of the Web UI auth helpers in app.js (split out of index.html).
+// Runs the real script in a vm context with DOM/fetch stubs, then asserts behaviour.
 // From the repo root:
-//   node server/tests/webui_auth_harness.mjs server/entry_recorder_server/static/index.html
+//   node server/tests/webui_auth_harness.mjs server/entry_recorder_server/static/app.js
 // Prints one PASS/FAIL line per check and exits non-zero if any failed. Needs Node 18+.
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-const htmlPath = process.argv[2];
-const html = readFileSync(htmlPath, 'utf8');
+const scriptPath = process.argv[2] || 'server/entry_recorder_server/static/app.js';
+// The script now lives in its own asset file, so run the whole file (no <script> extraction).
+let script = readFileSync(scriptPath, 'utf8');
 // Drop the trailing auto-load/poll block: it would fire real requests against the stubs.
-let script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).join('\n;\n');
 script = script.replace(/\/\/ Auto load and poll[\s\S]*$/, '');
-if (!script) { console.error('no inline script'); process.exit(1); }
+if (!script.trim()) { console.error('no script'); process.exit(1); }
 
 const elements = new Map();
 const makeEl = () => {

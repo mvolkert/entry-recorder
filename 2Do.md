@@ -245,11 +245,14 @@ running in a real browser — that is the one owner session covering the Firefox
 - [~] **Web UI playback note (dual-container aware).** Modal shows `#mkv-hint` and, on `video.onerror`, a
       `#playback-warn` with a download link, reworded for the fMP4 default. Server boots clean and serves the
       HTML; ⚠️ remaining = the owner Firefox checklist (below). File: `server/entry_recorder_server/static/index.html`
-- [ ] **Split `index.html` into static assets** — one 1368-line file (style/markup/inline script). Not free:
-      `server/tests/webui_auth_harness.mjs` extracts the script by regex over `<script>` blocks, so it must be
-      repointed in the same commit, and FastAPI must gain a static handler. Only when the server block is picked
-      up. Files: `server/entry_recorder_server/static/`, `server/entry_recorder_server/main.py`,
-      `server/tests/webui_auth_harness.mjs`
+- [x] **Split `index.html` into static assets** — the 1368-line single file (style/markup/inline script) is now
+      three: `static/index.html` (278 lines, markup only), `static/styles.css` (526) and `static/app.js` (565),
+      referenced as `/static/styles.css` + `/static/app.js`. No `main.py` change was due — `/static` is already
+      mounted, so the assets are served as-is. The harness `server/tests/webui_auth_harness.mjs` was repointed in
+      the same commit to run `app.js` directly instead of regex-extracting `<script>` blocks from the HTML; re-run
+      → 36/36 green. ⚠️ Owner gate: load the page in the Firefox checklist session and confirm styling + script
+      actually load from `/static/` (no 404s) and the auth/poll behaviour is unchanged. Files:
+      `server/entry_recorder_server/static/{index.html,styles.css,app.js}`, `server/tests/webui_auth_harness.mjs`
 - [ ] **Server ↔ app device sync** — the app never registers devices server-side, so `/api/live/{id}/mjpeg` only
       works for server-UI-created devices. New sync API + pairing flow + conflict handling. Blocker for Phase 5
       "Live view through the server". Files: `data/server/ServerRecordingClient.kt`, `server/.../main.py`
@@ -275,7 +278,9 @@ running in a real browser — that is the one owner session covering the Firefox
   Prereq: server running (`cd server; entry-recorder-server`) and its key (`.env` `API_KEY` or the generated
   `server/data/.api_key`). Open `http://<server>:8000/`, enter the key. Data: one **fMP4** row and one **legacy
   `.mkv`** row.
-  1. **Auth wiring** — stats, live cards, thumbnails render (no 401s, no "key rejected" alert). Fail = stop here.
+  1. **Auth wiring** — stats, live cards, thumbnails render (no 401s, no "key rejected" alert). DevTools Network
+     must show `/static/styles.css` + `/static/app.js` served 200 (the split assets load) — a dark/unstyled page = a
+     404 there. Fail = stop here.
   2. **Key change** — 🔑, wrong key → exactly one alert + redacted retry, poll must not re-prompt every 5 s; right key recovers.
   3. **fMP4 inline** — MP4 card thumbnail → modal opens, frames paint, non-zero duration, scrubbing works, `#playback-warn` hidden.
   4. **No false warning** — while it plays, `/video` is 200/206 `video/mp4`; HEAD probe is 200.
