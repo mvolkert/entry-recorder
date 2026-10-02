@@ -141,9 +141,12 @@ object NotificationHelper {
         device: DeviceEntity,
         caller: String?,
         playSound: Boolean = true,
-        vibrate: Boolean = true
+        vibrate: Boolean = true,
+        // Off keeps the ring as a plain notification: without the full-screen intent the lockscreen is
+        // never taken over. The content intent stays, so tapping the notification still opens the call.
+        fullScreen: Boolean = true
     ) {
-        val fullScreenIntent = Intent(context, IncomingCallActivity::class.java).apply {
+        val callIntent = Intent(context, IncomingCallActivity::class.java).apply {
             putExtra(IncomingCallActivity.EXTRA_DEVICE_ID, device.id)
             putExtra(IncomingCallActivity.EXTRA_EVENT_TYPE, EventType.RING.name)
             putExtra(IncomingCallActivity.EXTRA_CALLER, caller ?: context.getString(R.string.notif_doorbell_default_caller))
@@ -152,16 +155,16 @@ object NotificationHelper {
                     Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
 
-        val fullScreenPendingIntent = PendingIntent.getActivity(
+        val callPendingIntent = PendingIntent.getActivity(
             context,
             eventNotificationId(SLOT_DOORBELL, device.id),
-            fullScreenIntent,
+            callIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
         val ringUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_DOORBELL)
+        val builder = NotificationCompat.Builder(context, CHANNEL_DOORBELL)
             .setContentTitle(context.getString(R.string.notif_doorbell_title, device.name))
             .setContentText(
                 context.getString(
@@ -173,15 +176,16 @@ object NotificationHelper {
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setFullScreenIntent(fullScreenPendingIntent, true)
-            .setContentIntent(fullScreenPendingIntent)
+            .setContentIntent(callPendingIntent)
             .setAutoCancel(true)
 
-        if (playSound) notification.setSound(ringUri) else notification.setSilent(true)
-        if (vibrate) notification.setVibrate(longArrayOf(0, 500, 200, 500, 200, 800))
+        if (fullScreen) builder.setFullScreenIntent(callPendingIntent, true)
+
+        if (playSound) builder.setSound(ringUri) else builder.setSilent(true)
+        if (vibrate) builder.setVibrate(longArrayOf(0, 500, 200, 500, 200, 800))
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(eventNotificationId(SLOT_DOORBELL, device.id), notification.build())
+        manager.notify(eventNotificationId(SLOT_DOORBELL, device.id), builder.build())
     }
 
     fun showMotionNotification(context: Context, device: DeviceEntity) {

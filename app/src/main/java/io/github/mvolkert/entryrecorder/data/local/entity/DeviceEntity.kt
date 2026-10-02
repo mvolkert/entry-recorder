@@ -47,6 +47,11 @@ data class DeviceEntity(
 
     // Per-device alert & lockscreen behavior (was global app settings). Defaults true to match the
     // previous global behavior; the Room migration seeds them from the old app_settings row.
+    /**
+     * Doorbell ring: take the call over the screen (full-screen intent plus a direct activity launch).
+     * False keeps the ring as a notification only — still audible and tappable, but the lockscreen stays
+     * up. The notification itself is always posted, so this is about visibility, not about being told.
+     */
     val wakeOnRing: Boolean = true,
     val soundOnRing: Boolean = true,
     val vibrateOnRing: Boolean = true,

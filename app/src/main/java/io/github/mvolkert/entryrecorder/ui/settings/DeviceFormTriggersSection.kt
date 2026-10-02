@@ -74,6 +74,7 @@ internal fun DeviceFormAlertsSection(form: DeviceFormState) {
     FormSectionLabel(R.string.settings_section_alerts)
     SettingsSwitchRow(
         title = stringResource(R.string.settings_wake_ring),
+        subtitle = stringResource(R.string.settings_wake_ring_summary),
         checked = form.wakeOnRing,
         onCheckedChange = { form.wakeOnRing = it }
     )

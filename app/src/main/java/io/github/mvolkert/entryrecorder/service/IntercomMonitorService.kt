@@ -210,19 +210,22 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                         )
                     }
 
-                    // 2. Wake lockscreen & notify (honoring the ring alert settings)
+                    // 2. Notify (honoring the ring alert settings). wakeOnRing is the single
+                    // "bring the call to the screen" switch: off, the ring stays a plain notification and
+                    // no full-screen intent is attached, so the lockscreen is never taken over.
                     NotificationHelper.showDoorbellNotification(
                         this@IntercomMonitorService,
                         device,
                         event.callerNumber,
                         playSound = device.soundOnRing,
-                        vibrate = device.vibrateOnRing
+                        vibrate = device.vibrateOnRing,
+                        fullScreen = device.wakeOnRing
                     )
 
                     // 3. Launch IncomingCallActivity directly for immediate lockscreen display.
                     // NOTE (targetSdk 36+): background Activity Launch is restricted, so this
-                    // direct startActivity is best-effort. The doorbell path stays reliable because
-                    // NotificationHelper attaches a full-screen intent to the ring notification.
+                    // direct startActivity is best-effort. With wakeOnRing on, the full-screen intent
+                    // attached above is the reliable path to the call screen.
                     if (device.wakeOnRing) {
                         startActivity(callActivityIntent(device, EventType.RING, event.callerNumber ?: "2N IP Verso"))
                     }

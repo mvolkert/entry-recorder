@@ -142,7 +142,8 @@
     <string name="settings_cd_decrease">Decrease</string>
     <string name="settings_cd_increase">Increase</string>
     <string name="settings_section_alerts">Alerts &amp; Lockscreen Behavior</string>
-    <string name="settings_wake_ring">Wake Lockscreen on Doorbell Ring</string>
+    <string name="settings_wake_ring">Full-Screen Call on Doorbell Ring</string>
+    <string name="settings_wake_ring_summary">Off: a ring only posts a notification — tap it to open the call screen</string>
     <string name="settings_sound_ring">Play Sound on Doorbell Ring</string>
     <string name="settings_vibrate_ring">Vibrate on Doorbell Ring</string>
     <string name="settings_wake_motion">Wake Screen on Motion Detection</string>
