@@ -66,16 +66,21 @@ deadline) is already fixed in the recorder and live view — what remains is rob
       measured (`HttpSnapshotClient.achievedFps`, 0f = not polled recently); the recorder logs achieved vs
       configured at the end of every capture and the analyzer health line carries the measured rate.
       Files: `ui/settings/DeviceFormStreamSection.kt`, `data/local/entity/DeviceEntity.kt`
-- [~] 🔄 **The MJPEG path stored for the 2N does not exist on this firmware.** `DeviceEntity.mjpegUrl`
-      (`/api/camera/mjpeg`) answers **HTTP 200 + `application/json`** (`{"error":{"code":2 …invalid request
+- [x] 🔄 **The MJPEG path stored for the 2N does not exist on this firmware — now routed to the real one.**
+      `DeviceEntity.mjpegUrl` (`/api/camera/mjpeg`) answered **HTTP 200 + `application/json`** (`{"error":{"code":2 …invalid request
       path}}`); `data/network/MjpegStreamReader.kt` then found no JPEG boundaries and yielded zero frames, so
-      `MJPEG_STREAM` read as a dead camera. Done: `requireMjpegContentType()` fails loudly on any content type
-      that is not `multipart`/`image` (naming the URL, code and type), both stream functions rethrow so the
-      recorder falls back to snapshot polling and the live view shows an error instead of a black box.
-      **Remaining device gate:** confirm which live path this firmware actually serves before changing the
-      stored `mjpegPath` default — guessing a URL here would just move the failure. Related fact:
-      `/api/camera/snapshot` without `width`/`height` returns `{"code":11 …missing mandatory parameter}` —
-      `DeviceEntity.snapshotUrl`'s parameter appending is load-bearing.
+      `MJPEG_STREAM` read as a dead camera. `requireMjpegContentType()` already fails loudly on any non-
+      `multipart`/`image` type and the stream functions rethrow (recorder → snapshot fallback, live view → error).
+      The open "which live path does this firmware serve" question is now answered authoritatively by the
+      **2N Streaming manual**: the Verso has **no** `/api/camera/mjpeg` — MJPEG (`multipart/x-mixed-replace`
+      server push) is served from the **snapshot endpoint with an added `fps` param** (`/api/camera/snapshot?width=W&height=H&fps=N`, N = 1–10).
+      Done: for `TWO_N_VERSO` `mjpegUrl` **derives** from `snapshotUrl` (`…&fps=<effectiveSnapshotFps clamped 1–10>`)
+      instead of trusting the stored `mjpegPath` — so `MJPEG_STREAM` and the AUTO→MJPEG fallback produce a real
+      stream, and devices saved before this self-heal with **no Room migration**; generic-RTSP devices keep their raw
+      path. **Residual device gate → Phase G** (confirm the derived URL paints in the live view / records on the
+      Verso; build-verified only today). Related fact kept: `/api/camera/snapshot` without
+      `width`/`height` returns `{"code":11 …missing mandatory parameter}` — `DeviceEntity.snapshotUrl`'s parameter
+      appending is load-bearing and the derived stream URL inherits it.
       Files: `data/network/MjpegStreamReader.kt`, `data/local/entity/DeviceEntity.kt`
 - [ ] 🔄 **Retune motion sensitivity from the health line (needs device numbers).** The trigger needs
       `changedRatio >= 3 %` of the 96x54 grid differing by >25 grey levels on **two consecutive** comparisons,
@@ -317,6 +322,10 @@ Compile-green ≠ done; run on the owner's real hardware before closing.
 
 ### Motion health (needs the Verso)
 - [ ] 🔄 Read one `Motion analysis on …` health line idle and one walking past the camera (feeds Phase 1 retune).
+- [ ] 🔄 **MJPEG live path (Phase 1 item 3, code done via 2N docs).** With a `TWO_N_VERSO` set to `MJPEG_STREAM`
+      (or `AUTO` reaching the MJPEG fallback), the derived `snapshotUrl&fps=N` must actually paint in the live view
+      and a motion recording must contain stream frames — confirming the documented endpoint serves this firmware
+      revision. A content-type `Log.w` ("not a multipart MJPEG stream") means the derivation needs revisiting.
 
 ### Per-role accent selector (needs Android 15/16 + real data)
 - [ ] Room **v8→v9** upgrade over real data: install the new build **without uninstalling** → archive intact,

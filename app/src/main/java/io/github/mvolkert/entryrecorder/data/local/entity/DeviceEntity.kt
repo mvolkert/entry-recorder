@@ -98,8 +98,20 @@ data class DeviceEntity(
             }
         }
 
+    /**
+     * MJPEG stream URL. The 2N Verso has no dedicated MJPEG endpoint: its firmware serves a
+     * `multipart/x-mixed-replace` server push from the same snapshot URL with an added `fps` param
+     * (2N Streaming manual), so it is derived from [snapshotUrl] rather than read from the stored
+     * [mjpegPath]. Deriving also self-heals devices saved before this whose `/api/camera/mjpeg`
+     * path answers HTTP 200 + JSON and read as a dead camera. Other device types keep their raw path.
+     */
     val mjpegUrl: String
         get() {
+            if (deviceType == DeviceType.TWO_N_VERSO) {
+                val fps = effectiveSnapshotFps.coerceIn(MJPEG_FPS_MIN, MJPEG_FPS_MAX)
+                val separator = if (snapshotUrl.contains("?")) "&" else "?"
+                return "$snapshotUrl${separator}fps=$fps"
+            }
             var path = mjpegPath.trim()
             if (!path.startsWith("/")) path = "/$path"
             return "$httpBaseUrl$path"
@@ -123,5 +135,10 @@ data class DeviceEntity(
         // HTTP round trip, so no snapshot endpoint can deliver it. Per-camera capability is measured in
         // the device form rather than guessed from the type (a 2N once forced this down to a static 6).
         const val SNAPSHOT_FPS_HARD_MAX = 30
+
+        // The 2N MJPEG server push accepts an fps param in 1–10 (2N Streaming manual); the configured
+        // snapshot rate is clamped into it when the stream URL is derived.
+        private const val MJPEG_FPS_MIN = 1
+        private const val MJPEG_FPS_MAX = 10
     }
 }
