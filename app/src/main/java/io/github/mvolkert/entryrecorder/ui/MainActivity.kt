@@ -40,6 +40,7 @@ class MainActivity : ComponentActivity() {
             val settingsState by settingsViewModel.uiState.collectAsStateWithLifecycle()
             val settings = settingsState.appSettings
             AppTheme(
+                themeMode = settings.themeMode,
                 primaryIndex = settings.themePrimaryIndex,
                 secondaryIndex = settings.themeSecondaryIndex,
                 tertiaryIndex = settings.themeTertiaryIndex,

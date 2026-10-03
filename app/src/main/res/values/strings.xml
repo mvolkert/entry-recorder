@@ -179,6 +179,11 @@
 
     <!-- Appearance / accent colors -->
     <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_theme_mode_label">Theme</string>
+    <string name="settings_theme_mode_hint">Choose light or dark, or follow the system setting. The cold-start splash always follows the system.</string>
+    <string name="settings_theme_mode_system">System</string>
+    <string name="settings_theme_mode_light">Light</string>
+    <string name="settings_theme_mode_dark">Dark</string>
     <string name="settings_accent_hint">Pick an accent color. It is applied to every color role at once.</string>
     <string name="settings_accent_selected">Selected accent</string>
     <string name="settings_accent_roles_summary">Primary: %1$s • Secondary: %2$s • Tertiary: %3$s</string>

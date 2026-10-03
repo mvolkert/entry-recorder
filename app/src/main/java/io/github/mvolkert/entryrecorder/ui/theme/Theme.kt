@@ -1,13 +1,28 @@
 package io.github.mvolkert.entryrecorder.ui.theme
 
+import android.app.Activity
 import androidx.annotation.StringRes
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import io.github.mvolkert.entryrecorder.R
+
+/**
+ * User-selectable color mode. Stored as the enum ordinal in [io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity.themeMode];
+ * [System] follows the device setting, while [Light]/[Dark] force one regardless of it.
+ */
+enum class ThemeMode { System, Light, Dark }
+
+/** The [ThemeMode] at [ordinal], falling back to [ThemeMode.System] for a stale or out-of-range value. */
+fun themeModeAt(ordinal: Int): ThemeMode = ThemeMode.values().getOrNull(ordinal) ?: ThemeMode.System
 
 /**
  * A curated accent palette. Each preset supplies the visible accent roles (primary/secondary/tertiary
@@ -97,24 +112,46 @@ private fun buildColorScheme(
     primary: AccentPalette,
     secondary: AccentPalette,
     tertiary: AccentPalette,
-): ColorScheme = darkColorScheme(
-    primary = primary.primary,
-    onPrimary = primary.onPrimary,
-    primaryContainer = primary.primaryContainer,
-    onPrimaryContainer = primary.onPrimaryContainer,
-    secondary = secondary.secondary,
-    onSecondary = secondary.onSecondary,
-    // Each preset derives exactly one container pair (its primary's). Reusing that pair for the role's
-    // own container keeps the nav active indicator, the FilterChips and the selected recording card on
-    // the chosen palette instead of the neutral Material default: same hue family, and the
-    // container/on-container contrast is already the measured one.
-    secondaryContainer = secondary.primaryContainer,
-    onSecondaryContainer = secondary.onPrimaryContainer,
-    tertiary = tertiary.tertiary,
-    onTertiary = tertiary.onTertiary,
-    tertiaryContainer = tertiary.primaryContainer,
-    onTertiaryContainer = tertiary.onPrimaryContainer,
-)
+    dark: Boolean,
+): ColorScheme = if (dark) {
+    darkColorScheme(
+        primary = primary.primary,
+        onPrimary = primary.onPrimary,
+        primaryContainer = primary.primaryContainer,
+        onPrimaryContainer = primary.onPrimaryContainer,
+        secondary = secondary.secondary,
+        onSecondary = secondary.onSecondary,
+        // Each preset derives exactly one container pair (its primary's). Reusing that pair for the role's
+        // own container keeps the nav active indicator, the FilterChips and the selected recording card on
+        // the chosen palette instead of the neutral Material default: same hue family, and the
+        // container/on-container contrast is already the measured one.
+        secondaryContainer = secondary.primaryContainer,
+        onSecondaryContainer = secondary.onPrimaryContainer,
+        tertiary = tertiary.tertiary,
+        onTertiary = tertiary.onTertiary,
+        tertiaryContainer = tertiary.primaryContainer,
+        onTertiaryContainer = tertiary.onPrimaryContainer,
+    )
+} else {
+    // Light scheme reuses the same curated pairs, swapping which side of each pair is foreground vs
+    // background: the dark scheme's deep container tone becomes the light primary, and its light
+    // on-container tone becomes the text on it. Contrast stays within the pair the preset was checked
+    // for, so no separate light tuning is required per accent.
+    lightColorScheme(
+        primary = primary.primaryContainer,
+        onPrimary = primary.onPrimaryContainer,
+        primaryContainer = primary.onPrimaryContainer,
+        onPrimaryContainer = primary.onPrimary,
+        secondary = secondary.primaryContainer,
+        onSecondary = secondary.onPrimaryContainer,
+        secondaryContainer = secondary.onPrimaryContainer,
+        onSecondaryContainer = secondary.onSecondary,
+        tertiary = tertiary.primaryContainer,
+        onTertiary = tertiary.onPrimaryContainer,
+        tertiaryContainer = tertiary.onPrimaryContainer,
+        onTertiaryContainer = tertiary.onTertiary,
+    )
+}
 
 /** The preset at [index], falling back to the first one for stale or out-of-range stored indices. */
 fun accentPresetAt(index: Int): AccentPalette = accentPresets.getOrNull(index) ?: accentPresets.first()
@@ -126,18 +163,39 @@ fun accentPresetAt(index: Int): AccentPalette = accentPresets.getOrNull(index) ?
  */
 @Composable
 fun AppTheme(
+    themeMode: Int,
     primaryIndex: Int,
     secondaryIndex: Int,
     tertiaryIndex: Int,
     content: @Composable () -> Unit,
 ) {
-    val colorScheme = remember(primaryIndex, secondaryIndex, tertiaryIndex) {
+    val dark = when (themeModeAt(themeMode)) {
+        ThemeMode.Light -> false
+        ThemeMode.Dark -> true
+        ThemeMode.System -> isSystemInDarkTheme()
+    }
+    val colorScheme = remember(primaryIndex, secondaryIndex, tertiaryIndex, dark) {
         buildColorScheme(
             primary = accentPresetAt(primaryIndex),
             secondary = accentPresetAt(secondaryIndex),
             tertiary = accentPresetAt(tertiaryIndex),
+            dark = dark,
         )
     }
+
+    // Edge-to-edge bars are transparent, so icon contrast is the only thing that must follow the
+    // resolved scheme; enableEdgeToEdge defaults are driven by the (always-Light) framework parent.
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as? Activity)?.window ?: return@SideEffect
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = !dark
+                isAppearanceLightNavigationBars = !dark
+            }
+        }
+    }
+
     MaterialTheme(
         colorScheme = colorScheme,
         content = content,

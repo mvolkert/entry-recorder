@@ -41,5 +41,8 @@ data class AppSettingsEntity(
     // 0 = the default palette, so existing installs keep their current look after migration.
     val themePrimaryIndex: Int = 0,
     val themeSecondaryIndex: Int = 0,
-    val themeTertiaryIndex: Int = 0
+    val themeTertiaryIndex: Int = 0,
+    // Color mode as the ordinal of ui.theme.ThemeMode: 0 = System (follow the device), 1 = Light,
+    // 2 = Dark. Defaults to System so a fresh install tracks the setting that drives the splash.
+    val themeMode: Int = 0
 )
