@@ -48,6 +48,10 @@ Namespace: `io.github.mvolkert.entryrecorder`
   - Speicherplatzkontingent (z.B. max. 10 GB) mit automatischem Löschen der ältesten, ungeschützten Aufnahmen im Hintergrund (`WorkManager`).
 - **Multi-Device & Erweiterbarkeit**:
   - Über die `IntercomDevice`-Schnittstelle können beliebig viele 2N IP Verso oder andere Intercom-Modelle (ONVIF/RTSP) hinzugefügt werden.
+- **Aussehen & Theme**:
+  - Farbwahl **System / Hell / Dunkel** in den Einstellungen; der System-Splash, der Fensterhintergrund und die Status-/Navigations Icons folgen derselben Entscheidung (die Activity überstimmt den Geräte-Night-Mode über `UiModePrefs`).
+  - Kuratierte, per OKLCh abgeleitete Akzent-Presets pro Farbrolle (Primär/Sekundär/Tertiär) — jeweils explizit für den hellen **und** dunklen Modus, generiert von `tools/derive_accents.py`; ein Unit-Test (`AccentPaletteContrastTest`) erzwingt WCAG-AA-Kontrast (≥ 4.5:1) für alle Paare beider Modi.
+  - Adaptives Launcher-Icon mit Monochrome-Layer (Themed Icons) und Splash-Screen, der aus denselben Layern gebaut wird (keine duplizierten Pfade, keine Drift möglich).
 
 ---
 

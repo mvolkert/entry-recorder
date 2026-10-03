@@ -287,6 +287,12 @@ Phases 1–5 and the Phase G gates are done.
 - [ ] **Linphone ABI coverage** (DEFERRED) — only `jni/arm64-v8a/liblinphone.so` committed; `jni/` isn't wired
       into `sourceSets`/`jniLibs.srcDir`, so packaging is unclear and blind `abiFilters` could exclude devices.
       Needs a release-bundle ABI inspection first.
+- [ ] 🔭 **Material You dynamic color** (DEFERRED by decision 2026-10-04) — `dynamicDarkColorScheme`/
+      `dynamicLightColorScheme` in `AppTheme` behind a new persisted opt-in flag. Deliberately not folded into the
+      light-role work: dynamic color replaces the WHOLE scheme, so the curated presets + `AccentPaletteContrastTest`
+      become the opt-out path and the swatch/role UI needs an explanatory hint ("system palette overrides accents").
+      Files: `ui/theme/Theme.kt`, `data/local/entity/AppSettingsEntity.kt` (+ Room migration),
+      `ui/settings/SettingsAppearanceCard.kt`
 
 ## Phase S — Server & web UI 🖥️
 Sorted minimal → architectural. Headless verification is possible for most; items marked ⚠️ need the server
@@ -397,6 +403,23 @@ Compile-green ≠ done; run on the owner's real hardware before closing.
       selected card all stay readable.
 - [ ] Backup round trip after using the dialog: export → restore brings the three role indices back. Caveat: a
       backup written **before** this feature has no role fields, so restoring it resets accents to preset 0.
+
+### Theme mode & splash coherence (needs Android 12+; light-role checks want real data) — 2026-10-04 code, unverified
+The uiMode override + derived light roles are compile/lint/test green only. If a stale splash persists, fully
+uninstall and reboot (OEM launcher caching).
+- [ ] 🔄 **Forced modes drive the splash.** With the SYSTEM setting the OPPOSITE of the picker: Dark+system-light
+      (and Light+system-dark) cold starts must show the navy halo + navy-disc mark (dark) / white halo + navy-disc
+      mark (light) — never the device setting's variant. `System` follows the device as before.
+- [ ] 🔄 **Runtime flip recreates**: switching Light⇄Dark in Settings while the app is open re-themes framework
+      chrome (dialog/window backgrounds) after the brief recreate; flipping System⇄anything does not loop-recreate.
+- [ ] 🔄 **Device day/night flip while in System mode** updates splash + app on the next cold start
+      (`adb shell uimode --night yes|no`).
+- [ ] 🔄 **Light mode readability pass**: section headers (primary as text), nav active pill, filter chips,
+      selected recording card and the Appearance swatches against the new explicit light neutrals — the unit test
+      proves the role PAIRS, not the composition of unusual mixed-role selections.
+- [ ] 🔄 **Themed (monochrome) launcher icon + splash layers**: enable themed icons on the launcher and confirm the
+      monochrome silhouette; cold-start splash shows the disc built from the launcher foreground layers (Phase 1),
+      including on Android < 12 (windowBackground only).
 
 ### Pipeline note
 - [ ] After Phase 6's color-format change (if/when done): re-run the exported-fMP4-in-VLC gate (the change could
