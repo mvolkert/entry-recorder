@@ -1,0 +1,5 @@
+<resources>
+    <!-- Night-mode splash surfaces: black backdrop with the white CCTV mark -->
+    <color name="splash_background">#FF000000</color>
+    <color name="splash_icon">#FFFFFFFF</color>
+</resources>

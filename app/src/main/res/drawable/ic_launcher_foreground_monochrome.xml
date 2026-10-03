@@ -10,25 +10,16 @@
         android:scaleX="0.70"
         android:scaleY="0.70">
 
-        <!-- Mount bar (one LED cut-out) + dome + lens ring -->
         <path
             android:fillColor="#FFFFFFFF"
             android:fillType="evenOdd"
             android:pathData="
                 M 4,6 H 20 A 1,1 0 0 1 21,7 V 10.2 H 3 V 7 A 1,1 0 0 1 4,6 Z
                 M 14,7.3 H 15 A 0.8,0.8 0 0 1 15,8.9 H 14 A 0.8,0.8 0 0 1 14,7.3 Z
+                M 18,7.3 A 0.8,0.8 0 1 0 18,8.9 A 0.8,0.8 0 1 0 18,7.3 Z
                 M 5,11.4 H 19 A 7,7 0 0 1 5,11.4 Z
                 M 12,12.1 A 2.8,2.8 0 1 0 12,17.7 A 2.8,2.8 0 1 0 12,12.1
-                M 12,13.4 A 1.5,1.5 0 1 0 12,16.4 A 1.5,1.5 0 1 0 12,13.4" />
-
-        <!-- REC indicator -->
-        <path
-            android:fillColor="#FFFF3B30"
-            android:pathData="M 18,7.15 A 0.95,0.95 0 1 0 18,9.05 A 0.95,0.95 0 1 0 18,7.15 Z" />
-
-        <!-- Lens pupil accent -->
-        <path
-            android:fillColor="#FF4FC3F7"
-            android:pathData="M 12,14.2 A 0.7,0.7 0 1 0 12,15.6 A 0.7,0.7 0 1 0 12,14.2 Z" />
+                M 12,13.4 A 1.5,1.5 0 1 0 12,16.4 A 1.5,1.5 0 1 0 12,13.4
+                M 12,14.3 A 0.6,0.6 0 1 0 12,15.5 A 0.6,0.6 0 1 0 12,14.3" />
     </group>
 </vector>

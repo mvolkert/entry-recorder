@@ -1,0 +1,20 @@
+<!-- res/drawable/ic_stat_recording.xml
+     Small notification icon for the "recording in progress" state.
+     Flat white on transparent; the system tints it (e.g. setColor(red)). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Ring + solid centre dot -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="
+            M 12,2.5 A 9.5,9.5 0 1 0 12,21.5 A 9.5,9.5 0 1 0 12,2.5
+            M 12,4.5 A 7.5,7.5 0 1 1 12,19.5 A 7.5,7.5 0 1 1 12,4.5" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M 12,7.5 A 4.5,4.5 0 1 0 12,16.5 A 4.5,4.5 0 1 0 12,7.5 Z" />
+</vector>

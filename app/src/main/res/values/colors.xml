@@ -8,4 +8,8 @@
     <color name="white">#FFFFFFFF</color>
     <color name="brand_primary">#FF1E88E5</color>
     <color name="brand_secondary">#FF26A69A</color>
+
+    <!-- Splash surfaces, resolved per system day/night via values-night -->
+    <color name="splash_background">#FFFFFFFF</color>
+    <color name="splash_icon">#FF0D1B2A</color>
 </resources>

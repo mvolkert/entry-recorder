@@ -13,7 +13,7 @@
         android:scaleY="0.65">
 
         <path
-            android:fillColor="#FFFFFFFF"
+            android:fillColor="@color/splash_icon"
             android:fillType="evenOdd"
             android:pathData="
             M 4,6 H 20 A 1,1 0 0 1 21,7 V 10.2 H 3 V 7 A 1,1 0 0 1 4,6 Z

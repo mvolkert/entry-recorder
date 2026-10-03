@@ -1,0 +1,23 @@
+<!-- res/drawable/ic_stat_camera.xml
+     Small notification icon: flat white silhouette on transparent, as Android requires.
+     Use for the normal / monitoring state. Set the tint with setColor(). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Mount bar -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M 3.5,5.5 H 20.5 A 1,1 0 0 1 21.5,6.5 V 10 H 2.5 V 6.5 A 1,1 0 0 1 3.5,5.5 Z" />
+
+    <!-- Dome with lens ring (even-odd: ring is see-through, centre disc is solid) -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="
+            M 4,10.8 H 20 A 8,8 0 0 1 4,10.8 Z
+            M 12,12 A 2.8,2.8 0 1 0 12,17.6 A 2.8,2.8 0 1 0 12,12
+            M 12,13.5 A 1.3,1.3 0 1 0 12,16.1 A 1.3,1.3 0 1 0 12,13.5" />
+</vector>
