@@ -1,5 +1,4 @@
 <resources>
-    <!-- Night-mode splash surfaces: black backdrop with the white CCTV mark -->
+    <!-- Night-mode splash backdrop; the Android 12+ splash icon is the launcher icon itself -->
     <color name="splash_background">#FF000000</color>
-    <color name="splash_icon">#FFFFFFFF</color>
 </resources>
