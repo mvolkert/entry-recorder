@@ -126,6 +126,50 @@ class MjpegStreamReader(
     }.flowOn(Dispatchers.IO)
 
     /**
+     * Reads a continuous MJPEG multipart stream served at an arbitrary [url] (the Python server's
+     * `/api/live/{id}/mjpeg`) and yields decoded Bitmaps, authenticating with an `X-API-Key` **header**
+     * rather than the device's Basic auth or a `?api_key=` query — OkHttp can set headers here, unlike the
+     * Coil/ExoPlayer image paths, so the key never lands in a URL/log. [label] only names the device in
+     * logs. Mirrors [streamBitmaps]' failure contract (rethrow, so the caller can fall back).
+     */
+    fun streamBitmapsFromUrl(url: String, label: String, apiKey: String?): Flow<Bitmap> = flow {
+        val requestBuilder = Request.Builder().url(url)
+        if (!apiKey.isNullOrBlank()) requestBuilder.header("X-API-Key", apiKey)
+
+        var response: Response? = null
+        try {
+            response = httpClient.newCall(requestBuilder.build()).execute()
+            if (!response.isSuccessful) {
+                throw IOException("Server live feed for $label answered HTTP ${response.code}")
+            }
+            val contentType = response.body.contentType()?.toString().orEmpty()
+            val mainType = contentType.substringBefore(';').trim().lowercase(Locale.US)
+            if (!(mainType.startsWith("multipart") || mainType.startsWith("image"))) {
+                throw IOException(
+                    "Server live feed for $label returned '$contentType' — not a multipart MJPEG stream"
+                )
+            }
+
+            val inputStream = BufferedInputStream(response.body.byteStream())
+            readMjpegStream(inputStream) { jpegBytes ->
+                val bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
+                if (bitmap != null) {
+                    emit(bitmap)
+                }
+            }
+        } catch (_: CancellationException) {
+            // Normal coroutine cancellation
+        } catch (e: Exception) {
+            Log.e(tag, "Error reading server live MJPEG for $label", e)
+            throw e
+        } finally {
+            try {
+                response?.close()
+            } catch (_: Exception) {}
+        }
+    }.flowOn(Dispatchers.IO)
+
+    /**
      * Fails when the response is not an MJPEG multipart/image stream.
      *
      * Some firmwares answer an unknown path with HTTP 200 plus an application/json error document

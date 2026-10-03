@@ -290,6 +290,7 @@
 
     <!-- Stream players -->
     <string name="player_cd_live_feed">Live Camera Feed</string>
+    <string name="live_badge_server">SERVER</string>
     <string name="player_retry_connection">Retry Connection</string>
     <string name="player_error_timeout">Connection Timed Out. Check if the intercom is on the same Wi-Fi.</string>
     <string name="player_error_rtsp_not_found">RTSP Error: 404 Not Found. Check your stream path.</string>

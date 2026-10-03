@@ -60,6 +60,7 @@ import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -72,7 +73,14 @@ fun LiveStreamPlayer(
     device: DeviceEntity,
     modifier: Modifier = Modifier,
     useController: Boolean = false,
-    autoPlay: Boolean = true
+    autoPlay: Boolean = true,
+    /**
+     * When non-null, the feed is pulled from this server MJPEG URL (`/api/live/{serverDeviceId}/mjpeg`)
+     * instead of the phone dialing the device directly (Phase S: server owns the camera poll in a relay
+     * deployment). On stream failure the player falls back to the direct-to-device path below.
+     */
+    serverLiveUrl: String? = null,
+    serverApiKey: String? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -86,6 +94,10 @@ fun LiveStreamPlayer(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var retryCount by remember { mutableIntStateOf(0) }
     var latestBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    // Latched when the server feed fails, so this card drops to the direct path instead of looping on the
+    // server. Reset when the target URL changes (device switch) or on a manual retry.
+    var serverFailed by remember(serverLiveUrl) { mutableStateOf(false) }
+    val renderServer = serverLiveUrl != null && !serverFailed
     val resources = LocalResources.current
 
     // RTSP ExoPlayer instance
@@ -106,9 +118,35 @@ fun LiveStreamPlayer(
     }
 
     // Effect for handling streaming lifecycle based on active protocol
-    LaunchedEffect(device, activeProtocol, retryCount, autoPlay) {
+    LaunchedEffect(device, activeProtocol, retryCount, autoPlay, serverLiveUrl, serverApiKey, serverFailed) {
         isLoading = true
         errorMessage = null
+
+        // Server-relayed live view (Phase S): one MJPEG multipart stream pulled from the server, which owns
+        // the camera poll. Any failure latches [serverFailed] so this effect re-runs into the direct path.
+        val serverUrl = serverLiveUrl
+        if (serverUrl != null && !serverFailed) {
+            exoPlayer.stop()
+            val mjpegReader = MjpegStreamReader()
+            lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                try {
+                    mjpegReader.streamBitmapsFromUrl(serverUrl, device.name, serverApiKey)
+                        .collect { bmp ->
+                            latestBitmap = bmp
+                            isLoading = false
+                            errorMessage = null
+                        }
+                    // Stream ended cleanly (server closed it): treat as a failure to fall back.
+                    serverFailed = true
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w("LiveStreamPlayer", "Server live feed failed, falling back to direct: ${e.message}")
+                    serverFailed = true
+                }
+            }
+            return@LaunchedEffect
+        }
 
         when (activeProtocol) {
             StreamProtocol.RTSP, StreamProtocol.AUTO -> {
@@ -235,7 +273,7 @@ fun LiveStreamPlayer(
             .background(Color.Black),
         contentAlignment = Alignment.Center
     ) {
-        if (activeProtocol == StreamProtocol.RTSP) {
+        if (activeProtocol == StreamProtocol.RTSP && !renderServer) {
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
@@ -270,7 +308,8 @@ fun LiveStreamPlayer(
             color = Color.Black.copy(alpha = 0.65f)
         ) {
             Text(
-                text = activeProtocol.name.replace("_", " "),
+                text = if (renderServer) stringResource(R.string.live_badge_server)
+                else activeProtocol.name.replace("_", " "),
                 color = Color.White,
                 fontSize = 10.sp,
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -300,7 +339,7 @@ fun LiveStreamPlayer(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
-                        onClick = { retryCount++ },
+                        onClick = { serverFailed = false; retryCount++ },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer)
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = null)

@@ -247,10 +247,18 @@ pull-to-refresh added same day. The Phase S device-sync identity gap is now clos
       Files: `ui/recordings/GalleryItem.kt`, `ui/recordings/RecordingsViewModel.kt`,
       `ui/recordings/RecordingsScreen.kt`, `ui/recordings/RecordingCardItem.kt`, `ui/recordings/RecordingsDialogs.kt`,
       `ui/components/VideoPlayerModal.kt`, `data/server/ServerRecordingClient.kt`, `util/ExportHelper.kt`
-- [ ] **Live view through the server** — consume `/api/live/{id}/mjpeg` in `LiveStreamPlayer`. The identity gap is
-      closed (Phase S sync gives app devices a `serverDeviceId`, so the endpoint is now addressable); what remains is
-      the player itself dialing that server URL instead of the device's own IP. Files: `ui/components/LiveStreamPlayer.kt`,
-      `ui/live/LiveCamerasScreen.kt`
+- [x] **Live view through the server** — consume `/api/live/{id}/mjpeg` in `LiveStreamPlayer`. Done (the Phase S
+      sync gave app devices a `serverDeviceId`, making the endpoint addressable): in `PYTHON_SERVER` mode a
+      registered device's card now pulls one MJPEG stream from the server (which owns the camera poll) instead of
+      the phone dialing the device IP. `MjpegStreamReader.streamBitmapsFromUrl` reads the multipart stream with an
+      `X-API-Key` **header** (no `?api_key=` in the URL — OkHttp can set headers, unlike the Coil/ExoPlayer image
+      paths); `LiveStreamPlayer` gains a `serverLiveUrl`/`serverApiKey` branch that renders server bitmaps and
+      **falls back to the direct-to-device path** on any stream failure (latched `serverFailed`, reset on retry /
+      device switch); `LiveUiState` folds in `AppSettingsEntity` so `LiveCamerasScreen` computes the URL only when
+      `recordingMode == PYTHON_SERVER && serverDeviceId != null`. `APP_LOCAL` and unregistered devices are
+      unchanged. Verified compile/lint (live e2e → Phase G "Live view through the server" gate). Files:
+      `data/network/MjpegStreamReader.kt`, `ui/components/LiveStreamPlayer.kt`, `ui/live/LiveViewModel.kt`,
+      `ui/live/LiveCamerasScreen.kt`, `res/values/strings.xml`
 
 ## Phase 6 — Heavy / device-unverifiable app backlog
 Large, risky, or impossible to validate from CI; each needs a real device/PBX pass. Do NOT start before
@@ -447,6 +455,17 @@ The app→server device registration is compile/lint green; confirm against a li
       remain); restoring a backup clears every `serverDeviceId` so devices re-register against the current server.
 - [ ] 🔄 **Room v12→v13 over real data.** Upgrade an install without wiping: the `serverDeviceId` column is added
       null for existing devices (they re-register lazily), no other data disturbed.
+
+### Live view through the server (needs the server running) — Phase 5 ✅ code, unverified
+The server-relayed live feed is compile/lint green; confirm against a live `PYTHON_SERVER` deployment.
+- [ ] 🔄 **Relayed feed paints.** In `PYTHON_SERVER` with a registered device, the Live card shows MJPEG sourced
+      from `/api/live/<serverDeviceId>/mjpeg` (badge reads SERVER); DevTools/logcat show the phone hitting only the
+      server, not the camera IP.
+- [ ] 🔄 **Header auth, no key in URL.** The live request carries `X-API-Key`; the URL has no `?api_key=`.
+- [ ] 🔄 **Graceful fallback.** Stop the server (or kill the feed) → the card drops to the direct-to-device stream
+      (badge reverts to the device protocol) rather than going blank; a device the phone cannot reach directly shows
+      the existing error + Retry, and Retry re-attempts the server first.
+- [ ] 🔄 **Scope unchanged elsewhere.** `APP_LOCAL` mode and unregistered devices render exactly as before.
 
 ---
 

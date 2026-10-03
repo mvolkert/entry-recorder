@@ -52,6 +52,7 @@ import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
+import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -117,12 +118,21 @@ fun LiveCamerasScreen(
                         val monitorStatus = if (!device.isEnabled) MonitorStatus.DISABLED
                         else state.monitorStatuses[device.id] ?: MonitorStatus.DISABLED
                         val eventQuality = state.eventQualities[device.id]
+                        // Phase S: in PYTHON_SERVER mode an app device carries a server id, so the feed can be
+                        // relayed through the server (which owns the camera poll). Otherwise dial the device.
+                        val settings = state.appSettings
+                        val serverLiveUrl =
+                            if (settings.recordingMode == RecordingMode.PYTHON_SERVER && device.serverDeviceId != null)
+                                "${settings.serverBaseUrl.trimEnd('/')}/api/live/${device.serverDeviceId}/mjpeg"
+                            else null
                         LiveDeviceCard(
                             device = device,
                             isRecording = isRecording,
                             isMonitored = device.isEnabled,
                             monitorStatus = monitorStatus,
                             eventQuality = eventQuality,
+                            serverLiveUrl = serverLiveUrl,
+                            serverApiKey = settings.serverApiKey.ifBlank { null },
                             onToggleRecord = {
                                 if (isRecording) {
                                     viewModel.stopManualRecording(device)
@@ -146,6 +156,8 @@ fun LiveDeviceCard(
     isMonitored: Boolean,
     monitorStatus: MonitorStatus,
     eventQuality: ConnectionQuality?,
+    serverLiveUrl: String?,
+    serverApiKey: String?,
     onToggleRecord: () -> Unit,
     onToggleMonitor: () -> Unit
 ) {
@@ -213,7 +225,9 @@ fun LiveDeviceCard(
                 LiveStreamPlayer(
                     device = device,
                     modifier = Modifier.fillMaxSize(),
-                    useController = false
+                    useController = false,
+                    serverLiveUrl = serverLiveUrl,
+                    serverApiKey = serverApiKey
                 )
             }
 

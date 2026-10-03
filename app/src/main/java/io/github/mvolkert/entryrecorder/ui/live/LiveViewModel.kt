@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.mvolkert.entryrecorder.EntryRecorderApp
+import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.EventType
@@ -23,6 +24,8 @@ data class LiveUiState(
     val monitorStatuses: Map<Long, MonitorStatus> = emptyMap(),
     /** Health of each device's own event stream — dims the doorbell / camera-motion / noise glyphs. */
     val eventQualities: Map<Long, ConnectionQuality> = emptyMap(),
+    /** App settings so the Live screen knows whether to pull live view through the server (Phase S). */
+    val appSettings: AppSettingsEntity = AppSettingsEntity(),
     val isLoading: Boolean = true
 )
 
@@ -38,13 +41,15 @@ class LiveViewModel(application: Application) : AndroidViewModel(application) {
         repository.allDevices,
         app.recorder.activeDeviceIds,
         MonitorStatusHolder.statuses,
-        MonitorStatusHolder.eventQualities
-    ) { devices, recordingIds, monitorStatuses, eventQualities ->
+        MonitorStatusHolder.eventQualities,
+        repository.settingsFlow
+    ) { devices, recordingIds, monitorStatuses, eventQualities, settings ->
         LiveUiState(
             devices = devices,
             recordingDeviceIds = recordingIds,
             monitorStatuses = monitorStatuses,
             eventQualities = eventQualities,
+            appSettings = settings ?: AppSettingsEntity(),
             isLoading = false
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), LiveUiState())
