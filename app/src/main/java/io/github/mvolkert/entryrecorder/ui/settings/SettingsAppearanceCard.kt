@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
+import io.github.mvolkert.entryrecorder.ui.theme.LocalDarkTheme
 import io.github.mvolkert.entryrecorder.ui.theme.ThemeMode
 import io.github.mvolkert.entryrecorder.ui.theme.accentPresetAt
 import io.github.mvolkert.entryrecorder.ui.theme.accentPresets
@@ -96,11 +97,12 @@ internal fun SettingsAppearanceCard(
             accentPresets.forEachIndexed { index, palette ->
                 val selected = settings.themePrimaryIndex == index
                 val label = stringResource(palette.labelRes)
+                val roles = if (LocalDarkTheme.current) palette.dark else palette.light
                 Box(
                     modifier = Modifier
                         .size(48.dp)
                         .clip(CircleShape)
-                        .background(palette.primary)
+                        .background(roles.primary)
                         .border(
                             width = if (selected) 3.dp else 0.dp,
                             color = if (selected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
@@ -123,7 +125,7 @@ internal fun SettingsAppearanceCard(
                         Icon(
                             imageVector = Icons.Default.Check,
                             contentDescription = stringResource(R.string.settings_accent_selected),
-                            tint = palette.onPrimary
+                            tint = roles.onPrimary
                         )
                     }
                 }

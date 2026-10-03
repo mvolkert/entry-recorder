@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
+import io.github.mvolkert.entryrecorder.ui.theme.LocalDarkTheme
 import io.github.mvolkert.entryrecorder.ui.theme.accentPresets
 
 /**
@@ -136,6 +137,7 @@ private fun AccentRoleGroup(
         ) {
             accentPresets.forEachIndexed { index, palette ->
                 val selected = index == selectedIndex
+                val roles = if (LocalDarkTheme.current) palette.dark else palette.light
                 // The semantics block below is not a composable scope, so read the label here.
                 val description = stringResource(
                     R.string.accent_role_preset_description,
@@ -146,7 +148,7 @@ private fun AccentRoleGroup(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
-                        .background(palette.primary)
+                        .background(roles.primary)
                         .border(
                             width = if (selected) 3.dp else 0.dp,
                             color = if (selected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
@@ -160,7 +162,7 @@ private fun AccentRoleGroup(
                         Icon(
                             imageVector = Icons.Default.Check,
                             contentDescription = null,
-                            tint = palette.onPrimary,
+                            tint = roles.onPrimary,
                         )
                     }
                 }
