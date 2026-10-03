@@ -9,6 +9,6 @@
     <color name="brand_primary">#FF1E88E5</color>
     <color name="brand_secondary">#FF26A69A</color>
 
-    <!-- Pre-12 splash + Android 12+ splash backdrop, resolved per system day/night via values-night -->
-    <color name="splash_background">#FFFFFFFF</color>
+    <!-- Splash backdrop: the brand navy behind the launcher mark (matches ic_launcher_background) -->
+    <color name="splash_background">#FF0D1B2A</color>
 </resources>

@@ -180,7 +180,7 @@
     <!-- Appearance / accent colors -->
     <string name="settings_section_appearance">Appearance</string>
     <string name="settings_theme_mode_label">Theme</string>
-    <string name="settings_theme_mode_hint">Choose light or dark, or follow the system setting. The cold-start splash always follows the system.</string>
+    <string name="settings_theme_mode_hint">Choose light or dark, or follow the system setting. The cold-start splash always uses the navy brand backdrop.</string>
     <string name="settings_theme_mode_system">System</string>
     <string name="settings_theme_mode_light">Light</string>
     <string name="settings_theme_mode_dark">Dark</string>

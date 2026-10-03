@@ -1,4 +1,0 @@
-<resources>
-    <!-- Night-mode splash backdrop; the Android 12+ splash icon is the launcher icon itself -->
-    <color name="splash_background">#FF000000</color>
-</resources>

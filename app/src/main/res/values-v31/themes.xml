@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Android 12+ system splash: no windowSplashScreenAnimatedIcon override, so the system reuses the
-     adaptive launcher icon and the splash can never drift from it. The circular backdrop still follows
-     the system day/night selection via windowSplashScreenBackground (see values-night/colors.xml). -->
+     launcher mark and the splash can never drift from it. The backdrop is the brand navy, matching
+     ic_launcher_background, so the mark sits on navy just like the launcher icon. -->
 <resources>
     <style name="Theme.EntryRecorder" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@color/black</item>
