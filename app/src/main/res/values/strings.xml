@@ -99,6 +99,11 @@
     <string name="recordings_cd_options">Options</string>
     <string name="recordings_origin_server">Server</string>
     <string name="recordings_toast_server_unreachable">Could not reach the server: %1$s</string>
+    <string name="recordings_toast_server_action_failed">Server request failed: %1$s</string>
+    <string name="recordings_toast_server_deleted">Recording deleted on the server</string>
+    <string name="recordings_toast_download_failed">Download failed: %1$s</string>
+    <string name="recordings_download_progress_title">Downloading recording…</string>
+    <string name="recordings_download_progress_body">Saving a copy from the server…  %1$d%%</string>
 
     <!-- Settings screen -->
     <string name="settings_title">Settings &amp; Devices</string>

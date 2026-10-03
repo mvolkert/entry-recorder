@@ -222,27 +222,30 @@ cross-layer design pivot except where noted.
       rewrite, only for future RTSP-only devices. Not scheduled.
 
 ## Phase 5 — Cross-cutting UI features (design decision required)
-Design decided with owner 2026-10-03: merged list with composite keys, read-only first cut. Live view stays
-blocked on the Phase S device-sync identity gap.
-- [~] **Surface server recordings in the app.** Done (read-only merged first cut): the Recordings gallery now
-      merges the local Room recordings and the server's into one timestamp-sorted list behind a `GalleryItem`
-      sealed model (`Local` / `Remote`) keyed by a composite `stableKey` (`local:<id>` / `server:<id>`), so the
-      two independent `Long` id spaces can share one `LazyColumn` without colliding. `RecordingsViewModel`
-      calls `ServerRecordingClient.listRecordings()` lazily on screen entry (only in `PYTHON_SERVER` mode; a
-      failure toasts and leaves local rows intact — the network fetch never gates the Room flow) and resolves
-      each remote thumbnail/video path to an absolute URL carrying `?api_key=` (Coil/ExoPlayer can't set the
-      `X-API-Key` header). Server rows reuse the card but show a "Server" tag and are browse/play only, excluded
-      from multi-select; `VideoPlayerModal` was generalized to a `PlaybackTarget` (local file → JPEG-MKV player
-      or ExoPlayer; remote → ExoPlayer streaming the fMP4 over HTTP). Compile + `lintDebug` + `testDebugUnitTest`
-      green.
-      **Remaining (deferred follow-ups):** mutating server actions — download-to-export, delete
-      (`DELETE /api/recordings/{id}`) and protect (`POST /api/recordings/{id}/protect`) — plus pull-to-refresh
-      (the list currently refetches only on tab entry). ⚠️ Device gate → Phase G "Server recordings in-app"
-      (thumbnail load + LAN playback); also exercises the `?api_key=`-in-URL exposure, unaddressed until Phase S
-      HTTPS-first. The Phase S identity gap means remote rows are device-filtered by *name*, not id.
+Design decided with owner 2026-10-03: merged list with composite keys, read-only first cut; mutating actions +
+pull-to-refresh added same day. Live view stays blocked on the Phase S device-sync identity gap.
+- [x] **Surface server recordings in the app.** Done: the Recordings gallery merges the local Room recordings and
+      the server's into one timestamp-sorted list behind a `GalleryItem` sealed model (`Local` / `Remote`) keyed by
+      a composite `stableKey` (`local:<id>` / `server:<id>`), so the two independent `Long` id spaces share one
+      `LazyColumn` without colliding. `RecordingsViewModel` calls `ServerRecordingClient.listRecordings()` lazily
+      on screen entry and on pull-to-refresh (only in `PYTHON_SERVER` mode; a failure toasts and leaves local rows
+      intact — the network fetch never gates the Room flow) and resolves each remote thumbnail/video path to an
+      absolute URL carrying `?api_key=` (Coil/ExoPlayer can't set the `X-API-Key` header). Server rows reuse the
+      card with a "Server" tag and are excluded from multi-select; `VideoPlayerModal` was generalized to a
+      `PlaybackTarget` (local file → JPEG-MKV player or ExoPlayer; remote → ExoPlayer streaming the fMP4).
+      Mutating actions are wired through the same card menu: protect toggle (`POST /api/recordings/{id}/protect`),
+      delete with the shared confirm dialog (`DELETE /api/recordings/{id}`), and share/save-to-gallery/export-to-folder
+      via `exportServerRecording` — the server file is already H.264, so it streams into the app cache
+      (`ServerRecordingClient.downloadVideo`, no read timeout, extension from `Content-Type`) under a progress dialog
+      and is then handed to `ExportHelper`, which gained naming-based overloads so a downloaded file needs no local
+      row. `ExportHelper` share/gallery take a `deviceName`/`eventTypeLabel` pair; the `Share` UI event carries those
+      for the server case. Compile + `lintDebug` + `testDebugUnitTest` green.
+      ⚠️ Device gate → Phase G "Server recordings in-app" (thumbnail load + LAN playback + the three mutating actions
+      against a live server); also exercises the `?api_key=`-in-URL exposure, unaddressed until Phase S HTTPS-first.
+      The Phase S identity gap means remote rows are device-filtered by *name*, not id.
       Files: `ui/recordings/GalleryItem.kt`, `ui/recordings/RecordingsViewModel.kt`,
-      `ui/recordings/RecordingsScreen.kt`, `ui/recordings/RecordingCardItem.kt`,
-      `ui/components/VideoPlayerModal.kt`, `data/server/ServerRecordingClient.kt`
+      `ui/recordings/RecordingsScreen.kt`, `ui/recordings/RecordingCardItem.kt`, `ui/recordings/RecordingsDialogs.kt`,
+      `ui/components/VideoPlayerModal.kt`, `data/server/ServerRecordingClient.kt`, `util/ExportHelper.kt`
 - [ ] **Live view through the server** — consume `/api/live/{id}/mjpeg` in `LiveStreamPlayer`. Blocked by an
       identity gap, not the player: `LiveStreamPlayer` dials the device's own IP, and the endpoint takes a
       *server* device id that app-managed devices never have (never registered server-side → Phase S sync).
@@ -398,13 +401,19 @@ against a live server before closing.
       `status` column added, every legacy row backfills to `completed`, gallery count unchanged.
 
 ### Server recordings in-app (needs the server running) — Phase 5 ✅ code, unverified
-The read-only merged gallery is compile/lint/test green; confirm against a live `PYTHON_SERVER` deployment.
+The merged gallery + read/write actions are compile/lint/test green; confirm against a live `PYTHON_SERVER` deployment.
 - [ ] 🔄 **Merged list + composite keys.** With both local and server recordings present, the tab shows one
       time-sorted list; a local id and a server id that happen to be equal do not crash the `LazyColumn`
-      (duplicate-key) and each keeps its own actions (server rows: no checkbox, no overflow menu, "Server" tag).
+      (duplicate-key) and each keeps its own actions (server rows: no checkbox, "Server" tag).
 - [ ] 🔄 **Remote thumbnail + playback.** A server card's thumbnail loads over `?api_key=` (a wrong/offline key
       falls back to the event icon, not a black box); tapping it streams the server fMP4 in `VideoPlayerModal`
       over LAN HTTP. Confirm cleartext is allowed by `network_security_config` on the test build.
+- [ ] 🔄 **Pull-to-refresh.** Dragging the list re-runs `listRecordings()`; an offline server toasts and keeps the
+      previous rows rather than clearing them.
+- [ ] 🔄 **Mutating server actions.** On a server row: protect/unprotect flips the server flag and the row's lock
+      icon follows; delete removes it from the server and the list after the confirm; share / save-to-gallery /
+      export-to-folder each stream the video down (progress dialog, correct `.mp4`/`.mkv` extension) and deliver a
+      playable file. Export-to-folder with no folder set must toast the same hint as the local path.
 
 ---
 

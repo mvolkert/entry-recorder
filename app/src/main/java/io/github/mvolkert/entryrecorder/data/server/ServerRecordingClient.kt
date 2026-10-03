@@ -11,6 +11,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 data class StartServerRecordingPayload(
@@ -104,6 +105,16 @@ class ServerRecordingClient(
 
     private fun normalizeUrl(url: String): String {
         return url.trimEnd('/')
+    }
+
+    private val emptyBody = ByteArray(0).toRequestBody(null)
+
+    /**
+     * A copy of [client] without the read timeout: a video download can legitimately stream for longer
+     * than any control-plane call, so it must not be cut off by the 10s probe/read budget.
+     */
+    private val downloadClient by lazy {
+        client.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build()
     }
 
     /** Adds the API key header when one is configured; every endpoint requires it since auth became mandatory. */
@@ -282,6 +293,111 @@ class ServerRecordingClient(
             }
         } catch (e: Exception) {
             Log.e(tag, "Listing server recordings failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Sets or clears the protection flag the server's retention/quota cleanup respects. The server takes
+     * the flag as a query parameter, so the request carries an empty body.
+     */
+    suspend fun setProtected(
+        serverUrl: String,
+        apiKey: String?,
+        recordingId: Long,
+        isProtected: Boolean
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val base = normalizeUrl(serverUrl)
+            val request = Request.Builder()
+                .url("$base/api/recordings/$recordingId/protect?is_protected=$isProtected")
+                .post(emptyBody)
+                .withApiKey(apiKey)
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(Exception("HTTP ${response.code}: ${response.body.string()}"))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Protecting server recording $recordingId failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /** Removes a completed server recording and its files. A protected row is still deleted here: only
+     * automatic cleanup honours the flag, not an explicit user delete. */
+    suspend fun deleteRecording(
+        serverUrl: String,
+        apiKey: String?,
+        recordingId: Long
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val base = normalizeUrl(serverUrl)
+            val request = Request.Builder()
+                .url("$base/api/recordings/$recordingId")
+                .delete(emptyBody)
+                .withApiKey(apiKey)
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(Exception("HTTP ${response.code}: ${response.body.string()}"))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Deleting server recording $recordingId failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Streams the video at [absoluteUrl] (already carrying the `?api_key=` param, since OkHttp media
+     * fetches share the Coil/ExoPlayer constraint of not setting the header) into [targetDir]. The file
+     * extension comes from the response Content-Type so a `.mkv` export is not mislabelled as `.mp4`.
+     * [onProgress] reports 0..100 when the server sends a Content-Length, and is not called otherwise.
+     */
+    suspend fun downloadVideo(
+        absoluteUrl: String,
+        targetDir: File,
+        baseName: String,
+        onProgress: (percent: Int) -> Unit = {}
+    ): Result<File> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder().url(absoluteUrl).get().build()
+            downloadClient.newCall(request).execute().use { response ->
+                val body = response.body
+                if (!response.isSuccessful || body == null) {
+                    return@withContext Result.failure(Exception("HTTP ${response.code}"))
+                }
+                val contentType = response.header("Content-Type").orEmpty()
+                val extension = when {
+                    contentType.contains("matroska", ignoreCase = true) -> "mkv"
+                    else -> "mp4"
+                }
+                targetDir.mkdirs()
+                val dest = File(targetDir, "$baseName.$extension")
+                val total = body.contentLength().takeIf { it > 0 } ?: 0L
+                var written = 0L
+                body.byteStream().use { input ->
+                    dest.outputStream().use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read <= 0) break
+                            output.write(buffer, 0, read)
+                            written += read
+                            if (total > 0) onProgress((written * 100 / total).toInt().coerceIn(0, 100))
+                        }
+                    }
+                }
+                Result.success(dest)
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Downloading server video failed", e)
             Result.failure(e)
         }
     }

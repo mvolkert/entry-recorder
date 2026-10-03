@@ -15,19 +15,18 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
-import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 
-/** Confirmation shown before a single recording is removed. */
+/** Confirmation shown before a single recording (local or server) is removed. */
 @Composable
 internal fun DeleteRecordingDialog(
-    recording: RecordingEntity,
+    deviceName: String,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.recordings_delete_title)) },
-        text = { Text(stringResource(R.string.recordings_delete_body, recording.deviceName)) },
+        text = { Text(stringResource(R.string.recordings_delete_body, deviceName)) },
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error)
@@ -74,6 +73,23 @@ internal fun ExportProgressDialog(progressPercent: Int) {
         text = {
             Column {
                 Text(stringResource(R.string.recordings_export_progress_body, progressPercent))
+                Spacer(modifier = Modifier.height(12.dp))
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {}
+    )
+}
+
+/** Modal progress for downloading one server recording to the device before it is exported. */
+@Composable
+internal fun DownloadProgressDialog(progressPercent: Int) {
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text(stringResource(R.string.recordings_download_progress_title)) },
+        text = {
+            Column {
+                Text(stringResource(R.string.recordings_download_progress_body, progressPercent))
                 Spacer(modifier = Modifier.height(12.dp))
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }

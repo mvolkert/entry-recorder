@@ -60,16 +60,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import io.github.mvolkert.entryrecorder.R
-import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 
 /**
- * One merged gallery row. A [GalleryItem.Local] keeps the full action menu and participates in
- * multi-select; a [GalleryItem.Remote] (a server recording) is read-only in this cut: same thumbnail
- * and metadata layout, but no checkbox and no overflow menu — its click only opens playback.
+ * One merged gallery row. Both origins expose the same action menu; a [GalleryItem.Local] additionally
+ * participates in multi-select, while a [GalleryItem.Remote] (a server recording) has no checkbox and its
+ * menu actions round-trip to the server API instead of touching local storage.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -123,17 +122,16 @@ internal fun RecordingCardItem(
 
             RecordingDetails(item = item, dateStr = dateStr, sizeStr = sizeStr)
 
-            // Actions (export/share/protect/delete) only exist for a local file on this device.
-            if (entity != null) {
-                RecordingActionsMenu(
-                    recording = entity,
-                    onExportFolder = onExportFolder,
-                    onShare = onShare,
-                    onExportGallery = onExportGallery,
-                    onToggleProtect = onToggleProtect,
-                    onDelete = onDelete
-                )
-            }
+            // Local and server rows share the same menu; the origin only changes what each handler does
+            // (a server action calls the API, a local action reads/writes the on-device file).
+            RecordingActionsMenu(
+                isProtected = entity?.isProtected ?: (item as? GalleryItem.Remote)?.dto?.isProtected ?: false,
+                onExportFolder = onExportFolder,
+                onShare = onShare,
+                onExportGallery = onExportGallery,
+                onToggleProtect = onToggleProtect,
+                onDelete = onDelete
+            )
         }
     }
 }
@@ -258,7 +256,7 @@ private fun RowScope.RecordingDetails(item: GalleryItem, dateStr: String, sizeSt
 
 @Composable
 private fun RecordingActionsMenu(
-    recording: RecordingEntity,
+    isProtected: Boolean,
     onExportFolder: () -> Unit,
     onShare: () -> Unit,
     onExportGallery: () -> Unit,
@@ -304,14 +302,14 @@ private fun RecordingActionsMenu(
                 text = {
                     Text(
                         stringResource(
-                            if (recording.isProtected) R.string.recordings_unprotect
+                            if (isProtected) R.string.recordings_unprotect
                             else R.string.recordings_protect
                         )
                     )
                 },
                 leadingIcon = {
                     Icon(
-                        if (recording.isProtected) Icons.Default.LockOpen else Icons.Default.Lock,
+                        if (isProtected) Icons.Default.LockOpen else Icons.Default.Lock,
                         contentDescription = null
                     )
                 },

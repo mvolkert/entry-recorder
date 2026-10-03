@@ -19,6 +19,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,8 +49,10 @@ fun RecordingsScreen(
     val context = LocalContext.current
     val exportProgress by viewModel.exportProgress.collectAsStateWithLifecycle()
     val batchProgress by viewModel.batchProgress.collectAsStateWithLifecycle()
+    val serverDownload by viewModel.serverDownload.collectAsStateWithLifecycle()
     var activePlayback by remember { mutableStateOf<PlaybackTarget?>(null) }
     var recordingToDelete by remember { mutableStateOf<RecordingEntity?>(null) }
+    var serverItemToDelete by remember { mutableStateOf<GalleryItem.Remote?>(null) }
 
     // Server recordings are a lazy one-shot fetch, refreshed when the screen is entered (a no-op outside
     // PYTHON_SERVER mode). Local Room data drives the list immediately and never blocks on the network.
@@ -76,10 +79,11 @@ fun RecordingsScreen(
                 is RecordingsUiEvent.Share -> {
                     val recording = event.recording
                     val file = event.files.firstOrNull()
-                    if (recording != null && file != null) {
-                        ExportHelper.shareFile(context, file, recording)
-                    } else {
-                        ExportHelper.shareFiles(context, event.files)
+                    when {
+                        recording != null && file != null -> ExportHelper.shareFile(context, file, recording)
+                        event.deviceName != null && file != null ->
+                            ExportHelper.shareFile(context, file, event.deviceName, event.eventTypeLabel ?: "")
+                        else -> ExportHelper.shareFiles(context, event.files)
                     }
                 }
 
@@ -130,7 +134,9 @@ fun RecordingsScreen(
             }
         }
     ) { paddingValues ->
-        Box(
+        PullToRefreshBox(
+            isRefreshing = state.isServerLoading,
+            onRefresh = { viewModel.refreshServerRecordings() },
             modifier = modifier
                 .fillMaxSize()
                 .padding(paddingValues)
@@ -169,19 +175,34 @@ fun RecordingsScreen(
                                 }
                             },
                             onDelete = {
-                                (item as? GalleryItem.Local)?.let { recordingToDelete = it.entity }
+                                when (item) {
+                                    is GalleryItem.Local -> recordingToDelete = item.entity
+                                    is GalleryItem.Remote -> serverItemToDelete = item
+                                }
                             },
                             onToggleProtect = {
-                                (item as? GalleryItem.Local)?.let { viewModel.toggleProtection(it.entity) }
+                                when (item) {
+                                    is GalleryItem.Local -> viewModel.toggleProtection(item.entity)
+                                    is GalleryItem.Remote -> viewModel.toggleServerProtection(item)
+                                }
                             },
                             onShare = {
-                                (item as? GalleryItem.Local)?.let { viewModel.exportRecording(it.entity, RecordingExportKind.SHARE) }
+                                when (item) {
+                                    is GalleryItem.Local -> viewModel.exportRecording(item.entity, RecordingExportKind.SHARE)
+                                    is GalleryItem.Remote -> viewModel.exportServerRecording(item, RecordingExportKind.SHARE)
+                                }
                             },
                             onExportGallery = {
-                                (item as? GalleryItem.Local)?.let { viewModel.exportRecording(it.entity, RecordingExportKind.GALLERY) }
+                                when (item) {
+                                    is GalleryItem.Local -> viewModel.exportRecording(item.entity, RecordingExportKind.GALLERY)
+                                    is GalleryItem.Remote -> viewModel.exportServerRecording(item, RecordingExportKind.GALLERY)
+                                }
                             },
                             onExportFolder = {
-                                (item as? GalleryItem.Local)?.let { viewModel.exportRecording(it.entity, RecordingExportKind.FOLDER) }
+                                when (item) {
+                                    is GalleryItem.Local -> viewModel.exportRecording(item.entity, RecordingExportKind.FOLDER)
+                                    is GalleryItem.Remote -> viewModel.exportServerRecording(item, RecordingExportKind.FOLDER)
+                                }
                             }
                         )
                     }
@@ -199,11 +220,22 @@ fun RecordingsScreen(
 
     recordingToDelete?.let { rec ->
         DeleteRecordingDialog(
-            recording = rec,
+            deviceName = rec.deviceName,
             onDismiss = { recordingToDelete = null },
             onConfirm = {
                 viewModel.deleteRecording(rec)
                 recordingToDelete = null
+            }
+        )
+    }
+
+    serverItemToDelete?.let { item ->
+        DeleteRecordingDialog(
+            deviceName = item.deviceName,
+            onDismiss = { serverItemToDelete = null },
+            onConfirm = {
+                viewModel.deleteServerRecording(item)
+                serverItemToDelete = null
             }
         )
     }
@@ -226,5 +258,9 @@ fun RecordingsScreen(
 
     batchProgress?.let { (done, total) ->
         BatchProgressDialog(done = done, total = total)
+    }
+
+    serverDownload?.let { pct ->
+        DownloadProgressDialog(progressPercent = pct)
     }
 }

@@ -68,7 +68,15 @@ object ExportHelper {
     }
 
     /** Shares a single video [file] (e.g. a transcoded H.264 export) via the system share sheet. */
-    fun shareFile(context: Context, file: File, recording: RecordingEntity) {
+    fun shareFile(context: Context, file: File, recording: RecordingEntity) =
+        shareFile(context, file, recording.deviceName, recording.eventType.name)
+
+    /**
+     * Shares a single video [file] using an explicit [deviceName] / [eventTypeLabel] for the sheet's
+     * subject and text. The [RecordingEntity] overload delegates here; server recordings, which have no
+     * local row, call this directly after downloading the video into the app cache.
+     */
+    fun shareFile(context: Context, file: File, deviceName: String, eventTypeLabel: String) {
         if (!file.exists()) {
             Toast.makeText(context, R.string.export_video_not_found, Toast.LENGTH_SHORT).show()
             return
@@ -86,11 +94,11 @@ object ExportHelper {
                 putExtra(Intent.EXTRA_STREAM, contentUri)
                 putExtra(
                     Intent.EXTRA_SUBJECT,
-                    context.getString(R.string.export_subject_label, recording.deviceName, recording.eventType.name)
+                    context.getString(R.string.export_subject_label, deviceName, eventTypeLabel)
                 )
                 putExtra(
                     Intent.EXTRA_TEXT,
-                    context.getString(R.string.export_text_label, recording.deviceName, recording.eventType.name)
+                    context.getString(R.string.export_text_label, deviceName, eventTypeLabel)
                 )
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
@@ -122,6 +130,17 @@ object ExportHelper {
         sourceFile: File,
         recording: RecordingEntity,
         showToast: Boolean = true,
+    ): Boolean = saveFileToGallery(context, sourceFile, recording.deviceName, showToast)
+
+    /**
+     * [saveFileToGallery] core with an explicit [deviceName] used only for the file label, so server
+     * recordings (no local row) can be saved from a downloaded file.
+     */
+    fun saveFileToGallery(
+        context: Context,
+        sourceFile: File,
+        deviceName: String,
+        showToast: Boolean = true,
     ): Boolean {
         if (!sourceFile.exists()) {
             if (showToast) Toast.makeText(context, R.string.export_source_not_found, Toast.LENGTH_SHORT).show()
@@ -130,7 +149,7 @@ object ExportHelper {
 
         return try {
             val extension = sourceFile.extension.ifBlank { "mkv" }
-            val fileName = "EntryRecorder_${recording.deviceName}_${System.currentTimeMillis()}.$extension"
+            val fileName = "EntryRecorder_${deviceName}_${System.currentTimeMillis()}.$extension"
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val values = ContentValues().apply {

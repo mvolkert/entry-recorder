@@ -49,9 +49,15 @@ sealed interface RecordingsUiEvent {
     /**
      * The share sheet has to be launched from an Activity context (the single-file path does not add
      * `FLAG_ACTIVITY_NEW_TASK`), so the ViewModel resolves the files and the screen performs the launch.
-     * [recording] is non-null for a single-file share, null for the multi-select batch.
+     * [recording] is non-null for a single local share; for a downloaded server row there is no entity, so
+     * [deviceName] / [eventTypeLabel] carry the sheet's labels instead; both null means the multi-select batch.
      */
-    data class Share(val files: List<File>, val recording: RecordingEntity?) : RecordingsUiEvent
+    data class Share(
+        val files: List<File>,
+        val recording: RecordingEntity?,
+        val deviceName: String? = null,
+        val eventTypeLabel: String? = null
+    ) : RecordingsUiEvent
 
     /** Sent when a batch export finishes, so the screen can leave multi-select. */
     data object SelectionCleared : RecordingsUiEvent
@@ -77,6 +83,10 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     /** Done/total pair of a running multi-select export, null while idle. */
     private val _batchProgress = MutableStateFlow<Pair<Int, Int>?>(null)
     val batchProgress: StateFlow<Pair<Int, Int>?> = _batchProgress.asStateFlow()
+
+    /** Percent (0..100) of a running server-video download, null while idle. */
+    private val _serverDownload = MutableStateFlow<Int?>(null)
+    val serverDownload: StateFlow<Int?> = _serverDownload.asStateFlow()
 
     private val _events = Channel<RecordingsUiEvent>(Channel.BUFFERED)
 
@@ -244,6 +254,101 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     fun toggleProtection(recording: RecordingEntity) {
         viewModelScope.launch {
             repository.setRecordingProtected(recording.id, !recording.isProtected)
+        }
+    }
+
+    // --- Server recording actions (mutating, on the merged gallery) ---
+
+    /** Flips the server-side protection flag and reflects the new state in the listed row on success. */
+    fun toggleServerProtection(item: GalleryItem.Remote) {
+        val dto = item.dto
+        val newProtected = !dto.isProtected
+        viewModelScope.launch {
+            val settings = repository.getSettings()
+            serverClient.setProtected(
+                serverUrl = settings.serverBaseUrl,
+                apiKey = settings.serverApiKey.ifBlank { null },
+                recordingId = dto.id,
+                isProtected = newProtected
+            ).onSuccess {
+                _serverState.update { state ->
+                    state.copy(items = state.items.map { if (it.id == dto.id) it.copy(isProtected = newProtected) else it })
+                }
+            }.onFailure { error ->
+                toast(R.string.recordings_toast_server_action_failed, error.message ?: "")
+            }
+        }
+    }
+
+    /** Deletes a completed recording on the server and drops it from the list on success. */
+    fun deleteServerRecording(item: GalleryItem.Remote) {
+        val dto = item.dto
+        viewModelScope.launch {
+            val settings = repository.getSettings()
+            serverClient.deleteRecording(
+                serverUrl = settings.serverBaseUrl,
+                apiKey = settings.serverApiKey.ifBlank { null },
+                recordingId = dto.id
+            ).onSuccess {
+                _serverState.update { state -> state.copy(items = state.items.filterNot { it.id == dto.id }) }
+                toast(R.string.recordings_toast_server_deleted, short = true)
+            }.onFailure { error ->
+                toast(R.string.recordings_toast_server_action_failed, error.message ?: "")
+            }
+        }
+    }
+
+    /**
+     * Downloads one server recording into the app cache, then delivers it like a local export. The server
+     * file is already H.264, so there is no transcode step; SHARE/GALLERY/FOLDER just move the downloaded
+     * copy; the download runs with a progress dialog because it crosses the network.
+     */
+    fun exportServerRecording(item: GalleryItem.Remote, kind: RecordingExportKind) {
+        if (item.videoAbsoluteUrl.isBlank()) {
+            toast(R.string.recordings_toast_download_failed, "no video url")
+            return
+        }
+        viewModelScope.launch {
+            val settings = repository.getSettings()
+            if (kind == RecordingExportKind.FOLDER && settings.exportFolderUri.isBlank()) {
+                toast(R.string.recordings_toast_set_folder_first)
+                return@launch
+            }
+            _serverDownload.value = 0
+            try {
+                val result = serverClient.downloadVideo(
+                    absoluteUrl = item.videoAbsoluteUrl,
+                    targetDir = File(context.cacheDir, "export"),
+                    baseName = "server_rec_${item.dto.id}"
+                ) { percent -> _serverDownload.value = percent }
+                _serverDownload.value = null
+                result
+                    .onSuccess { file -> deliverRemote(item, file, kind, settings.exportFolderUri) }
+                    .onFailure { error -> toast(R.string.recordings_toast_download_failed, error.message ?: "") }
+            } catch (e: CancellationException) {
+                _serverDownload.value = null
+                throw e
+            }
+        }
+    }
+
+    private fun deliverRemote(item: GalleryItem.Remote, file: File, kind: RecordingExportKind, exportFolderUri: String) {
+        val deviceName = item.deviceName
+        val label = item.eventType.name
+        when (kind) {
+            RecordingExportKind.SHARE ->
+                _events.trySend(RecordingsUiEvent.Share(listOf(file), recording = null, deviceName = deviceName, eventTypeLabel = label))
+
+            RecordingExportKind.GALLERY -> ExportHelper.saveFileToGallery(context, file, deviceName)
+
+            RecordingExportKind.FOLDER -> {
+                val treeUri = exportFolderUri.toUri()
+                if (ExportHelper.saveFileToSafFolder(context, treeUri, file, file.name)) {
+                    toast(R.string.recordings_toast_exported_to, ExportHelper.safFolderDisplayName(treeUri))
+                } else {
+                    toast(R.string.recordings_toast_export_folder_failed)
+                }
+            }
         }
     }
 
