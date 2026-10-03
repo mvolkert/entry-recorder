@@ -16,6 +16,7 @@ import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
 import io.github.mvolkert.entryrecorder.service.MonitorStatusHolder
+import io.github.mvolkert.entryrecorder.ui.theme.UiModePrefs
 import io.github.mvolkert.entryrecorder.worker.RetentionCleanupWorker
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -104,6 +105,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun updateSettings(settings: AppSettingsEntity) {
+        // Mirror the mode into the synchronous SharedPreferences store first: MainActivity reads it
+        // in attachBaseContext, which runs before Room is even opened on the next cold start.
+        UiModePrefs.setThemeMode(getApplication(), settings.themeMode)
         viewModelScope.launch {
             repository.updateSettings(settings)
         }
@@ -181,7 +185,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                         getApplication<Application>().getString(R.string.settings_backup_invalid_file)
                     )
 
-                backup.appSettings?.let { repository.updateSettings(it.copy(id = 1)) }
+                backup.appSettings?.let {
+                    UiModePrefs.setThemeMode(getApplication(), it.themeMode)
+                    repository.updateSettings(it.copy(id = 1))
+                }
                 // Reset serverDeviceId: a backup may have been taken against a different server, so the
                 // restored devices re-register lazily against whichever server is configured now.
                 backup.devices.forEach { repository.upsertDevice(it.copy(serverDeviceId = null)) }

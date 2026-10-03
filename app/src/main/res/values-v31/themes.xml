@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Android 12+ system splash: the navy-disc splash icon is always readable, while the halo
-     (windowSplashScreenBackground) flips bright (day) / navy (night) via values-night colors. -->
+     (windowSplashScreenBackground) flips bright (day) / navy (night) with the app's effective
+     night mode, which MainActivity pins to the ThemeMode picker via a uiMode override. -->
 <resources>
     <style name="Theme.EntryRecorder" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@color/black</item>

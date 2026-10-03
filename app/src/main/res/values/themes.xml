@@ -2,7 +2,8 @@
     <style name="Theme.EntryRecorder" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@color/black</item>
         <item name="android:navigationBarColor">@color/black</item>
-        <!-- Pre-Android-12 splash = window background; bright in day, navy at night -->
+        <!-- Pre-Android-12 splash = window background; bright/navy follows the app's effective
+             night mode (MainActivity overrides uiMode from the ThemeMode picker) -->
         <item name="android:windowBackground">@color/splash_background</item>
     </style>
 
