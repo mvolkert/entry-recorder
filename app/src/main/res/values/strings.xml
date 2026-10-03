@@ -97,6 +97,8 @@
     <string name="recordings_cd_thumbnail">Thumbnail</string>
     <string name="recordings_cd_play">Play</string>
     <string name="recordings_cd_options">Options</string>
+    <string name="recordings_origin_server">Server</string>
+    <string name="recordings_toast_server_unreachable">Could not reach the server: %1$s</string>
 
     <!-- Settings screen -->
     <string name="settings_title">Settings &amp; Devices</string>

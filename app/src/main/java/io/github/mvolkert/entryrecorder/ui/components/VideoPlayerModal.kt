@@ -29,19 +29,29 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import io.github.mvolkert.entryrecorder.R
-import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import java.io.File
+
+/**
+ * What a playback dialog should show. A local app recording is a file on this device (its MJPEG MKV is
+ * played by the dedicated JPEG player, anything else by ExoPlayer); a server recording is an absolute
+ * HTTP URL (already carrying the API key) that ExoPlayer streams directly.
+ */
+sealed interface PlaybackTarget {
+    data class LocalFile(val filePath: String) : PlaybackTarget
+    data class RemoteUrl(val url: String) : PlaybackTarget
+}
 
 @OptIn(UnstableApi::class)
 @Composable
 fun VideoPlayerModal(
-    recording: RecordingEntity,
+    playback: PlaybackTarget,
     onDismiss: () -> Unit
 ) {
     // Local app recordings are crash-safe MKV files holding JPEG frames on a V_MJPEG track, which
-    // ExoPlayer cannot decode; play them with the dedicated JPEG frame player. Anything else
-    // (e.g. server MP4 or other containers) keeps using ExoPlayer.
-    val isJpegMkv = recording.filePath.substringAfterLast('.', "").equals("mkv", ignoreCase = true)
+    // ExoPlayer cannot decode; play those with the dedicated JPEG frame player. Anything else (a local
+    // non-MKV file, or any server row, which is H.264 fMP4/mp4) keeps using ExoPlayer.
+    val isJpegMkv = playback is PlaybackTarget.LocalFile &&
+            playback.filePath.substringAfterLast('.', "").equals("mkv", ignoreCase = true)
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -52,14 +62,18 @@ fun VideoPlayerModal(
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            if (isJpegMkv) {
+            if (isJpegMkv && playback is PlaybackTarget.LocalFile) {
                 JpegFramePlayer(
-                    filePath = recording.filePath,
+                    filePath = playback.filePath,
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
+                val uri = when (playback) {
+                    is PlaybackTarget.RemoteUrl -> playback.url
+                    is PlaybackTarget.LocalFile -> File(playback.filePath).toURI().toString()
+                }
                 ExoPlayerView(
-                    filePath = recording.filePath,
+                    uri = uri,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -85,13 +99,13 @@ fun VideoPlayerModal(
 @OptIn(UnstableApi::class)
 @Composable
 private fun ExoPlayerView(
-    filePath: String,
+    uri: String,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val exoPlayer = remember(filePath) {
+    val exoPlayer = remember(uri) {
         ExoPlayer.Builder(context).build().apply {
-            val mediaItem = MediaItem.fromUri(File(filePath).toURI().toString())
+            val mediaItem = MediaItem.fromUri(uri)
             setMediaItem(mediaItem)
             prepare()
             playWhenReady = true

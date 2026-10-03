@@ -9,9 +9,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.R
+import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
+import io.github.mvolkert.entryrecorder.data.model.RecordingMode
+import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
+import io.github.mvolkert.entryrecorder.data.server.ServerRecordingDto
 import io.github.mvolkert.entryrecorder.util.ExportHelper
 import io.github.mvolkert.entryrecorder.video.ExportTranscoder
 import kotlinx.coroutines.CancellationException
@@ -24,14 +28,19 @@ import java.io.File
 enum class RecordingExportKind { SHARE, GALLERY, FOLDER }
 
 data class RecordingsUiState(
-    val recordings: List<RecordingEntity> = emptyList(),
+    val items: List<GalleryItem> = emptyList(),
     val devices: List<DeviceEntity> = emptyList(),
     val selectedDeviceId: Long? = null,
     val selectedEventType: EventType? = null,
     val searchQuery: String = "",
     val totalStorageBytes: Long = 0,
-    val isLoading: Boolean = true
-)
+    val isLoading: Boolean = true,
+    val isServerLoading: Boolean = false
+) {
+    /** Only local recordings are selectable / exportable / deletable; server rows are read-only for now. */
+    val localRecordings: List<RecordingEntity>
+        get() = items.filterIsInstance<GalleryItem.Local>().map { it.entity }
+}
 
 /** One-shot export effects the screen has to perform (toasts, the share sheet). */
 sealed interface RecordingsUiEvent {
@@ -76,34 +85,117 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
 
     private val context: Context get() = getApplication()
 
-    val uiState: StateFlow<RecordingsUiState> = combine(
-        repository.allRecordings,
-        repository.allDevices,
-        _selectedDeviceId,
-        _selectedEventType,
-        _searchQuery
-    ) { recordings, devices, deviceId, eventType, query ->
-        val filtered = recordings.filter { recording ->
-            val matchesDevice = deviceId == null || recording.deviceId == deviceId
-            val matchesType = eventType == null || recording.eventType == eventType
-            val matchesQuery = query.isBlank() ||
-                    recording.deviceName.contains(query, ignoreCase = true) ||
-                    (recording.note?.contains(query, ignoreCase = true) == true)
-            matchesDevice && matchesType && matchesQuery
+    private val serverClient = ServerRecordingClient()
+
+    /** Server rows are a lazy one-shot fetch, kept out of the Room flow so an offline server can't stall it. */
+    private data class ServerListState(
+        val items: List<ServerRecordingDto> = emptyList(),
+        val isLoading: Boolean = false
+    )
+    private val _serverState = MutableStateFlow(ServerListState())
+
+    private data class Filters(val deviceId: Long?, val eventType: EventType?, val query: String)
+    private data class SourceData(
+        val recordings: List<RecordingEntity>,
+        val devices: List<DeviceEntity>,
+        val settings: AppSettingsEntity?,
+        val server: ServerListState
+    )
+
+    private val filterState =
+        combine(_selectedDeviceId, _selectedEventType, _searchQuery) { deviceId, eventType, query ->
+            Filters(deviceId, eventType, query)
         }
 
-        val totalBytes = recordings.sumOf { it.fileSizeBytes }
+    private val sourceState = combine(
+        repository.allRecordings,
+        repository.allDevices,
+        repository.settingsFlow,
+        _serverState
+    ) { recordings, devices, settings, server ->
+        SourceData(recordings, devices, settings, server)
+    }
+
+    val uiState: StateFlow<RecordingsUiState> = combine(filterState, sourceState) { filters, source ->
+        val selectedDeviceName = source.devices.firstOrNull { it.id == filters.deviceId }?.name
+
+        val localItems = source.recordings.filter { recording ->
+            val matchesDevice = filters.deviceId == null || recording.deviceId == filters.deviceId
+            val matchesType = filters.eventType == null || recording.eventType == filters.eventType
+            val matchesQuery = filters.query.isBlank() ||
+                    recording.deviceName.contains(filters.query, ignoreCase = true) ||
+                    (recording.note?.contains(filters.query, ignoreCase = true) == true)
+            matchesDevice && matchesType && matchesQuery
+        }.map { GalleryItem.Local(it) }
+
+        // Server rows only appear in PYTHON_SERVER mode; a row with no video path is skipped. Filtering
+        // mirrors the local rules, except the device filter matches server rows by name (the server keys
+        // recordings by its own device id, which the Phase S sync would reconcile).
+        val settings = source.settings
+        val remoteItems = if (settings?.recordingMode == RecordingMode.PYTHON_SERVER) {
+            source.server.items.mapNotNull { dto ->
+                val matchesDevice = filters.deviceId == null || dto.deviceName == selectedDeviceName
+                val matchesType = filters.eventType == null ||
+                        runCatching { EventType.valueOf(dto.eventType) }.getOrDefault(EventType.MANUAL) == filters.eventType
+                val matchesQuery = filters.query.isBlank() ||
+                        dto.deviceName.contains(filters.query, ignoreCase = true) ||
+                        (dto.note?.contains(filters.query, ignoreCase = true) == true)
+                val video = dto.videoUrl
+                if (!matchesDevice || !matchesType || !matchesQuery || video == null) null
+                else GalleryItem.Remote(
+                    dto = dto,
+                    thumbnailAbsoluteUrl = absoluteServerUrl(settings.serverBaseUrl, dto.thumbnailUrl, settings.serverApiKey),
+                    videoAbsoluteUrl = absoluteServerUrl(settings.serverBaseUrl, video, settings.serverApiKey) ?: ""
+                )
+            }
+        } else emptyList()
 
         RecordingsUiState(
-            recordings = filtered,
-            devices = devices,
-            selectedDeviceId = deviceId,
-            selectedEventType = eventType,
-            searchQuery = query,
-            totalStorageBytes = totalBytes,
+            items = (localItems + remoteItems).sortedByDescending { it.timestamp },
+            devices = source.devices,
+            selectedDeviceId = filters.deviceId,
+            selectedEventType = filters.eventType,
+            searchQuery = filters.query,
+            totalStorageBytes = source.recordings.sumOf { it.fileSizeBytes },
+            isServerLoading = source.server.isLoading,
             isLoading = false
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RecordingsUiState())
+
+    /**
+     * Prefixes a server-relative media path with the base URL and appends the API key as a query param,
+     * because image and video loads go through Coil / ExoPlayer, which cannot set the X-API-Key header.
+     */
+    private fun absoluteServerUrl(baseUrl: String, relative: String?, apiKey: String): String? {
+        if (relative == null) return null
+        val full = baseUrl.trimEnd('/') + relative
+        return if (apiKey.isBlank()) full else "$full?api_key=$apiKey"
+    }
+
+    /**
+     * Fetches the server's completed recordings; called when the screen is shown. A no-op that also clears
+     * any stale list outside PYTHON_SERVER mode, so the app never dials a server the user is not using.
+     * A failure is reported as a toast and leaves whatever was already listed in place.
+     */
+    fun refreshServerRecordings() {
+        viewModelScope.launch {
+            val settings = repository.getSettings()
+            if (settings.recordingMode != RecordingMode.PYTHON_SERVER) {
+                _serverState.value = ServerListState()
+                return@launch
+            }
+            _serverState.value = _serverState.value.copy(isLoading = true)
+            serverClient.listRecordings(
+                serverUrl = settings.serverBaseUrl,
+                apiKey = settings.serverApiKey.ifBlank { null }
+            ).onSuccess { list ->
+                _serverState.value = ServerListState(items = list)
+            }.onFailure { error ->
+                _serverState.value = _serverState.value.copy(isLoading = false)
+                toast(R.string.recordings_toast_server_unreachable, error.message ?: "")
+            }
+        }
+    }
 
     fun selectDeviceFilter(deviceId: Long?) {
         _selectedDeviceId.value = deviceId
@@ -133,15 +225,15 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
         _selectedIds.value = emptySet()
     }
 
-    /** Selects every recording currently visible after filters. */
+    /** Selects every local recording currently visible after filters (server rows are read-only). */
     fun selectAllVisible() {
-        _selectedIds.value = uiState.value.recordings.map { it.id }.toSet()
+        _selectedIds.value = uiState.value.localRecordings.map { it.id }.toSet()
     }
 
     /** Deletes the selected recordings (and their files), then clears the selection. */
     fun deleteSelected() {
         val ids = _selectedIds.value
-        val targets = uiState.value.recordings.filter { it.id in ids }
+        val targets = uiState.value.localRecordings.filter { it.id in ids }
         if (targets.isEmpty()) return
         viewModelScope.launch {
             repository.deleteRecordings(targets)
@@ -210,7 +302,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
      * and Folder report a final saved count.
      */
     fun exportSelected(kind: RecordingExportKind) {
-        val targets = uiState.value.recordings.filter { it.id in _selectedIds.value }
+        val targets = uiState.value.localRecordings.filter { it.id in _selectedIds.value }
         if (targets.isEmpty()) {
             toast(R.string.recordings_toast_nothing_selected)
             return

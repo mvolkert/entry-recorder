@@ -34,6 +34,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import io.github.mvolkert.entryrecorder.ui.components.PlaybackTarget
 import io.github.mvolkert.entryrecorder.ui.components.VideoPlayerModal
 import io.github.mvolkert.entryrecorder.util.ExportHelper
 
@@ -47,8 +48,14 @@ fun RecordingsScreen(
     val context = LocalContext.current
     val exportProgress by viewModel.exportProgress.collectAsStateWithLifecycle()
     val batchProgress by viewModel.batchProgress.collectAsStateWithLifecycle()
-    var activePlaybackRecording by remember { mutableStateOf<RecordingEntity?>(null) }
+    var activePlayback by remember { mutableStateOf<PlaybackTarget?>(null) }
     var recordingToDelete by remember { mutableStateOf<RecordingEntity?>(null) }
+
+    // Server recordings are a lazy one-shot fetch, refreshed when the screen is entered (a no-op outside
+    // PYTHON_SERVER mode). Local Room data drives the list immediately and never blocks on the network.
+    LaunchedEffect(Unit) {
+        viewModel.refreshServerRecordings()
+    }
 
     // Multi-select delete mode
     var selectionMode by remember { mutableStateOf(false) }
@@ -130,7 +137,7 @@ fun RecordingsScreen(
         ) {
             if (state.isLoading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            } else if (state.recordings.isEmpty()) {
+            } else if (state.items.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -147,18 +154,35 @@ fun RecordingsScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(state.recordings, key = { it.id }) { recording ->
+                    items(state.items, key = { it.stableKey }) { item ->
                         RecordingCardItem(
-                            recording = recording,
+                            item = item,
                             selectionMode = selectionMode,
-                            selected = recording.id in selectedIds,
-                            onSelectToggle = { viewModel.toggleSelection(recording.id) },
-                            onPlay = { activePlaybackRecording = recording },
-                            onDelete = { recordingToDelete = recording },
-                            onToggleProtect = { viewModel.toggleProtection(recording) },
-                            onShare = { viewModel.exportRecording(recording, RecordingExportKind.SHARE) },
-                            onExportGallery = { viewModel.exportRecording(recording, RecordingExportKind.GALLERY) },
-                            onExportFolder = { viewModel.exportRecording(recording, RecordingExportKind.FOLDER) }
+                            selected = item is GalleryItem.Local && item.entity.id in selectedIds,
+                            onSelectToggle = {
+                                (item as? GalleryItem.Local)?.let { viewModel.toggleSelection(it.entity.id) }
+                            },
+                            onPlay = {
+                                activePlayback = when (item) {
+                                    is GalleryItem.Local -> PlaybackTarget.LocalFile(item.entity.filePath)
+                                    is GalleryItem.Remote -> PlaybackTarget.RemoteUrl(item.videoAbsoluteUrl)
+                                }
+                            },
+                            onDelete = {
+                                (item as? GalleryItem.Local)?.let { recordingToDelete = it.entity }
+                            },
+                            onToggleProtect = {
+                                (item as? GalleryItem.Local)?.let { viewModel.toggleProtection(it.entity) }
+                            },
+                            onShare = {
+                                (item as? GalleryItem.Local)?.let { viewModel.exportRecording(it.entity, RecordingExportKind.SHARE) }
+                            },
+                            onExportGallery = {
+                                (item as? GalleryItem.Local)?.let { viewModel.exportRecording(it.entity, RecordingExportKind.GALLERY) }
+                            },
+                            onExportFolder = {
+                                (item as? GalleryItem.Local)?.let { viewModel.exportRecording(it.entity, RecordingExportKind.FOLDER) }
+                            }
                         )
                     }
                 }
@@ -166,10 +190,10 @@ fun RecordingsScreen(
         }
     }
 
-    activePlaybackRecording?.let { rec ->
+    activePlayback?.let { target ->
         VideoPlayerModal(
-            recording = rec,
-            onDismiss = { activePlaybackRecording = null }
+            playback = target,
+            onDismiss = { activePlayback = null }
         )
     }
 

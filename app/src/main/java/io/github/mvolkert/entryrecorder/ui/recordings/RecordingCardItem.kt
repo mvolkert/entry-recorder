@@ -49,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -65,11 +66,15 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 
-/** One recording row: thumbnail, event badge, metadata and its overflow actions. */
+/**
+ * One merged gallery row. A [GalleryItem.Local] keeps the full action menu and participates in
+ * multi-select; a [GalleryItem.Remote] (a server recording) is read-only in this cut: same thumbnail
+ * and metadata layout, but no checkbox and no overflow menu — its click only opens playback.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun RecordingCardItem(
-    recording: RecordingEntity,
+    item: GalleryItem,
     selectionMode: Boolean,
     selected: Boolean,
     onSelectToggle: () -> Unit,
@@ -82,19 +87,21 @@ internal fun RecordingCardItem(
 ) {
     val context = LocalContext.current
     val locale = LocalConfiguration.current.locales[0]
-    val dateStr = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", locale).format(Date(recording.timestamp))
-    val sizeStr = Formatter.formatFileSize(context, recording.fileSizeBytes)
+    val dateStr = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", locale).format(Date(item.timestamp))
+    val sizeStr = Formatter.formatFileSize(context, item.sizeBytes)
+    val isRemote = item is GalleryItem.Remote
+    val entity = (item as? GalleryItem.Local)?.entity
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .combinedClickable(
-                onClick = { if (selectionMode) onSelectToggle() else onPlay() }
+                onClick = { if (selectionMode && !isRemote) onSelectToggle() else onPlay() }
             ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (selected)
+            containerColor = if (selected && !isRemote)
                 MaterialTheme.colorScheme.secondaryContainer
             else
                 MaterialTheme.colorScheme.surface
@@ -106,31 +113,44 @@ internal fun RecordingCardItem(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (selectionMode) {
+            if (selectionMode && !isRemote) {
                 Checkbox(checked = selected, onCheckedChange = { onSelectToggle() })
                 Spacer(modifier = Modifier.width(4.dp))
             }
-            RecordingThumbnail(recording = recording)
+            RecordingThumbnail(item = item)
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            RecordingDetails(recording = recording, dateStr = dateStr, sizeStr = sizeStr)
+            RecordingDetails(item = item, dateStr = dateStr, sizeStr = sizeStr)
 
-            RecordingActionsMenu(
-                recording = recording,
-                onExportFolder = onExportFolder,
-                onShare = onShare,
-                onExportGallery = onExportGallery,
-                onToggleProtect = onToggleProtect,
-                onDelete = onDelete
-            )
+            // Actions (export/share/protect/delete) only exist for a local file on this device.
+            if (entity != null) {
+                RecordingActionsMenu(
+                    recording = entity,
+                    onExportFolder = onExportFolder,
+                    onShare = onShare,
+                    onExportGallery = onExportGallery,
+                    onToggleProtect = onToggleProtect,
+                    onDelete = onDelete
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun RecordingThumbnail(recording: RecordingEntity) {
-    val thumbnailPath = recording.thumbnailPath
+private fun RecordingThumbnail(item: GalleryItem) {
+    val fallbackIcon = when (item.eventType) {
+        EventType.RING -> Icons.Default.Call
+        EventType.NOISE -> Icons.AutoMirrored.Filled.VolumeUp
+        else -> Icons.Default.Videocam
+    }
+    // Coil accepts a File (local thumbnail) or a URL string (server thumbnail); null or a failed load
+    // falls back to the event icon, so an unreachable server shows an icon rather than a black box.
+    val model: Any? = when (item) {
+        is GalleryItem.Local -> item.entity.thumbnailPath?.let { if (File(it).exists()) File(it) else null }
+        is GalleryItem.Remote -> item.thumbnailAbsoluteUrl
+    }
 
     Box(
         modifier = Modifier
@@ -139,19 +159,18 @@ private fun RecordingThumbnail(recording: RecordingEntity) {
             .background(Color.DarkGray),
         contentAlignment = Alignment.Center
     ) {
-        if (thumbnailPath != null && File(thumbnailPath).exists()) {
+        // A failed thumbnail load (e.g. an unreachable server) falls back to the event icon rather
+        // than leaving an empty dark box.
+        var loadFailed by remember(model) { mutableStateOf(false) }
+        if (model != null && !loadFailed) {
             AsyncImage(
-                model = File(thumbnailPath),
+                model = model,
                 contentDescription = stringResource(R.string.recordings_cd_thumbnail),
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Crop,
+                onError = { loadFailed = true }
             )
         } else {
-            val fallbackIcon = when (recording.eventType) {
-                EventType.RING -> Icons.Default.Call
-                EventType.NOISE -> Icons.AutoMirrored.Filled.VolumeUp
-                else -> Icons.Default.Videocam
-            }
             Icon(
                 imageVector = fallbackIcon,
                 contentDescription = null,
@@ -170,13 +189,13 @@ private fun RecordingThumbnail(recording: RecordingEntity) {
 }
 
 @Composable
-private fun RowScope.RecordingDetails(recording: RecordingEntity, dateStr: String, sizeStr: String) {
+private fun RowScope.RecordingDetails(item: GalleryItem, dateStr: String, sizeStr: String) {
     Column(modifier = Modifier.weight(1f)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            val badgeColor = when (recording.eventType) {
+            val badgeColor = when (item.eventType) {
                 EventType.RING -> Color(0xFFFF9800)
                 EventType.MOTION -> Color(0xFF0288D1)
                 EventType.NOISE -> Color(0xFF8E24AA)
@@ -187,7 +206,7 @@ private fun RowScope.RecordingDetails(recording: RecordingEntity, dateStr: Strin
                 color = badgeColor
             ) {
                 Text(
-                    text = recording.eventType.name,
+                    text = item.eventType.name,
                     color = Color.White,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
@@ -196,12 +215,27 @@ private fun RowScope.RecordingDetails(recording: RecordingEntity, dateStr: Strin
             }
 
             Text(
-                text = recording.deviceName,
+                text = item.deviceName,
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+
+            if (item is GalleryItem.Remote) {
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                ) {
+                    Text(
+                        text = stringResource(R.string.recordings_origin_server),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                    )
+                }
+            }
         }
 
         Text(
@@ -213,7 +247,7 @@ private fun RowScope.RecordingDetails(recording: RecordingEntity, dateStr: Strin
         Text(
             text = stringResource(
                 R.string.recordings_duration_size,
-                recording.durationSeconds,
+                item.durationSeconds,
                 sizeStr
             ),
             style = MaterialTheme.typography.bodySmall,
