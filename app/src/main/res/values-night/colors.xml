@@ -1,4 +1,5 @@
 <resources>
-    <!-- Night splash halo: navy, so the navy-disc splash icon blends into a seamless dark backdrop -->
-    <color name="splash_background">#FF0D1B2A</color>
+    <!-- Night splash halo: the brand navy, so the navy-disc splash icon blends into a seamless
+         dark backdrop. Tracks the app's effective night mode (MainActivity uiMode override). -->
+    <color name="splash_background">@color/ic_launcher_background_color</color>
 </resources>

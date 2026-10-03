@@ -9,7 +9,11 @@
     <color name="brand_primary">#FF1E88E5</color>
     <color name="brand_secondary">#FF26A69A</color>
 
-    <!-- Splash halo: bright in day (values-night overrides it to navy). The navy-disc splash icon
-         sits on this, so the mark stays visible against the bright backdrop. -->
+    <!-- Single source for the brand navy: launcher background layer, splash disc and the night
+         splash halo all reference this, so the brand tone can never drift between them -->
+    <color name="ic_launcher_background_color">#FF0D1B2A</color>
+
+    <!-- Splash halo: bright in day (values-night overrides it to the brand navy). The navy-disc
+         splash icon sits on this, so the mark stays visible against the bright backdrop. -->
     <color name="splash_background">#FFFFFFFF</color>
 </resources>
