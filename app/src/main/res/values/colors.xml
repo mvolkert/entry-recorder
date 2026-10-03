@@ -9,6 +9,7 @@
     <color name="brand_primary">#FF1E88E5</color>
     <color name="brand_secondary">#FF26A69A</color>
 
-    <!-- Splash backdrop: the brand navy behind the launcher mark (matches ic_launcher_background) -->
-    <color name="splash_background">#FF0D1B2A</color>
+    <!-- Splash halo: bright in day (values-night overrides it to navy). The navy-disc splash icon
+         sits on this, so the mark stays visible against the bright backdrop. -->
+    <color name="splash_background">#FFFFFFFF</color>
 </resources>

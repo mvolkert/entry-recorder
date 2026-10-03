@@ -1,0 +1,4 @@
+<resources>
+    <!-- Night splash halo: navy, so the navy-disc splash icon blends into a seamless dark backdrop -->
+    <color name="splash_background">#FF0D1B2A</color>
+</resources>

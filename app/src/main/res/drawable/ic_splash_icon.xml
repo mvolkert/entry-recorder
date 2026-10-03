@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ splash icon: an explicit navy disc carrying the camera mark, so the white
+     foreground is always readable even when the system halo (windowSplashScreenBackground)
+     is bright in day mode. The disc colour matches ic_launcher_background; the halo flips
+     bright/navy per day/night in the v31 theme + values-night colors. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Navy disc filling the icon area (masked to the splash circle by the system) -->
+    <path
+        android:fillColor="#FF0D1B2A"
+        android:pathData="M 12,0.4 A 11.6,11.6 0 1 0 12,23.6 A 11.6,11.6 0 1 0 12,0.4 Z" />
+
+    <!-- Camera mark, scaled to sit inside the disc with padding -->
+    <group
+        android:pivotX="12"
+        android:pivotY="12.2"
+        android:scaleX="0.6"
+        android:scaleY="0.6">
+
+        <!-- Mount bar + dome + lens ring -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="
+            M 4,6 H 20 A 1,1 0 0 1 21,7 V 10.2 H 3 V 7 A 1,1 0 0 1 4,6 Z
+            M 14,7.3 H 15 A 0.8,0.8 0 0 1 15,8.9 H 14 A 0.8,0.8 0 0 1 14,7.3 Z
+            M 5,11.4 H 19 A 7,7 0 0 1 5,11.4 Z
+            M 12,12.1 A 2.8,2.8 0 1 0 12,17.7 A 2.8,2.8 0 1 0 12,12.1
+            M 12,13.4 A 1.5,1.5 0 1 0 12,16.4 A 1.5,1.5 0 1 0 12,13.4" />
+
+        <!-- REC indicator -->
+        <path
+            android:fillColor="#FFFF3B30"
+            android:pathData="M 18,7.15 A 0.95,0.95 0 1 0 18,9.05 A 0.95,0.95 0 1 0 18,7.15 Z" />
+
+        <!-- Lens pupil accent -->
+        <path
+            android:fillColor="#FF4FC3F7"
+            android:pathData="M 12,14.2 A 0.7,0.7 0 1 0 12,15.6 A 0.7,0.7 0 1 0 12,14.2 Z" />
+    </group>
+</vector>
