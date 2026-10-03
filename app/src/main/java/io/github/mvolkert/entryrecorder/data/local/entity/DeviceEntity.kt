@@ -60,7 +60,15 @@ data class DeviceEntity(
     val vibrateOnRing: Boolean = true,
     val wakeOnMotion: Boolean = true,
     val wakeOnNoise: Boolean = true,
-    val isEnabled: Boolean = true
+    val isEnabled: Boolean = true,
+    /**
+     * Row id of this device on the Python server, assigned when the app registers it via
+     * `POST /api/devices` (Phase S device sync). Null until registered, or in local-only mode. All
+     * server calls (record/stop/reconcile, live) address the device by this id, never by the local [id],
+     * which belongs to a different id space. Preserved across edits because the edit form copies from the
+     * existing row rather than rebuilding it.
+     */
+    val serverDeviceId: Long? = null
 ) {
     val httpBaseUrl: String
         get() {

@@ -223,7 +223,7 @@ cross-layer design pivot except where noted.
 
 ## Phase 5 — Cross-cutting UI features (design decision required)
 Design decided with owner 2026-10-03: merged list with composite keys, read-only first cut; mutating actions +
-pull-to-refresh added same day. Live view stays blocked on the Phase S device-sync identity gap.
+pull-to-refresh added same day. The Phase S device-sync identity gap is now closed (app devices carry a server id).
 - [x] **Surface server recordings in the app.** Done: the Recordings gallery merges the local Room recordings and
       the server's into one timestamp-sorted list behind a `GalleryItem` sealed model (`Local` / `Remote`) keyed by
       a composite `stableKey` (`local:<id>` / `server:<id>`), so the two independent `Long` id spaces share one
@@ -242,14 +242,14 @@ pull-to-refresh added same day. Live view stays blocked on the Phase S device-sy
       for the server case. Compile + `lintDebug` + `testDebugUnitTest` green.
       ⚠️ Device gate → Phase G "Server recordings in-app" (thumbnail load + LAN playback + the three mutating actions
       against a live server); also exercises the `?api_key=`-in-URL exposure, unaddressed until Phase S HTTPS-first.
-      The Phase S identity gap means remote rows are device-filtered by *name*, not id.
+      Remote rows are now device-filtered by `serverDeviceId` (Phase S sync), with a name fallback for unregistered
+      / pre-sync devices.
       Files: `ui/recordings/GalleryItem.kt`, `ui/recordings/RecordingsViewModel.kt`,
       `ui/recordings/RecordingsScreen.kt`, `ui/recordings/RecordingCardItem.kt`, `ui/recordings/RecordingsDialogs.kt`,
       `ui/components/VideoPlayerModal.kt`, `data/server/ServerRecordingClient.kt`, `util/ExportHelper.kt`
-- [ ] **Live view through the server** — consume `/api/live/{id}/mjpeg` in `LiveStreamPlayer`. Blocked by an
-      identity gap, not the player: `LiveStreamPlayer` dials the device's own IP, and the endpoint takes a
-      *server* device id that app-managed devices never have (never registered server-side → Phase S sync).
-      Works today only for server-UI-created devices. Files: `ui/components/LiveStreamPlayer.kt`,
+- [ ] **Live view through the server** — consume `/api/live/{id}/mjpeg` in `LiveStreamPlayer`. The identity gap is
+      closed (Phase S sync gives app devices a `serverDeviceId`, so the endpoint is now addressable); what remains is
+      the player itself dialing that server URL instead of the device's own IP. Files: `ui/components/LiveStreamPlayer.kt`,
       `ui/live/LiveCamerasScreen.kt`
 
 ## Phase 6 — Heavy / device-unverifiable app backlog
@@ -294,9 +294,23 @@ running in a real browser — that is the one owner session covering the Firefox
       → 36/36 green. ⚠️ Owner gate: load the page in the Firefox checklist session and confirm styling + script
       actually load from `/static/` (no 404s) and the auth/poll behaviour is unchanged. Files:
       `server/entry_recorder_server/static/{index.html,styles.css,app.js}`, `server/tests/webui_auth_harness.mjs`
-- [ ] **Server ↔ app device sync** — the app never registers devices server-side, so `/api/live/{id}/mjpeg` only
-      works for server-UI-created devices. New sync API + pairing flow + conflict handling. Blocker for Phase 5
-      "Live view through the server". Files: `data/server/ServerRecordingClient.kt`, `server/.../main.py`
+- [x] **Server ↔ app device sync (one-way, app→server)** — the app now registers each device on the server
+      (`POST /api/devices`) and stores the returned row id as `DeviceEntity.serverDeviceId`, using it ONLY at the
+      HTTP boundary while every internal key (active maps, notifications, `active_server_recordings.deviceId`) stays
+      the local Room id. Done: v12→v13 Room migration (`ALTER TABLE devices ADD COLUMN serverDeviceId INTEGER`);
+      `ServerRecordingClient` gains `registerDevice`/`updateServerDevice`/`deleteServerDevice` + a `ServerDeviceDto`,
+      and `startRecording` now sends `serverDeviceId` with NO credentials (the server resolves them from the
+      registered row via the existing `get_device_by_id` fallback → the device password no longer rides every start);
+      `SettingsViewModel.saveDevice` register-or-update (PYTHON_SERVER only, best-effort — local save never blocked),
+      `deleteDevice` best-effort server delete, `restoreBackup` nulls `serverDeviceId` (re-register against the current
+      server); `RtspStreamRecorder` registers just-in-time (`ensureRegistered`) if a device reaches a server start
+      unregistered, else falls back to local, and threads `serverDeviceId` through watch/stop/`activeRecordingFor`;
+      `RecordingsViewModel` attributes remote rows by `serverDeviceId` (name fallback), closing the Phase 5
+      "filtered by name" caveat. Server unchanged; no server schema change. Verified compile/lint (live e2e → Phase G
+      "Server device sync" gate). This unblocks "Live view through the server" (`/api/live/{serverDeviceId}/mjpeg` is
+      now addressable — separate follow-up). Files: `data/local/entity/DeviceEntity.kt`, `data/local/AppDatabase.kt`,
+      `data/server/ServerRecordingClient.kt`, `ui/settings/SettingsViewModel.kt`, `video/RtspStreamRecorder.kt`,
+      `ui/recordings/RecordingsViewModel.kt`
 - [x] **Server: return + expose the recording id** (feeds Phase 4 stop reconciliation) — start did not hand
       back a persistable id, so `/api/recordings/{id}` couldn't reconcile an auto-stop. Done: the `recordings`
       table gains a `status` column (`recording` → `completed`) migrated via the same `PRAGMA`+`ALTER` pattern as
@@ -414,6 +428,25 @@ The merged gallery + read/write actions are compile/lint/test green; confirm aga
       icon follows; delete removes it from the server and the list after the confirm; share / save-to-gallery /
       export-to-folder each stream the video down (progress dialog, correct `.mp4`/`.mkv` extension) and deliver a
       playable file. Export-to-folder with no folder set must toast the same hint as the local path.
+
+### Server device sync (needs the server running) — Phase S ✅ code, unverified
+The app→server device registration is compile/lint green; confirm against a live `PYTHON_SERVER` deployment.
+- [ ] 🔄 **Register on save.** In `PYTHON_SERVER`, create/edit a device in Settings → the server row is created once
+      (`POST /api/devices`) and its id lands in `DeviceEntity.serverDeviceId`; a subsequent edit issues a `PUT` (no
+      duplicate row), and the server's web device list shows the camera with its RTSP/snapshot config.
+- [ ] 🔄 **Start carries no credentials.** With a registered device, `POST /api/recordings/start` sends only
+      `device_id` (the server id) and no url/username/password; recording still works because the server resolves
+      them from the stored row. The device password never appears on the start request.
+- [ ] 🔄 **Just-in-time registration + local fallback.** A device created while in `APP_LOCAL` (never synced) that
+      triggers a server recording registers on first start; if the server is unreachable the register fails and the
+      app falls back to local recording without losing the capture.
+- [ ] 🔄 **Id-based attribution.** Filtering the gallery by a device matches server rows by `serverDeviceId`, so a
+      server device renamed after recording still attributes correctly (only pre-sync legacy rows keyed by the old
+      Room id need the name fallback).
+- [ ] 🔄 **Delete + restore.** Deleting a registered device also `DELETE`s its server row (recordings intentionally
+      remain); restoring a backup clears every `serverDeviceId` so devices re-register against the current server.
+- [ ] 🔄 **Room v12→v13 over real data.** Upgrade an install without wiping: the `serverDeviceId` column is added
+      null for existing devices (they re-register lazily), no other data disturbed.
 
 ---
 

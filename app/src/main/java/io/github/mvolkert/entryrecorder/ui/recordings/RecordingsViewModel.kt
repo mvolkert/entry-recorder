@@ -127,7 +127,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     val uiState: StateFlow<RecordingsUiState> = combine(filterState, sourceState) { filters, source ->
-        val selectedDeviceName = source.devices.firstOrNull { it.id == filters.deviceId }?.name
+        val selectedDevice = source.devices.firstOrNull { it.id == filters.deviceId }
 
         val localItems = source.recordings.filter { recording ->
             val matchesDevice = filters.deviceId == null || recording.deviceId == filters.deviceId
@@ -139,12 +139,15 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
         }.map { GalleryItem.Local(it) }
 
         // Server rows only appear in PYTHON_SERVER mode; a row with no video path is skipped. Filtering
-        // mirrors the local rules, except the device filter matches server rows by name (the server keys
-        // recordings by its own device id, which the Phase S sync would reconcile).
+        // mirrors the local rules, except the device filter matches server rows by the server-assigned id
+        // the Phase S sync stored, falling back to a name compare for a device not yet registered.
         val settings = source.settings
+        val selectedServerId = selectedDevice?.serverDeviceId
         val remoteItems = if (settings?.recordingMode == RecordingMode.PYTHON_SERVER) {
             source.server.items.mapNotNull { dto ->
-                val matchesDevice = filters.deviceId == null || dto.deviceName == selectedDeviceName
+                val matchesDevice = filters.deviceId == null ||
+                        if (selectedServerId != null) dto.deviceId == selectedServerId
+                        else dto.deviceName == selectedDevice?.name
                 val matchesType = filters.eventType == null ||
                         runCatching { EventType.valueOf(dto.eventType) }.getOrDefault(EventType.MANUAL) == filters.eventType
                 val matchesQuery = filters.query.isBlank() ||

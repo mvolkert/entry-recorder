@@ -137,10 +137,21 @@ class RtspStreamRecorder(
 
             if (settings.recordingMode == RecordingMode.PYTHON_SERVER) {
                 Log.i(tag, "Initiating server recording on ${settings.serverBaseUrl} for ${device.name}")
+                // Just-in-time registration is the safety net for a device that never synced through
+                // Settings (created while in APP_LOCAL, or a registration that failed then): without a
+                // server id there is nothing to address, so register now and persist the id.
+                val serverDeviceId = device.serverDeviceId ?: ensureRegistered(device)
+                if (serverDeviceId == null) {
+                    Log.w(tag, "Could not register ${device.name} on the server; falling back to local recording")
+                    startLocalRecording(device, eventType, maxDurationSeconds, preRoll)
+                    return@launch
+                }
+                val serverDevice = if (device.serverDeviceId == null) device.copy(serverDeviceId = serverDeviceId) else device
                 val result = serverClient.startRecording(
                     serverUrl = settings.serverBaseUrl,
                     apiKey = settings.serverApiKey.ifBlank { null },
-                    device = device,
+                    serverDeviceId = serverDeviceId,
+                    deviceName = device.name,
                     eventType = eventType,
                     durationSeconds = maxDurationSeconds
                 )
@@ -174,7 +185,7 @@ class RtspStreamRecorder(
                     // Reconcile against the server's own job list rather than trusting a blind local timer:
                     // the job can finish early, be stopped from the server's web UI, or outlive what this
                     // request asked for, and in every one of those cases the phone has to stop claiming it.
-                    launch { watchServerRecording(device) }
+                    launch { watchServerRecording(serverDevice) }
                     return@launch
                 } else {
                     Log.w(tag, "Server recording failed, falling back to local recording: ${result.exceptionOrNull()?.message}")
@@ -266,10 +277,32 @@ class RtspStreamRecorder(
                 scope.launch {
                     val settings = repository.getSettings()
                     repository.deleteActiveServerRecording(deviceId)
-                    requestServerStop(deviceId, "device $deviceId", settings.serverBaseUrl, settings.serverApiKey.ifBlank { null })
+                    // The stop must address the server job by the server-assigned id, not the local device id.
+                    val serverDeviceId = repository.getDeviceById(deviceId)?.serverDeviceId
+                    if (serverDeviceId != null) {
+                        requestServerStop(serverDeviceId, "device $deviceId", settings.serverBaseUrl, settings.serverApiKey.ifBlank { null })
+                    } else {
+                        Log.w(tag, "No server id for device $deviceId; cannot stop its server job")
+                    }
                 }
             }
         }
+    }
+
+    /**
+     * Registers [device] on the server and persists the returned id as its `serverDeviceId`, so later starts
+     * address it without re-registering. Returns null when registration fails (server unreachable, rejected),
+     * which the caller treats as "fall back to local recording". This is the just-in-time safety net behind
+     * the best-effort sync in SettingsViewModel.saveDevice.
+     */
+    private suspend fun ensureRegistered(device: DeviceEntity): Long? {
+        val settings = repository.getSettings()
+        val id = serverClient
+            .registerDevice(settings.serverBaseUrl, settings.serverApiKey.ifBlank { null }, device)
+            .getOrNull() ?: return null
+        repository.saveDevice(device.copy(serverDeviceId = id))
+        Log.i(tag, "Registered ${device.name} on the server as id $id")
+        return id
     }
 
     /**
@@ -281,6 +314,12 @@ class RtspStreamRecorder(
      */
     private suspend fun watchServerRecording(device: DeviceEntity) {
         val tracked = activeServerRecordings[device.id] ?: return
+        // All server-facing calls address the device by its server-assigned id; the local maps keep keying by
+        // device.id. A device with no server id cannot be probed, so drop the watch rather than spin failures.
+        val serverDeviceId = device.serverDeviceId ?: run {
+            clearServerRecording(device.id, "has no server id")
+            return
+        }
         // Anchor the deadline to the recorded start rather than to when this coroutine begins, so a watcher
         // resumed after a process restart honours the time already elapsed instead of granting a fresh
         // maxDurationSeconds. For a fresh start (startedAtMs == now) this equals the previous value.
@@ -293,7 +332,7 @@ class RtspStreamRecorder(
             val active = activeServerRecordings[device.id] ?: return
             val settings = repository.getSettings()
             val apiKey = settings.serverApiKey.ifBlank { null }
-            val probe = serverClient.activeRecordingFor(settings.serverBaseUrl, apiKey, device.id)
+            val probe = serverClient.activeRecordingFor(settings.serverBaseUrl, apiKey, serverDeviceId)
             val job = probe.getOrNull()
 
             when {
@@ -306,7 +345,7 @@ class RtspStreamRecorder(
                     )
                     if (failedProbes >= SERVER_RECONCILE_GIVE_UP_PROBES) {
                         if (active.startedByThisRequest) {
-                            requestServerStop(device.id, device.name, settings.serverBaseUrl, apiKey)
+                            requestServerStop(serverDeviceId, device.name, settings.serverBaseUrl, apiKey)
                         }
                         clearServerRecording(device.id, "status probes stopped working")
                         return
@@ -326,7 +365,7 @@ class RtspStreamRecorder(
                             "Server job on ${device.name} still live after ${tracked.maxDurationSeconds}s " +
                                 "(elapsed ${job.elapsedSeconds}s of ${job.maxDurationSeconds}s), asking it to stop"
                         )
-                        requestServerStop(device.id, device.name, settings.serverBaseUrl, apiKey)
+                        requestServerStop(serverDeviceId, device.name, settings.serverBaseUrl, apiKey)
                         clearServerRecording(device.id, "stopped past the requested duration")
                         return
                     }
@@ -380,8 +419,8 @@ class RtspStreamRecorder(
         }
     }
 
-    private suspend fun requestServerStop(deviceId: Long, label: String, serverUrl: String, apiKey: String?) {
-        val outcome = serverClient.stopRecording(serverUrl, apiKey, deviceId)
+    private suspend fun requestServerStop(serverDeviceId: Long, label: String, serverUrl: String, apiKey: String?) {
+        val outcome = serverClient.stopRecording(serverUrl, apiKey, serverDeviceId)
         val answer = outcome.getOrNull()
         when {
             answer == null -> Log.w(tag, "Server stop for $label failed: ${outcome.exceptionOrNull()?.message}")

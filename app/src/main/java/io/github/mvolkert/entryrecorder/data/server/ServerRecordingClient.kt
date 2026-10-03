@@ -5,6 +5,7 @@ import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
+import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -25,6 +26,28 @@ data class StartServerRecordingPayload(
     @SerializedName("duration_seconds") val durationSeconds: Int,
     @SerializedName("source_mode") val sourceMode: String = "auto",
     @SerializedName("note") val note: String? = null
+)
+
+/**
+ * Body of `POST/PUT /api/devices` (server `DeviceCreate`/`DeviceUpdate`). Carries the capture config the
+ * server stores so it can resolve credentials at record time and serve live view, instead of the app
+ * re-sending them on every start.
+ */
+private data class ServerDevicePayload(
+    @SerializedName("name") val name: String,
+    @SerializedName("rtsp_url") val rtspUrl: String?,
+    @SerializedName("snapshot_url") val snapshotUrl: String?,
+    @SerializedName("username") val username: String?,
+    @SerializedName("password") val password: String?,
+    @SerializedName("live_mode") val liveMode: String
+)
+
+/**
+ * Answer of the `/api/devices` endpoints (server `DeviceResponse`). Only [id] is read back — the app's
+ * source of truth for a device stays the local Room row; this exists to capture the server-assigned id.
+ */
+private data class ServerDeviceDto(
+    val id: Long
 )
 
 data class ServerStatusDto(
@@ -145,23 +168,28 @@ class ServerRecordingClient(
     /**
      * Asks the server to record and reports what it answered, because "HTTP 200" is not the whole story:
      * an `already_recording` answer means the live job belongs to an earlier request.
+     *
+     * The device is addressed by its server-assigned [serverDeviceId] and the capture credentials are
+     * deliberately omitted: the server resolves the RTSP/snapshot URL and auth from the row the app
+     * registered via [registerDevice], so the device password no longer rides on every start call.
      */
     suspend fun startRecording(
         serverUrl: String,
         apiKey: String?,
-        device: DeviceEntity,
+        serverDeviceId: Long,
+        deviceName: String,
         eventType: EventType,
         durationSeconds: Int
     ): Result<ServerStartResponse> = withContext(Dispatchers.IO) {
         try {
             val base = normalizeUrl(serverUrl)
             val payload = StartServerRecordingPayload(
-                deviceId = device.id,
-                deviceName = device.name,
-                rtspUrl = device.rtspStreamUrl,
-                snapshotUrl = device.snapshotUrl,
-                username = device.username,
-                password = device.password,
+                deviceId = serverDeviceId,
+                deviceName = deviceName,
+                rtspUrl = null,
+                snapshotUrl = null,
+                username = null,
+                password = null,
                 eventType = eventType.name,
                 durationSeconds = durationSeconds
             )
@@ -180,12 +208,12 @@ class ServerRecordingClient(
                     if (answer == null) {
                         // Success with an unreadable body: assume the job is ours, which is what the caller
                         // did before the answer was read at all, so an older server keeps working.
-                        Log.w(tag, "Start answer for ${device.name} carried no readable body; assuming it started")
-                        Result.success(ServerStartResponse(status = "started", deviceId = device.id))
+                        Log.w(tag, "Start answer for $deviceName carried no readable body; assuming it started")
+                        Result.success(ServerStartResponse(status = "started", deviceId = serverDeviceId))
                     } else {
                         Log.i(
                             tag,
-                            "Server recording ${answer.status} for ${device.name}" +
+                            "Server recording ${answer.status} for $deviceName" +
                                 (answer.recordingId?.let { " (server recording id $it)" } ?: "")
                         )
                         Result.success(answer)
@@ -197,7 +225,113 @@ class ServerRecordingClient(
                 }
             }
         } catch (e: Exception) {
-            Log.e(tag, "Server recording request failed for ${device.name}", e)
+            Log.e(tag, "Server recording request failed for $deviceName", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Builds the `POST/PUT /api/devices` body from a local [device]. `live_mode` is `snapshot` only for a
+     * device pinned to HTTP-snapshot polling; every other protocol has a usable RTSP URL (the entity
+     * always derives one), so the server can pull RTSP for live view.
+     */
+    private fun serverDevicePayload(device: DeviceEntity): ServerDevicePayload = ServerDevicePayload(
+        name = device.name,
+        rtspUrl = device.rtspStreamUrl,
+        snapshotUrl = device.snapshotUrl,
+        username = device.username,
+        password = device.password,
+        liveMode = if (device.streamProtocol == StreamProtocol.HTTP_SNAPSHOT) "snapshot" else "rtsp"
+    )
+
+    /**
+     * Registers [device] on the server (`POST /api/devices`) and returns the server-assigned row id, which
+     * the caller persists as `DeviceEntity.serverDeviceId`. The server rejects a device with neither an
+     * RTSP nor a snapshot URL, so a fully-blank camera surfaces here as a failure the caller can fall back on.
+     */
+    suspend fun registerDevice(
+        serverUrl: String,
+        apiKey: String?,
+        device: DeviceEntity
+    ): Result<Long> = withContext(Dispatchers.IO) {
+        try {
+            val base = normalizeUrl(serverUrl)
+            val body = gson.toJson(serverDevicePayload(device)).toRequestBody("application/json".toMediaType())
+            val request = Request.Builder()
+                .url("$base/api/devices")
+                .post(body)
+                .withApiKey(apiKey)
+                .build()
+            client.newCall(request).execute().use { response ->
+                val answer = runCatching { gson.fromJson(response.body.string(), ServerDeviceDto::class.java) }.getOrNull()
+                if (response.isSuccessful && answer != null && answer.id > 0) {
+                    Log.i(tag, "Registered device ${device.name} on server as id ${answer.id}")
+                    Result.success(answer.id)
+                } else {
+                    Result.failure(Exception("HTTP ${response.code}: ${response.message}"))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Registering device ${device.name} on server failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /** Pushes the current [device] config onto an already-registered server row (`PUT /api/devices/{id}`). */
+    suspend fun updateServerDevice(
+        serverUrl: String,
+        apiKey: String?,
+        serverDeviceId: Long,
+        device: DeviceEntity
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val base = normalizeUrl(serverUrl)
+            val body = gson.toJson(serverDevicePayload(device)).toRequestBody("application/json".toMediaType())
+            val request = Request.Builder()
+                .url("$base/api/devices/$serverDeviceId")
+                .put(body)
+                .withApiKey(apiKey)
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(Exception("HTTP ${response.code}: ${response.body.string()}"))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Updating server device $serverDeviceId failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Best-effort removal of a previously-registered server row (`DELETE /api/devices/{id}`). The server
+     * intentionally keeps the device's recordings (no cascade), and a failure here must not block deleting
+     * the device locally — the caller treats this as fire-and-forget.
+     */
+    suspend fun deleteServerDevice(
+        serverUrl: String,
+        apiKey: String?,
+        serverDeviceId: Long
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val base = normalizeUrl(serverUrl)
+            val request = Request.Builder()
+                .url("$base/api/devices/$serverDeviceId")
+                .delete(emptyBody)
+                .withApiKey(apiKey)
+                .build()
+            client.newCall(request).execute().use { response ->
+                // 404 is fine: the row was already gone, which is the state we wanted.
+                if (response.isSuccessful || response.code == 404) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(Exception("HTTP ${response.code}: ${response.body.string()}"))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Deleting server device $serverDeviceId failed", e)
             Result.failure(e)
         }
     }
