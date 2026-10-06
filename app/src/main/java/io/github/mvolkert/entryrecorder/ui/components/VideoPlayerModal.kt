@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
@@ -84,7 +85,7 @@ fun VideoPlayerModal(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(16.dp)
-                    .background(Color.Black.copy(alpha = 0.6f), shape = RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f), shape = RoundedCornerShape(50))
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,

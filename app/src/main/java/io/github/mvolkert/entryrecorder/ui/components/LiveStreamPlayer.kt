@@ -308,7 +308,7 @@ fun LiveStreamPlayer(
                 .align(Alignment.TopStart)
                 .padding(8.dp),
             shape = RoundedCornerShape(8.dp),
-            color = Color.Black.copy(alpha = 0.65f)
+            color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f)
         ) {
             Text(
                 text = if (renderServer) stringResource(R.string.live_badge_server)
@@ -327,7 +327,7 @@ fun LiveStreamPlayer(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.85f)),
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.85f)),
                 contentAlignment = Alignment.Center
             ) {
                 Column(

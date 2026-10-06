@@ -12,8 +12,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,6 +29,8 @@ import io.github.mvolkert.entryrecorder.sip.CallUiState
 import io.github.mvolkert.entryrecorder.sip.SipCallTiming
 import io.github.mvolkert.entryrecorder.sip.SipSessionState
 import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
+import io.github.mvolkert.entryrecorder.ui.theme.AppTheme
+import io.github.mvolkert.entryrecorder.ui.theme.ThemeMode
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -69,13 +69,16 @@ class IncomingCallActivity : ComponentActivity() {
         screen = screenFrom(intent)
 
         setContent {
-            MaterialTheme(
-                colorScheme = darkColorScheme(
-                    background = Color.Black,
-                    surface = Color(0xFF1E1E1E),
-                    primary = Color(0xFF4CAF50),
-                    error = Color(0xFFF44336)
-                )
+            // Locked to Dark: a live video feed sits behind translucent overlays, so the call UI
+            // always needs the light-on-dark contrast independent of the user's app-wide theme
+            // choice. Accent roles still flow from settings so the accept FAB carries the palette.
+            val settings by repository.settingsFlow
+                .collectAsStateWithLifecycle(initialValue = null)
+            AppTheme(
+                themeMode = ThemeMode.Dark.ordinal,
+                primaryIndex = settings?.themePrimaryIndex ?: 0,
+                secondaryIndex = settings?.themeSecondaryIndex ?: 0,
+                tertiaryIndex = settings?.themeTertiaryIndex ?: 0,
             ) {
                 var device by remember { mutableStateOf<DeviceEntity?>(null) }
                 val sipState by sipManager.sessionState.collectAsStateWithLifecycle()

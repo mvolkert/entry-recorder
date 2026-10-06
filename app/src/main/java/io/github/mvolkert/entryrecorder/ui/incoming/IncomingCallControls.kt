@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -30,7 +31,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.sip.CallUiState
 import io.github.mvolkert.entryrecorder.sip.SipSessionState
@@ -48,11 +48,12 @@ internal fun BoxScope.IncomingCallControls(
     onToggleMute: () -> Unit,
     onToggleSpeaker: () -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .align(Alignment.BottomCenter)
-            .background(Color.Black.copy(alpha = 0.7f))
+            .background(scheme.scrim.copy(alpha = 0.7f))
             .windowInsetsPadding(WindowInsets.navigationBars)
             .padding(horizontal = 24.dp, vertical = 24.dp)
     ) {
@@ -67,21 +68,23 @@ internal fun BoxScope.IncomingCallControls(
                     modifier = Modifier
                         .size(56.dp)
                         .background(
-                            if (sipState.isMicMuted) Color.DarkGray else Color.White.copy(alpha = 0.2f),
+                            if (sipState.isMicMuted) scheme.errorContainer else scheme.surfaceVariant.copy(alpha = 0.6f),
                             CircleShape
                         )
                 ) {
                     Icon(
                         imageVector = if (sipState.isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
                         contentDescription = stringResource(R.string.incoming_cd_mute),
-                        tint = if (sipState.isMicMuted) Color.Red else Color.White
+                        tint = if (sipState.isMicMuted) scheme.onErrorContainer else scheme.onSurface,
                     )
                 }
 
+                // CircleShape overrides the M3 FAB default on purpose: the call-screen idiom is a
+                // round hang-up button, and Material lets components opt into custom shapes.
                 FloatingActionButton(
                     onClick = onDeclineCall,
-                    containerColor = Color(0xFFE53935),
-                    contentColor = Color.White,
+                    containerColor = scheme.errorContainer,
+                    contentColor = scheme.onErrorContainer,
                     shape = CircleShape,
                     modifier = Modifier.size(68.dp)
                 ) {
@@ -97,14 +100,14 @@ internal fun BoxScope.IncomingCallControls(
                     modifier = Modifier
                         .size(56.dp)
                         .background(
-                            if (sipState.isSpeakerOn) Color(0xFF1E88E5) else Color.White.copy(alpha = 0.2f),
+                            if (sipState.isSpeakerOn) scheme.secondaryContainer else scheme.surfaceVariant.copy(alpha = 0.6f),
                             CircleShape
                         )
                 ) {
                     Icon(
                         imageVector = if (sipState.isSpeakerOn) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeDown,
                         contentDescription = stringResource(R.string.incoming_cd_speaker),
-                        tint = Color.White
+                        tint = if (sipState.isSpeakerOn) scheme.onSecondaryContainer else scheme.onSurface,
                     )
                 }
             }
@@ -114,8 +117,8 @@ internal fun BoxScope.IncomingCallControls(
             // The SIP failure reason is shown when the core provided one.
             CallUiState.ENDED, CallUiState.ERROR -> Text(
                 text = sipState.errorMessage ?: stringResource(R.string.incoming_call_ended),
-                color = Color.White,
-                fontSize = 16.sp,
+                color = scheme.onSurface,
+                style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -127,8 +130,8 @@ internal fun BoxScope.IncomingCallControls(
             ) {
                 FloatingActionButton(
                     onClick = onDeclineCall,
-                    containerColor = Color(0xFFE53935),
-                    contentColor = Color.White,
+                    containerColor = scheme.errorContainer,
+                    contentColor = scheme.onErrorContainer,
                     shape = CircleShape,
                     modifier = Modifier.size(64.dp)
                 ) {
@@ -141,8 +144,8 @@ internal fun BoxScope.IncomingCallControls(
 
                 FloatingActionButton(
                     onClick = onAcceptCall,
-                    containerColor = Color(0xFF43A047),
-                    contentColor = Color.White,
+                    containerColor = scheme.primary,
+                    contentColor = scheme.onPrimary,
                     shape = CircleShape,
                     modifier = Modifier.size(72.dp)
                 ) {

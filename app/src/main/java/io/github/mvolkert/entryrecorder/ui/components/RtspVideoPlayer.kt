@@ -139,7 +139,7 @@ fun RtspVideoPlayer(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.85f)),
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.85f)),
                 contentAlignment = Alignment.Center
             ) {
                 Column(

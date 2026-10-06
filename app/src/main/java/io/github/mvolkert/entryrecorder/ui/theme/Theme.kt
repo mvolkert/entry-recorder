@@ -294,6 +294,10 @@ fun AppTheme(
     MaterialTheme(
         colorScheme = colorScheme,
     ) {
-        CompositionLocalProvider(LocalDarkTheme provides dark, content = content)
+        CompositionLocalProvider(
+            LocalDarkTheme provides dark,
+            LocalAppMotionScheme provides AppMotionScheme.expressive(),
+            content = content,
+        )
     }
 }

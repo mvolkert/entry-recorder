@@ -29,9 +29,14 @@ import io.github.mvolkert.entryrecorder.ui.settings.DeviceEditScreen
 import io.github.mvolkert.entryrecorder.ui.settings.NEW_DEVICE_ID
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsScreen
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsViewModel
-import io.github.mvolkert.entryrecorder.ui.theme.AppMotion
+import io.github.mvolkert.entryrecorder.ui.theme.appMotionScheme
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+
+// Expressive pager page-transition constants (scale + fade of the off-center page). Visual
+// parameters, not motion specs, so they live at the single call site instead of the scheme.
+private const val PAGE_MIN_SCALE = 0.92f
+private const val PAGE_MIN_ALPHA = 0.55f
 
 sealed class Screen(@StringRes val labelRes: Int, val icon: ImageVector) {
     object Live : Screen(R.string.nav_live, Icons.Default.Videocam)
@@ -96,7 +101,7 @@ fun MainAppScaffold(
                     // Expressive emphasis: the selected nav icon springs slightly larger.
                     val iconScale by animateFloatAsState(
                         targetValue = if (selected) 1.12f else 1f,
-                        animationSpec = AppMotion.emphasis,
+                        animationSpec = MaterialTheme.appMotionScheme.slowSpatialSpec(),
                         label = "navIconScale",
                     )
                     NavigationBarItem(
@@ -135,10 +140,10 @@ fun MainAppScaffold(
                         val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
                             .coerceIn(-1f, 1f)
                         val fraction = abs(pageOffset)
-                        val scale = 1f - (1f - AppMotion.PAGE_MIN_SCALE) * fraction
+                        val scale = 1f - (1f - PAGE_MIN_SCALE) * fraction
                         scaleX = scale
                         scaleY = scale
-                        alpha = 1f - (1f - AppMotion.PAGE_MIN_ALPHA) * fraction
+                        alpha = 1f - (1f - PAGE_MIN_ALPHA) * fraction
                     }
             ) {
                 when (page) {

@@ -83,7 +83,7 @@ fun JpegFramePlayer(
     }
     val currentMs = refs.getOrNull(index)?.let { it.timestampMs - refs.first().timestampMs } ?: 0L
 
-    Box(modifier = modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.9f))) {
+    Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.9f))) {
         val img = frame
         if (refs.isEmpty()) {
             Text(
@@ -109,7 +109,7 @@ fun JpegFramePlayer(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .background(Color.Black.copy(alpha = 0.55f))
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f))
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
