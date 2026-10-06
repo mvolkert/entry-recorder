@@ -11,7 +11,59 @@ Legend: `[x]` done · `[~]` partial / needs validation · `[ ]` open · 🔄 on-
 - [x] Now/Stop Monitor button in the @RecordingScreen
 - [x] Alerts & Lockscreen Behavior per camera setting not global
 - [x] Make Camera Edit Screen a full sized Screen as dialog its too much settings for a dialog
-
+- [x] **Video Player timeline is now edge-to-edge with the timestamps above it.** Done: the floating rounded
+      `Surface` card in `JpegFramePlayer` was replaced by a full-bleed bottom `Column` carrying the same
+      black scrim — top row holds the play/pause button and the timestamp readout, the `Slider` timeline sits
+      below it flush to the bottom edge across the full screen width. Decode, timing and seek logic unchanged.
+      File: `ui/components/JpegFramePlayer.kt`
+- [x] **Password fields in the device form can now be made visible.** Done: one shared `PasswordTextField`
+      (`ui/settings/DeviceFormComponents.kt`) owns the trailing eye toggle, swapping
+      `PasswordVisualTransformation()` for `VisualTransformation.None` on a `remember`ed flag — revealing is
+      transient UI state, so it is deliberately not saved. Both former bare-masked fields (intercom `password`,
+      `sipPassword`) use it, and it asks for `KeyboardType.Password`, which neither field had before, so
+      suggestions no longer sit over a credential. The Settings server API key stays plain text by owner choice.
+      Files: `ui/settings/DeviceFormComponents.kt`, `ui/settings/DeviceFormNetworkSection.kt`,
+      `ui/settings/DeviceFormSipSection.kt`, `res/values/strings.xml`
+- [x] **SIP connection test button** beside the HTTP "Test Connection", on the throw-away-core option the owner
+      picked. `SipCallManager.probeRegistration(device)` builds a **second** Linphone core on its own fixed local
+      port (5090, never the live 5060), registers the typed account and returns a `SipProbeResult`
+      (`Registered` / `Rejected(state, reason)` / `NoAnswer` / `MissingFields`) within
+      `SipCallTiming.SIP_PROBE_TIMEOUT_MS`; the form renders it exactly like the HTTP outcome, so a wrong SIP
+      password became a line on screen instead of a logcat grep. The live core is never reconfigured, so an
+      abandoned test cannot leave the monitor holding unsaved credentials. `applyPbxRegistrar` is now the single
+      implementation the live path *and* the probe share — a green test cannot drift from what saving does — and
+      `buildTestCandidate` carries the registrar fields to keep that true. ⚠️ Open by design: the probe registers
+      the same account a second time, which some PBXs answer by moving the live binding; the form warns whenever a
+      core is already up, and the Phase G gate below is the actual proof.
+      Files: `sip/SipCallManager.kt`, `sip/SipCallTiming.kt`, `ui/settings/DeviceFormTestSection.kt`,
+      `ui/settings/DeviceFormState.kt`, `ui/settings/DeviceEditScreen.kt`, `res/values/strings.xml`
+- [x] **The call screen no longer zooms a landscape camera frame.** `LiveStreamPlayer`'s bitmap renderer used
+      `ContentScale.Crop`, which scales a 16:9 snapshot until it *covers* a 9:16 portrait screen — ≈1.8× zoom with
+      only about a third of the frame width surviving, so a doorbell filled the phone with the middle of the scene.
+      Done: `ContentScale.Fit`, which is what the RTSP branch of the same component already gave through `PlayerView`
+      (default resize mode fit), so the two protocols finally agree and the Live card inherits it. Capture was never
+      affected — whole frames always went to disk, so no recording lost field of view.
+      Files: `ui/components/LiveStreamPlayer.kt`
+- [x] **A second trigger during a running recording folds into it instead of being dropped.**
+      `RtspStreamRecorder.startRecording` held one slot per device and returned early, at `Log.d`, when a clip was
+      already running — so a doorbell pressed during a motion recording produced **no ring file at all**, while the
+      notification and full-screen call still appeared and made it look healthy. Stopping the clip to start a ring clip
+      was rejected: the muxer is mid-file, so that costs the frame in flight plus the reconnect gap — frames that never
+      get recorded. Done: the arriving trigger folds into the live clip. `ActiveRecordingJob` now carries a
+      `MutableTriggers` (the trigger the row is filed under plus the folded-in ones) and an `AtomicLong` deadline the
+      capture loop re-reads every frame, so a fold both tags the clip and holds it open for the new event's configured
+      length. The more significant trigger leads: a ring inside a motion clip is filed under RING with MOTION kept
+      alongside, so the press is findable by the ring filter *and* the clip stays findable by the motion filter
+      (`RecordingsViewModel` and the `RecordingDao` type filter each match either tag). Persisting that needed a
+      `RecordingEntity.alsoEventTypes` CSV column (Room **v14→v15**, `DEFAULT ''`, every existing row keeps its single
+      tag) and the card now draws one badge per trigger. `stopRecording` compares its reason against the filed-under
+      trigger, so a motion post-record timer still cannot truncate a ring clip, and the doorbell branch stopped
+      cancelling that timer on its way past — it used to disarm a running motion buffer even with `recordOnRing` off.
+      ⚠️ `PYTHON_SERVER` mode cannot fold: the server owns that job's trigger and duration and its API has no way to add
+      one, so a second event there is logged and left out. Build/test/lint green only → Phase G gate.
+      Files: `video/RtspStreamRecorder.kt`, `service/IntercomMonitorService.kt`,
+      `data/local/entity/RecordingEntity.kt`, `data/local/AppDatabase.kt`, `data/local/dao/RecordingDao.kt`,
+      `ui/recordings/GalleryItem.kt`, `ui/recordings/RecordingCardItem.kt`, `ui/recordings/RecordingsViewModel.kt`
 
 ## How to read the phases
 - **Phase 1–5** — Android app (`app/`, Kotlin). Do these in order; each phase is smaller-blast-radius than the next.
@@ -103,7 +155,9 @@ Follow-ups from the four snapshot-only fixes (`4b5ed5d` Digest, `abb2153` live l
 backoff, `a620e29` pre-roll; regressions `75a1855`). None is device-verified; the trade-offs below were
 deliberately accepted to ship the fixes and are revisit-if-observed, not bugs. The items still `[ ]` after
 this pass are exactly those revisit-if-observed trade-offs plus device gates: no code change is due until a
-Verso session or a second snapshot-only device type triggers them.
+Verso session or a second snapshot-only device type triggers them. **One exception, added 2026-10-05 after
+measuring against the Verso: the 2N event-transport item below is a real code fix that is due now**, along with
+the owner gate in Phase G that unblocks it.
 
 - [ ] 🔄 **All four Phase-1/2 fixes are build-verified only.** Gates still standing: Digest-only snapshot
       fetch returns frames; Live tab stops polling on background + re-warms on return; motion-end still fires
@@ -141,11 +195,46 @@ Verso session or a second snapshot-only device type triggers them.
       multipart response is cancelled on STOP (ending the call) and reconnects when the user returns.
       `RTSP` stays ungated on purpose — ExoPlayer's own surface handling governs it and no RTSP device is in
       the deployment; revisit with the Phase 4/6 RTSP passthrough work. File: `ui/components/LiveStreamPlayer.kt`
-- [ ] **Doorbell trigger has no snapshot-only path.** Ring detection comes only from the 2N SSE stream
-      (`KeyPressed`/`CallStateChanged`) or an inbound SIP INVITE; a snapshot carries no ring signal. For this
-      `TWO_N_VERSO` both 2N channels are active, so the only residual risk is SSE down **and** no INVITE
-      reaching the phone → rings lost (surfaced via `ConnectionState`). Rides on the P2P SIP gate (Phase G);
-      no code until that resolves. Files: `data/device/TwoNIPVersoDevice.kt`, `service/IntercomMonitorService.kt`
+- [ ] **Doorbell trigger has no snapshot-only path — and on this deployment SIP is the *only* ring source.**
+      Ring detection comes from the device's own events or an inbound SIP INVITE; a snapshot carries no ring
+      signal. The premise that "both 2N channels are active" is **false**, measured 2026-10-05 (see the
+      event-transport item below): the SSE endpoint does not exist on this firmware and neither do the fallback's
+      status endpoints, so nothing has ever arrived over HTTP here. What that leaves is one path — the INVITE —
+      which additionally requires the monitor service to be alive (SIP is initialized in its `onCreate`) and,
+      behind a PBX, `handleSipRing`'s by-count attribution (Phase 3). A ring is therefore one wrong switch away
+      from vanishing with only `ConnectionState` + logcat to say so. Rides on the SIP gate (Phase G) and the
+      item below.
+      Files: `data/device/TwoNIPVersoDevice.kt`, `service/IntercomMonitorService.kt`, `sip/SipCallManager.kt`
+- [ ] **Replace the invented 2N event transport with the real Logging API (`/api/log/subscribe` + `/api/log/pull`).**
+      Verso FW 2.50.1.76.4, probed over the LAN 2026-10-05: `GET /api/event/subscribe?events=…` answers **HTTP 200 +
+      `application/json`** `{"success":false,"error":{"code":2,"description":"invalid request path"}}`, and so do
+      `/api/event/stream`, `/api/event/get`, `/api/event/socket` — there is **no SSE on this API at all**. okhttp-sse
+      refuses the content type, so `onFailure` → `startPollingFallback` fires *every* start, and that fallback polls
+      `/api/motion/status` + `/api/noise/status`, which are not 2N paths either (same `code 2`): no `result.active`,
+      four dead polls, `ConnectionState(OFFLINE)` on the `DEVICE_EVENTS` capability while the snapshot path keeps
+      serving frames — exactly the "reachable but no events" shape the two-capability split was built for.
+      2N's actual event mechanism is the **Logging API**:
+      `GET /api/log/subscribe?filter=KeyPressed,KeyReleased,CallStateChanged,MotionDetected,NoiseDetected&include=new&duration=90`
+      → `{"success":true,"result":{"id":…}}`, then drain `/api/log/pull?channel=<id>` and release with
+      `/api/log/unsubscribe`; each channel owns a queue, and it closes on its own after `duration` unless a pull
+      extends it, so the loop must re-subscribe on expiry rather than assume a permanent handle.
+      `handleRaw2NEvent`'s decode (`event` + `params`, `triState`, the `KeyPressed` release deny-list) transfers
+      nearly unchanged because log entries carry the same names — **but the real `pull` body is unverified**: the
+      device refuses the function for this account today. Over HTTP every Logging / Call / IO / phone /
+      System-status / automation path returns `code 7 invalid connection type` (2N's table: HTTPS required; only
+      Camera and `/api/system/info` answered), and over HTTPS the same admin credentials pass on
+      `/api/camera/snapshot` yet get `401 code 9 authorization required` on `/api/log/caps` and `/api/log/subscribe`.
+      So the 2N-side owner gate (Phase G) is a prerequisite, not a footnote.
+      Consequence wider than the doorbell: the device form's motion source **"From camera"** and the
+      **record-on-noise** trigger cannot fire at all on this deployment — both wait on `MotionDetected` /
+      `NoiseDetected` from the same dead transport, which is why in-app motion analysis is the only working motion
+      path today and noise has no working path at all (no in-app audio analyzer exists).
+      ⚠️ Trade-off to settle before coding: pull-based events cost **one HTTP request every 1–2 s per device,
+      24/7** where SSE was meant to be a single long-lived connection — small JSON, no frames, but on the Verso's
+      serial ≈5.9 req/s ceiling shared with the live/recording snapshot path and never idle. The cheaper design is
+      to delete the HTTP event path outright and run rings off the SIP INVITE plus motion off the in-app analyzer,
+      at the cost of the camera's own motion/noise and `CallStateChanged`. Pick one, then implement.
+      Files: `data/device/TwoNIPVersoDevice.kt`, `service/IntercomMonitorService.kt`
 - [ ] **Snapshot URL forces `width=1280&height=720` when the path omits them.** Confirmed load-bearing on the
       one Verso, so the deferred criteria ("only if a second snapshot-only device type appears") are not met.
       Make the appended size configurable only if a non-2N snapshot-only camera is added.
@@ -368,7 +457,8 @@ Compile-green ≠ done; run on the owner's real hardware before closing.
 - [ ] Recordings top band sits below the status bar, not behind the clock. **Re-opened 2026-09-29** — the pass
       belonged to the old hand-rolled Column; it is now a real `TopAppBar` (heading 32→22 sp). Re-check both.
 - [ ] Incoming-call screen: header and call controls clear status & gesture/nav bars on punch-hole/gesture-nav;
-      video renders fullscreen behind the bars.
+      a landscape camera frame is fully visible (letterboxed by `ContentScale.Fit`, no longer cropped to a zoom) with
+      the video container still fullscreen behind the bars.
 - [ ] Locked-screen doorbell ring → full-screen intent still fires and shows `IncomingCallActivity` over keyguard.
 - [ ] Motion/noise → high-priority heads-up notification appears (screen may NOT wake directly from the service
       on Android 15/16 due to BAL rules); tapping opens `IncomingCallActivity`.
@@ -376,13 +466,40 @@ Compile-green ≠ done; run on the owner's real hardware before closing.
       (`ForegroundServiceStartNotAllowedException` regression check).
 
 ### Ring / noise / SIP (needs the intercom)
+- [ ] 🔄 **2N Logging API is reachable at all — the prerequisite for the Phase-2 event-transport item.** On the
+      Verso: Settings → Services → HTTP API → enable the **Logging** service (plus Phone/Calls monitoring) for the
+      connection the app uses and grant that API user the Keypad / Call-monitoring privileges. Then confirm
+      `GET /api/log/subscribe?filter=KeyPressed` returns a `result.id` (today: `code 7 invalid connection type` over
+      HTTP, `401 code 9 authorization required` over HTTPS with the stored admin credentials, while Camera passes)
+      and capture **one real `/api/log/pull` body of a doorbell press** — that payload, not the manual, is the spec
+      for the decode rewrite, and it finally settles the `KeyPressed` action wording the deny-list guesses at today.
 - [ ] 🔄 **Peer-to-peer SIP is unverified, not a known bug.** `configureDeviceSip` in P2P clears proxy/auth and
       rewrites UDP/TCP ports on an already-started core, never sets an identity address, so inbound INVITE
-      delivery depends on the 2N dialing this phone's IP:port directly. Now load-bearing: the SIP ring source is
-      what covers rings while SSE is in polling fallback. If no INVITE reaches the phone the ring gap stays open.
+      delivery depends on the 2N dialing this phone's IP:port directly. Now load-bearing on its own: the SIP ring
+      source covers rings while the device event stream sits in its polling fallback, and because that event
+      endpoint does not exist on this firmware (Phase 2) the fallback is the only state it ever reaches — the
+      INVITE is today's sole ring path. If no INVITE reaches the phone the ring gap stays open.
+- [ ] 🔄 **The SIP registration test button tells the truth.** `Test SIP Registration` must answer `Registered`
+      against the Fritz!Box with the real account and `Rejected` (not `NoAnswer`) when the SIP password is
+      deliberately wrong — that distinction is the whole feature. Then run it **while monitoring is active** and
+      press the doorbell once: the ring still has to reach the phone, i.e. the probe's second REGISTER did not
+      take the live binding for good. Also confirm the probe leaves an in-progress call alone (it opens no audio
+      device on purpose) and that `lintDebug`/`compileDebugKotlin` were green on a real device, not just here.
+      Verified so far: compile + lint only. Files: `sip/SipCallManager.kt`, `ui/settings/DeviceFormTestSection.kt`
 - [ ] 🔄 One doorbell press produces exactly one notification (look for `Duplicate ring on …, ignoring`); a call
       the intercom hangs up closes its full-screen view by itself (`ENDED` branch).
 - [ ] 🔄 A doorbell press no longer truncates a longer recording under 20 s (post-record stop is event-type-aware).
+- [ ] 🔄 **A ring during a motion recording is folded, not lost.** Start a motion clip, then press the doorbell while
+      it is still running: expect **one** file carrying both `RING` and `MOTION` badges, filed under Ring (the ring
+      filter finds it, the motion filter finds it too), running at least `ringRecordSeconds` past the press, with
+      `Folded RING into the running MOTION clip …` in logcat. Repeat in reverse (motion during a ring clip) and confirm
+      it is still one file rather than a truncated pair. Before this the press recorded nothing at all.
+      Files: `video/RtspStreamRecorder.kt`, `ui/recordings/RecordingCardItem.kt`
+- [ ] 🔄 **Server mode deliberately does not fold.** In `PYTHON_SERVER`, ring during a motion clip: the app logs
+      `… is recording on the server; a RING event adds no second job` and the ring gets no recording of its own — the
+      accepted limit until the server can carry a second trigger.
+- [ ] 🔄 **Room v14→v15 over real data.** Upgrade without uninstalling: `alsoEventTypes` is added, every existing
+      recording keeps exactly one badge and its old filter answers.
 
 ### Motion health (needs the Verso)
 - [ ] 🔄 Read one `Motion analysis on …` health line idle and one walking past the camera, then pick the device's
