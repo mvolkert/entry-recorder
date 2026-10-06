@@ -10,10 +10,15 @@ interface RecordingDao {
     @Query("SELECT * FROM recordings ORDER BY timestamp DESC")
     fun getAllRecordingsFlow(): Flow<List<RecordingEntity>>
 
+    /**
+     * A type filter matches either tag of a clip: the trigger it was filed under or one folded in while the
+     * recording was still running (stored as comma-separated names, hence the padded LIKE).
+     */
     @Query("""
         SELECT * FROM recordings 
         WHERE (:deviceId IS NULL OR deviceId = :deviceId)
-          AND (:eventType IS NULL OR eventType = :eventType)
+          AND (:eventType IS NULL OR eventType = :eventType
+            OR (',' || alsoEventTypes || ',') LIKE ('%,' || :eventType || ',%'))
           AND (:fromTimestamp IS NULL OR timestamp >= :fromTimestamp)
           AND (:toTimestamp IS NULL OR timestamp <= :toTimestamp)
         ORDER BY timestamp DESC

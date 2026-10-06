@@ -196,8 +196,8 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     Log.i(tag, "Doorbell triggered for ${device.name}")
 
                     // One press arrives from several sources at once (2N KeyPressed, 2N CallStateChanged and
-                    // the SIP INVITE), so collapse rings per device. The first ring wins; the recording itself
-                    // is additionally guarded by RtspStreamRecorder's isRecording check.
+                    // the SIP INVITE), so collapse rings per device. The first ring wins; a clip already running
+                    // for another trigger folds this ring into itself instead of being replaced.
                     val ringAt = System.currentTimeMillis()
                     val previousRingAt = lastRingHandledAt.put(device.id, ringAt)
                     if (previousRingAt != null && ringAt - previousRingAt < RING_DEBOUNCE_MS) {
@@ -205,8 +205,9 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                         return@launch
                     }
 
-                    // 1. Start Recording if configured
-                    cancelPostRecordStop(device.id)
+                    // 1. Start Recording if configured, or fold the ring into the clip that is already running.
+                    // This deliberately does not cancel the device's pending post-record stop: that timer belongs
+                    // to the motion/noise clip, and stopRecording refuses to end a clip filed under RING.
                     if (device.recordOnRing) {
                         recorder.startRecording(
                             device = device,

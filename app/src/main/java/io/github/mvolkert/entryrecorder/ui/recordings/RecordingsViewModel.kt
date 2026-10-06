@@ -12,6 +12,7 @@ import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import io.github.mvolkert.entryrecorder.data.local.entity.triggerTypes
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
@@ -131,7 +132,10 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
 
         val localItems = source.recordings.filter { recording ->
             val matchesDevice = filters.deviceId == null || recording.deviceId == filters.deviceId
-            val matchesType = filters.eventType == null || recording.eventType == filters.eventType
+            // A clip that folded a second trigger in while it was still recording matches either tag, so a
+            // doorbell pressed during a motion recording turns up under Ring as well as under Motion.
+            val typeFilter = filters.eventType
+            val matchesType = typeFilter == null || typeFilter in recording.triggerTypes
             val matchesQuery = filters.query.isBlank() ||
                     recording.deviceName.contains(filters.query, ignoreCase = true) ||
                     (recording.note?.contains(filters.query, ignoreCase = true) == true)

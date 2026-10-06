@@ -40,11 +40,25 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration.Companion.milliseconds
 
 /** A captured JPEG plus its wall-clock capture time, used to prepend a motion pre-roll to a recording. */
 class PreRollFrame(val timestampMs: Long, val jpeg: ByteArray)
+
+/**
+ * Which trigger a clip is filed under when more than one happened while it was running. A doorbell outranks
+ * the rest because it is the event the user goes looking for afterwards; a manual clip outranks nothing because
+ * the user knows they pressed the button.
+ */
+private val EventType.significance: Int
+    get() = when (this) {
+        EventType.RING -> 3
+        EventType.MOTION -> 2
+        EventType.NOISE -> 1
+        EventType.MANUAL -> 0
+    }
 
 /**
  * Things the capture loop learns that no caller asked for, published so the monitor service can act on
@@ -70,7 +84,7 @@ class RtspStreamRecorder(
 
     // Observable recording status: the plain ConcurrentHashMaps above are invisible to Compose, so
     // every mutation also publishes the affected device ids here (local + server recordings). The
-    // Live screen observes this StateFlow through LiveViewModel instead of polling isRecording().
+    // Live screen observes this StateFlow through LiveViewModel instead of polling for a live status.
     private val _activeDeviceIds = MutableStateFlow<Set<Long>>(emptySet())
     /** Device ids that currently have an active recording (local or on the server). */
     val activeDeviceIds: StateFlow<Set<Long>> = _activeDeviceIds.asStateFlow()
@@ -83,13 +97,48 @@ class RtspStreamRecorder(
         _activeDeviceIds.value = (activeRecordings.keys + activeServerRecordings.keys).toSet()
     }
 
-    private data class ActiveRecordingJob(
+    /**
+     * A clip the phone is still writing. [triggers] and [deadlineMs] are mutable because a second trigger
+     * folds into the running clip rather than replacing it, and the capture loop reads how long it has left
+     * straight from [deadlineMs] so that fold can push the end out.
+     */
+    private class ActiveRecordingJob(
         val deviceId: Long,
-        val eventType: EventType,
         val startTimeMs: Long,
         val outputFile: File,
-        val job: Job
+        val job: Job,
+        val triggers: MutableTriggers,
+        val deadlineMs: AtomicLong
     )
+
+    /**
+     * The trigger tags of a clip that is still being recorded. One clip carries several because an event that
+     * arrives mid-clip is folded into it instead of stopping it (see [RtspStreamRecorder.startRecording]).
+     * [primary] is the tag the recording is filed under: the most significant trigger seen so far, so a
+     * doorbell pressed during a motion clip stays findable in the ring filter.
+     */
+    private class MutableTriggers(start: EventType) {
+        @Volatile
+        var primary: EventType = start
+            private set
+
+        private val folded = ConcurrentHashMap.newKeySet<EventType>()
+
+        /** Folds [incoming] in. False when the clip was already running under exactly that trigger. */
+        fun fold(incoming: EventType): Boolean {
+            if (incoming == primary) return false
+            if (incoming.significance > primary.significance) {
+                folded += primary
+                primary = incoming
+            } else {
+                folded += incoming
+            }
+            return true
+        }
+
+        /** The folded-in triggers in the stored comma-separated enum-name form. */
+        fun foldedCsv(): String = folded.sortedByDescending { it.significance }.joinToString(",")
+    }
 
     /**
      * The app's view of a recording the server is running. Kept deliberately thin: the server owns the job
@@ -107,8 +156,6 @@ class RtspStreamRecorder(
         val startedAtMs: Long
     )
 
-    fun isRecording(deviceId: Long): Boolean = deviceId in _activeDeviceIds.value
-
     /**
      * True only while the *phone's* capture loop polls the device's snapshot endpoint (not for
      * server-side recordings). Motion analysis backs off on this, because in PYTHON_SERVER mode the
@@ -119,6 +166,9 @@ class RtspStreamRecorder(
     /**
      * Start recording an RTSP/Snapshot video sequence for a given device and trigger event.
      * Evaluates whether to record via Python server or locally in-app (default).
+     *
+     * A clip that is already running on this device is never replaced: the new trigger is folded into it
+     * instead, because one recording per device is what the camera and the storage budget allow.
      */
     @Synchronized
     fun startRecording(
@@ -127,8 +177,15 @@ class RtspStreamRecorder(
         maxDurationSeconds: Int = 60,
         preRoll: List<PreRollFrame> = emptyList()
     ) {
-        if (isRecording(device.id)) {
-            Log.d(tag, "Device ${device.id} is already recording")
+        val running = activeRecordings[device.id]
+        if (running != null) {
+            foldIntoRunningClip(running, device, eventType, maxDurationSeconds)
+            return
+        }
+        if (activeServerRecordings.containsKey(device.id)) {
+            // The server owns that job's trigger and length, and its API offers no way to add a second tag to
+            // a running recording, so there is nothing to fold into.
+            Log.i(tag, "Device ${device.id} is recording on the server; a $eventType event adds no second job")
             return
         }
 
@@ -197,6 +254,33 @@ class RtspStreamRecorder(
         }
     }
 
+    /**
+     * Folds [eventType] into the clip already running on this device instead of starting a second one. The
+     * muxer is mid-file: stopping it to restart would drop the frame in flight plus the reconnect gap, which
+     * is exactly what a doorbell pressed during a motion recording used to cost. The clip takes the extra tag
+     * and is held open at least [maxDurationSeconds] longer, so the fold covers the event rather than only
+     * noting it.
+     */
+    private fun foldIntoRunningClip(
+        running: ActiveRecordingJob,
+        device: DeviceEntity,
+        eventType: EventType,
+        maxDurationSeconds: Int
+    ) {
+        if (!running.triggers.fold(eventType)) {
+            Log.d(tag, "Device ${device.id} is already recording a $eventType clip")
+            return
+        }
+        val wantedDeadlineMs = System.currentTimeMillis() + maxDurationSeconds * 1000L
+        running.deadlineMs.updateAndGet { current -> maxOf(current, wantedDeadlineMs) }
+        val secondsLeft = ((running.deadlineMs.get() - System.currentTimeMillis()) / 1000L).coerceAtLeast(0L)
+        Log.i(
+            tag,
+            "Folded $eventType into the running ${running.triggers.primary.name} clip on ${device.name}; " +
+                "it now records ${secondsLeft}s more and will be filed as ${running.triggers.primary.name}"
+        )
+    }
+
     private fun startLocalRecording(
         device: DeviceEntity,
         eventType: EventType,
@@ -213,10 +297,12 @@ class RtspStreamRecorder(
         Log.i(tag, "Starting local MKV recording for ${device.name} [${eventType.name}] -> ${outputFile.name}")
 
         val firstFrameRef = AtomicReference<ByteArray?>(null)
+        val triggers = MutableTriggers(eventType)
+        val deadlineMs = AtomicLong(System.currentTimeMillis() + maxDurationSeconds * 1000L)
         val job = scope.launch {
             try {
                 // Recording capture loop: captures snapshot frames / MJPEG stream chunks into crash-safe MKV
-                recordStreamToMkv(device, outputFile, maxDurationSeconds, firstFrameRef, startTime, preRoll)
+                recordStreamToMkv(device, outputFile, deadlineMs, firstFrameRef, startTime, preRoll)
             } catch (_: CancellationException) {
                 Log.d(tag, "Recording cancelled/stopped normally for ${device.name}")
             } catch (e: Exception) {
@@ -227,17 +313,18 @@ class RtspStreamRecorder(
                 // abort those suspends and silently lose the whole recording — run it NonCancellable
                 // so stopping early still commits the recording like a natural timeout does.
                 withContext(NonCancellable) {
-                    finalizeRecording(device, eventType, startTime, outputFile, firstFrameRef.get())
+                    finalizeRecording(device, triggers, startTime, outputFile, firstFrameRef.get())
                 }
             }
         }
 
         activeRecordings[device.id] = ActiveRecordingJob(
             deviceId = device.id,
-            eventType = eventType,
             startTimeMs = startTime,
             outputFile = outputFile,
-            job = job
+            job = job,
+            triggers = triggers,
+            deadlineMs = deadlineMs
         )
         publishActiveIds()
     }
@@ -255,8 +342,8 @@ class RtspStreamRecorder(
         val active = activeRecordings[deviceId]
         when {
             active == null -> Unit
-            reason != null && active.eventType != reason ->
-                Log.i(tag, "Ignoring $reason post-record stop for device $deviceId: active recording is ${active.eventType}")
+            reason != null && active.triggers.primary != reason ->
+                Log.i(tag, "Ignoring $reason post-record stop for device $deviceId: active recording is ${active.triggers.primary.name}")
             else -> {
                 Log.i(tag, "Stopping active local recording for device $deviceId")
                 activeRecordings.remove(deviceId)
@@ -437,16 +524,18 @@ class RtspStreamRecorder(
      * Deliberately NO re-encoding during capture (keeps the 24/7 monitor cheap on CPU/battery).
      * In-app playback uses a dedicated JPEG frame player (JpegFramePlayer), and an H.264
      * transcode is produced lazily only when the user exports/shares (see [ExportTranscoder]).
+     *
+     * [deadlineMs] is read every frame rather than resolved once, so a trigger folded into this clip while
+     * it runs can extend it and actually get recorded.
      */
     private suspend fun recordStreamToMkv(
         device: DeviceEntity,
         outputFile: File,
-        maxDurationSeconds: Int,
+        deadlineMs: AtomicLong,
         firstFrameRef: AtomicReference<ByteArray?>,
         baselineMs: Long,
         preRoll: List<PreRollFrame>
     ) = withContext(Dispatchers.IO) {
-        val deadline = System.currentTimeMillis() + (maxDurationSeconds * 1000L)
         val fps = device.effectiveSnapshotFps
 
         MkvStreamMuxer(outputFile).use { muxer ->
@@ -469,7 +558,7 @@ class RtspStreamRecorder(
                 val mjpegReader = MjpegStreamReader()
                 try {
                     mjpegReader.streamRawJpeg(device).collect { jpegBytes ->
-                        if (!isActive || System.currentTimeMillis() >= deadline) return@collect
+                        if (!isActive || System.currentTimeMillis() >= deadlineMs.get()) return@collect
                         handleLiveFrame(jpegBytes, System.currentTimeMillis())
                     }
                 } catch (e: Exception) {
@@ -489,7 +578,7 @@ class RtspStreamRecorder(
             // so a recording that never gets a frame is not confused with a short quiet one.
             var reportedQuality = HttpSnapshotClient.snapshotQuality(device.id)
             var framesWritten = 0
-            while (isActive && System.currentTimeMillis() < deadline) {
+            while (isActive && System.currentTimeMillis() < deadlineMs.get()) {
                 nextFrameAt += frameIntervalMs
                 val frameBytes = HttpSnapshotClient.fetchSnapshotBytes(device)
                 if (frameBytes != null && frameBytes.isNotEmpty()) {
@@ -531,7 +620,7 @@ class RtspStreamRecorder(
 
     private suspend fun finalizeRecording(
         device: DeviceEntity,
-        eventType: EventType,
+        triggers: MutableTriggers,
         startTimeMs: Long,
         outputFile: File,
         firstFrameJpeg: ByteArray?
@@ -550,7 +639,8 @@ class RtspStreamRecorder(
             val recording = RecordingEntity(
                 deviceId = device.id,
                 deviceName = device.name,
-                eventType = eventType,
+                eventType = triggers.primary,
+                alsoEventTypes = triggers.foldedCsv(),
                 timestamp = startTimeMs,
                 durationSeconds = durationSec,
                 filePath = outputFile.absolutePath,

@@ -193,23 +193,27 @@ private fun RowScope.RecordingDetails(item: GalleryItem, dateStr: String, sizeSt
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            val badgeColor = when (item.eventType) {
-                EventType.RING -> Color(0xFFFF9800)
-                EventType.MOTION -> Color(0xFF0288D1)
-                EventType.NOISE -> Color(0xFF8E24AA)
-                EventType.MANUAL -> Color(0xFF43A047)
-            }
-            Surface(
-                shape = RoundedCornerShape(4.dp),
-                color = badgeColor
-            ) {
-                Text(
-                    text = item.eventType.name,
-                    color = Color.White,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                )
+            // One badge per trigger the clip covers: a doorbell pressed during a motion recording is the same
+            // file, so it shows as RING MOTION rather than hiding one of the two events.
+            item.eventTypes.forEach { type ->
+                val badgeColor = when (type) {
+                    EventType.RING -> Color(0xFFFF9800)
+                    EventType.MOTION -> Color(0xFF0288D1)
+                    EventType.NOISE -> Color(0xFF8E24AA)
+                    EventType.MANUAL -> Color(0xFF43A047)
+                }
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = badgeColor
+                ) {
+                    Text(
+                        text = type.name,
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                    )
+                }
             }
 
             Text(

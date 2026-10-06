@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
         AppSettingsEntity::class,
         ActiveServerRecordingEntity::class
     ],
-    version = 14,
+    version = 15,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -167,6 +167,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v14 -> v15: the second trigger of a clip that covered two of them. A doorbell press during a running
+        // recording is folded into that recording instead of stopping it, so existing rows simply stay
+        // single-tagged and keep every filter's original answer.
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE recordings ADD COLUMN alsoEventTypes TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -177,7 +188,8 @@ abstract class AppDatabase : RoomDatabase() {
                     .fallbackToDestructiveMigration(false)
                     .addMigrations(
                         MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
-                        MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14
+                        MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
+                        MIGRATION_14_15
                     )
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

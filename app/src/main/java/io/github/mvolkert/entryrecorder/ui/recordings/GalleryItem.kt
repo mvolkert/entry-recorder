@@ -1,6 +1,7 @@
 package io.github.mvolkert.entryrecorder.ui.recordings
 
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import io.github.mvolkert.entryrecorder.data.local.entity.triggerTypes
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingDto
 
@@ -21,6 +22,11 @@ sealed interface GalleryItem {
     val timestamp: Long
     val deviceName: String
     val eventType: EventType
+    /**
+     * Every trigger this row's footage covers, the filed one first. A clip keeps recording when a second
+     * trigger arrives, so one file can legitimately be both a motion and a ring recording.
+     */
+    val eventTypes: List<EventType>
     val durationSeconds: Long
     val sizeBytes: Long
 
@@ -29,6 +35,7 @@ sealed interface GalleryItem {
         override val timestamp: Long get() = entity.timestamp
         override val deviceName: String get() = entity.deviceName
         override val eventType: EventType get() = entity.eventType
+        override val eventTypes: List<EventType> get() = entity.triggerTypes
         override val durationSeconds: Long get() = entity.durationSeconds
         override val sizeBytes: Long get() = entity.fileSizeBytes
     }
@@ -49,6 +56,7 @@ sealed interface GalleryItem {
         override val deviceName: String get() = dto.deviceName
         override val eventType: EventType
             get() = runCatching { EventType.valueOf(dto.eventType) }.getOrDefault(EventType.MANUAL)
+        override val eventTypes: List<EventType> get() = listOf(eventType)
         override val durationSeconds: Long get() = dto.durationSeconds.toLong()
         override val sizeBytes: Long get() = dto.fileSizeBytes
     }
