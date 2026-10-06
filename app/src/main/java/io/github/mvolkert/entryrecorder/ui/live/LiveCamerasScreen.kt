@@ -126,6 +126,7 @@ fun LiveCamerasScreen(
                                 "${settings.serverBaseUrl.trimEnd('/')}/api/live/${device.serverDeviceId}/mjpeg"
                             else null
                         LiveDeviceCard(
+                            modifier = Modifier.animateItem(),
                             device = device,
                             isRecording = isRecording,
                             isMonitored = device.isEnabled,
@@ -159,10 +160,11 @@ fun LiveDeviceCard(
     serverLiveUrl: String?,
     serverApiKey: String?,
     onToggleRecord: () -> Unit,
-    onToggleMonitor: () -> Unit
+    onToggleMonitor: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {

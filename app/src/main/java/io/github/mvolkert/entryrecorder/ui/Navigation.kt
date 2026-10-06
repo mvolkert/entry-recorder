@@ -2,6 +2,10 @@ package io.github.mvolkert.entryrecorder.ui
 
 import androidx.annotation.StringRes
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,6 +21,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.IntOffset
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -53,6 +58,9 @@ private const val ARG_DEVICE_ID = "deviceId"
 @Composable
 fun AppNavHost(settingsViewModel: SettingsViewModel) {
     val navController = rememberNavController()
+    // NavHost transition lambdas are not @Composable, so the seam is resolved here and captured.
+    val slideSpec = MaterialTheme.appMotionScheme.defaultSpatialSpec<IntOffset>()
+    val fadeSpec = MaterialTheme.appMotionScheme.defaultEffectsSpec<Float>()
     NavHost(navController = navController, startDestination = ROUTE_MAIN) {
         composable(ROUTE_MAIN) {
             MainAppScaffold(
@@ -63,7 +71,25 @@ fun AppNavHost(settingsViewModel: SettingsViewModel) {
         }
         composable(
             route = ROUTE_DEVICE_EDIT,
-            arguments = listOf(navArgument(ARG_DEVICE_ID) { type = NavType.LongType })
+            arguments = listOf(navArgument(ARG_DEVICE_ID) { type = NavType.LongType }),
+            // M3 shared-axis X: the form is a peer screen, not a dialog, so it enters from the
+            // leading edge and reverses on pop.
+            enterTransition = {
+                slideInHorizontally(animationSpec = slideSpec, initialOffsetX = { it / 4 }) +
+                    fadeIn(animationSpec = fadeSpec)
+            },
+            exitTransition = {
+                slideOutHorizontally(animationSpec = slideSpec, targetOffsetX = { -it / 4 }) +
+                    fadeOut(animationSpec = fadeSpec)
+            },
+            popEnterTransition = {
+                slideInHorizontally(animationSpec = slideSpec, initialOffsetX = { -it / 4 }) +
+                    fadeIn(animationSpec = fadeSpec)
+            },
+            popExitTransition = {
+                slideOutHorizontally(animationSpec = slideSpec, targetOffsetX = { it / 4 }) +
+                    fadeOut(animationSpec = fadeSpec)
+            },
         ) { entry ->
             val deviceId = entry.arguments?.getLong(ARG_DEVICE_ID) ?: NEW_DEVICE_ID
             DeviceEditScreen(

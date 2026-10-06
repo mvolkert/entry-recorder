@@ -162,6 +162,7 @@ fun RecordingsScreen(
                 ) {
                     items(state.items, key = { it.stableKey }) { item ->
                         RecordingCardItem(
+                            modifier = Modifier.animateItem(),
                             item = item,
                             selectionMode = selectionMode,
                             selected = item is GalleryItem.Local && item.entity.id in selectedIds,

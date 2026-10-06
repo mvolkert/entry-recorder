@@ -139,6 +139,7 @@ fun SettingsScreen(
             } else {
                 items(state.devices, key = { it.id }) { device ->
                     DeviceCard(
+                        modifier = Modifier.animateItem(),
                         device = device,
                         eventQuality = state.eventQualities[device.id],
                         snapshotQuality = state.snapshotQualities[device.id],

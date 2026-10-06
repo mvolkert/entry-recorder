@@ -40,6 +40,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.model.EventType
+import io.github.mvolkert.entryrecorder.ui.theme.appMotionScheme
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -82,7 +84,8 @@ internal fun RecordingCardItem(
     onToggleProtect: () -> Unit,
     onShare: () -> Unit,
     onExportGallery: () -> Unit,
-    onExportFolder: () -> Unit
+    onExportFolder: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val locale = LocalConfiguration.current.locales[0]
@@ -90,21 +93,23 @@ internal fun RecordingCardItem(
     val sizeStr = Formatter.formatFileSize(context, item.sizeBytes)
     val isRemote = item is GalleryItem.Remote
     val entity = (item as? GalleryItem.Local)?.entity
+    val selectedContainer = MaterialTheme.colorScheme.secondaryContainer
+    val restingContainer = MaterialTheme.colorScheme.surface
+    val containerColor by animateColorAsState(
+        targetValue = if (selected && !isRemote) selectedContainer else restingContainer,
+        animationSpec = MaterialTheme.appMotionScheme.defaultEffectsSpec(),
+        label = "recordingCardContainer",
+    )
 
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .combinedClickable(
                 onClick = { if (selectionMode && !isRemote) onSelectToggle() else onPlay() }
             ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected && !isRemote)
-                MaterialTheme.colorScheme.secondaryContainer
-            else
-                MaterialTheme.colorScheme.surface
-        )
+        colors = CardDefaults.cardColors(containerColor = containerColor)
     ) {
         Row(
             modifier = Modifier
