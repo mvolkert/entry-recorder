@@ -48,14 +48,34 @@ Legend: `[x]` done · `[~]` partial / needs validation · `[ ]` open · 🔄 on-
       to call) only drops entries from the config — per the SDK it is `removeProxyConfig()` that sends the
       unregister REGISTER — and `destroy()` did a bare `core.stop()`, so stopping monitoring left the phone's
       binding on the PBX until expiry while `initialize()` went on to build a **second core over the same port**.
-      Done: one `unregisterAndClearAuth(core)` helper, called before every reconfiguration and in `destroy()`.
+      Done: one `unregisterAndClearAuth(core)` helper (remove every proxy config, then clear the auth infos)
+      called before the live core is reconfigured.
       Two lifecycle rules the probe was violating and now follows, both from the SDK's own docs: build/start/stop a
       core on the **main thread** (liblinphone schedules `iterate()` there and "our API isn't thread-safe"), and
       never treat `stop()` as a synchronous release — which is why the probe holds a `Mutex`, rotates ports, and
       tears down under `NonCancellable` so a screen left mid-test cannot strand a core. Debug builds now get
       Linphone's logcat output (`FLAG_DEBUGGABLE` instead of a hardcoded `false`), so a SIP failure is legible
-      without a second phone. Verified so far: compile + lint only, and this one changed the path that carries the
-      working doorbell ring → Phase G gate.
+      without a second phone.
+- [x] **…and that first attempt crashed the app on the Test tap, fixed the same day.** The crash was native, not a
+      Java exception: `SIGSEGV / null pointer dereference` at `pthread_mutex_lock` ←
+      `belle_sip_main_loop_add_source` ← `Account::triggerUpdate()` ← `Account::setState()` ←
+      `SalRegisterOp::registerRefresherListener()` ← `linphone_core_iterate()` on the main thread. The logcat
+      immediately before it names the mechanism: `notified [account_registration_state_changed]`, one millisecond
+      later `Callbacks … unregistered` + `Switching LinphoneCore … On to Shutdown`, then
+      `belle_sip_main_loop_run(): reentrancy detected, doing nothing`. **The teardown was running inside
+      liblinphone's own registration callback**: `Main.immediate` resumes the waiting probe synchronously from
+      `registration.complete()`, so `stop()` destroyed the belle-sip stack underneath `Account::setState`, which
+      still had work to do after notifying the listeners — its next main-loop call took a null pointer.
+      Two changes, both required: the probe's `finally` hands off to a plain `Dispatchers.Main` message, which
+      queues *behind* the running `iterate()` instead of nesting inside it, and the teardown is `removeListener`
+      + `stop()` only — `removeProxyConfig()` frees the `Account` a registration state change reports to, so
+      account deletion stays where it belongs, on the live core that keeps running. The first version of this fix
+      blamed the account deletion alone and still crashed three times; `stop()` on the main thread is not enough
+      when the main thread is the callback's caller. **Device-verified 2026-10-07**: two consecutive Test taps
+      answered `Registered` (`SIP probe on … answered Registered(…)`, the line that had never printed before), on
+      local ports 5091 then 5092 with two different accounts, each probe core reaching `Core released` ~4 ms after
+      `registration state: Ok` — the hand-off, not the callback stack, now performs the teardown. No `Fatal
+      signal 11` since. What still carries the working doorbell ring → Phase G gate.
       Files: `sip/SipCallManager.kt`, `sip/SipCallTiming.kt`, `ui/settings/DeviceFormTestSection.kt`,
       `res/values/strings.xml`
 - [x] **The call screen no longer zooms a landscape camera frame.** `LiveStreamPlayer`'s bitmap renderer used
@@ -502,19 +522,29 @@ Compile-green ≠ done; run on the owner's real hardware before closing.
       INVITE is today's sole ring path. If no INVITE reaches the phone the ring gap stays open.
 - [ ] 🔄 **The SIP registration test button tells the truth.** `Test SIP Registration` must answer `Registered`
       against the Fritz!Box with the real account and `Rejected` (not `NoAnswer`) when the SIP password is
-      deliberately wrong — that distinction is the whole feature. Then run it **while monitoring is active** and
+      deliberately wrong — that distinction is the whole feature. **Confirmed part:** two taps in a row returned
+      `Registered` for two different accounts (no timeout on the repeat, no crash). **Still open:** then run it
+      **while monitoring is active** and
       press the doorbell once: the ring still has to reach the phone, i.e. the probe's second REGISTER did not
       take the live binding for good. Also confirm the probe leaves an in-progress call alone (it opens no audio
       device on purpose) and that `lintDebug`/`compileDebugKotlin` were green on a real device, not just here.
-      **Press it twice in a row** — the repeat attempt was the reported bug (a timeout no matter what was typed),
-      and if it still fails, read the `(last state: …)` suffix: `nothing was sent` is local (port/transport),
+      If it ever fails, read the `(last state: …)` suffix: `nothing was sent` is local (port/transport),
       `Progress` means the Fritz!Box received it and ignored the probe.
+      **Press it three or four times** — the crash this came back with was a native `SIGSEGV` a moment after a
+      probe answered, so a tap that shows a result and then kills the app is the same bug, not a new one. Its
+      fingerprint in logcat is `registration state: Ok` followed ~50 ms later by a `Fatal signal 11` **and no
+      `SIP probe on … answered` line**: the probe died in its own teardown. Both crash rounds reproduced that
+      exact shape, so if `answered` appears, the teardown is no longer the problem.
       Verified so far: compile + lint only. Files: `sip/SipCallManager.kt`, `ui/settings/DeviceFormTestSection.kt`
 - [ ] 🔄 **A credential change withdraws the old registration.** Edit the SIP password and save; debug builds now
       print Linphone's signalling, so logcat should show an unregister REGISTER for the retired account followed by
       exactly one successful registration for the new one — never a refresh loop against the old password. Then
-      stop monitoring from the notification, start it again and press the doorbell: the ring proving the second
-      core got its port back. Files: `sip/SipCallManager.kt`, `service/IntercomMonitorService.kt`
+      stop monitoring from the notification, start it again and press the doorbell: `destroy()` deliberately only
+      calls `stop()` — shutting a core down is the SDK's own unregister — so this is the gate for the assumption
+      that it withdraws the registrations and eventually frees the port. If the ring is dead after a
+      restart, that assumption is wrong and the teardown needs a different primitive — do not solve it by putting
+      `removeProxyConfig` back before `stop()`, and never call either primitive from inside a core callback.
+      Files: `sip/SipCallManager.kt`, `service/IntercomMonitorService.kt`
 - [ ] 🔄 One doorbell press produces exactly one notification (look for `Duplicate ring on …, ignoring`); a call
       the intercom hangs up closes its full-screen view by itself (`ENDED` branch).
 - [ ] 🔄 A doorbell press no longer truncates a longer recording under 20 s (post-record stop is event-type-aware).

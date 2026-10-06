@@ -267,6 +267,9 @@ class SipCallManager private constructor(private val app: Application) {
      * Withdraws every registration on [sipCore] and forgets its credentials. Only `removeProxyConfig` makes
      * liblinphone send the unregister REGISTER - `clearProxyConfig` merely drops the entries from the config -
      * so without this a retired account stays bound on the PBX until its expiry.
+     *
+     * For a core that stays running (the monitor's, being reconfigured) only: it frees each removed Account, so
+     * it has no place in a teardown that is already forbidden from running inside a core callback.
      */
     private fun unregisterAndClearAuth(sipCore: Core) {
         sipCore.proxyConfigList.toList().forEach { proxy -> sipCore.removeProxyConfig(proxy) }
@@ -303,6 +306,9 @@ class SipCallManager private constructor(private val app: Application) {
      * Serialised by [probeLock] and rotating through [SipCallTiming.probeLocalPort]: a stopped core hands its
      * socket back only once the wrapper releases the native object, so a second probe that reused the same port
      * could find it bound, send nothing, and report a timeout that has nothing to do with the credentials.
+     *
+     * The answer is reported, then the core is shut down on a later main loop message; see the teardown below
+     * for why stopping it from inside the registration callback kills the process.
      */
     suspend fun probeRegistration(device: DeviceEntity): SipProbeResult = probeLock.withLock {
         if (device.sipMode != SipMode.PBX_REGISTRAR) {
@@ -371,11 +377,21 @@ class SipCallManager private constructor(private val app: Application) {
                 Log.e(tag, "SIP probe on $server could not run", e)
                 SipProbeResult.Rejected("LocalError", e.localizedMessage ?: e.javaClass.simpleName)
             } finally {
-                // NonCancellable: leaving the screen cancels the caller, and a probe left running keeps both
-                // its registration on the PBX and its port bound on the phone.
-                withContext(NonCancellable + Dispatchers.Main.immediate) {
+                // NonCancellable: leaving the screen cancels the caller, and a probe left running keeps its
+                // port bound on the phone.
+                //
+                // Dispatchers.Main and NOT Main.immediate on purpose. A successful probe resumes here as the
+                // direct continuation of onRegistrationStateChanged, which liblinphone calls from inside
+                // Account::setState while it is dispatching the REGISTER answer. Main.immediate would keep
+                // that stack alive and stop() would tear down the belle-sip stack underneath the caller that
+                // still has work left after the notification - its next belle_sip_main_loop_add_source() then
+                // runs on a null main loop and the process dies with SIGSEGV ("reentrancy detected" right
+                // before the crash is the fingerprint). A plain Main dispatch queues behind the running
+                // iterate() message instead of nesting inside it.
+                withContext(NonCancellable + Dispatchers.Main) {
                     probe.removeListener(listener)
-                    unregisterAndClearAuth(probe)
+                    // stop() and nothing else: shutting the core down is the SDK's own graceful unregister.
+                    // Deleting the proxy config first frees the Account the registration state change reports to.
                     probe.stop()
                 }
             }
@@ -449,7 +465,11 @@ class SipCallManager private constructor(private val app: Application) {
         }
     }
 
-    /** Stops the monitor's core. Must stay on the main thread; its only caller is the service's onDestroy(). */
+    /**
+     * Stops the monitor's core. Must stay on the main thread; its only caller is the service's onDestroy(), which
+     * is its own main loop message - a core callback would forbid tearing the core down from inside the
+     * notification, see the probe's teardown.
+     */
     fun destroy() {
         try {
             onIncomingCall = null
@@ -457,10 +477,10 @@ class SipCallManager private constructor(private val app: Application) {
             // The manager scope is intentionally not cancelled: this is a process singleton that a restarted
             // monitor service reuses, and a cancelled scope would silently drop the ENDED -> IDLE reset.
             core?.let { c ->
-                // Withdraw the registrations first: stop() alone leaves this phone's binding on the PBX until
-                // the registration expires, while initialize() would go on to build a second core for the
-                // same account after a monitoring restart inside this process.
-                unregisterAndClearAuth(c)
+                // stop() and nothing else: shutting a core down is liblinphone's own unregister, so the
+                // registrations this core made are withdrawn with it. removeProxyConfig() here would only
+                // duplicate that work while risking the Account being freed under an in-flight answer.
+                c.removeListener(coreListener)
                 c.stop()
             }
             core = null
