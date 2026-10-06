@@ -293,7 +293,10 @@ fun LiveStreamPlayer(
                 Image(
                     bitmap = bmp.asImageBitmap(),
                     contentDescription = stringResource(R.string.player_cd_live_feed),
-                    contentScale = ContentScale.Crop,
+                    // Fit, matching the RTSP `PlayerView` above (whose default resize mode is fit): a
+                    // landscape camera frame in this portrait container would otherwise be scaled until it
+                    // covered the screen, discarding most of the scene as zoom.
+                    contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize()
                 )
             }
