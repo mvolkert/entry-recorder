@@ -3,7 +3,6 @@ package io.github.mvolkert.entryrecorder.ui.components
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -11,6 +10,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -83,14 +83,14 @@ fun JpegFramePlayer(
     }
     val currentMs = refs.getOrNull(index)?.let { it.timestampMs - refs.first().timestampMs } ?: 0L
 
-    Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.9f))) {
+    Box(modifier = modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.9f))) {
         val img = frame
         if (refs.isEmpty()) {
             Text(
                 text = stringResource(
                     if (file.exists()) R.string.player_no_frames else R.string.player_file_not_found
                 ),
-                color = androidx.compose.ui.graphics.Color.White,
+                color = Color.White,
                 modifier = Modifier.align(Alignment.Center)
             )
         } else if (img != null) {
@@ -104,14 +104,12 @@ fun JpegFramePlayer(
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         }
 
-        // Transport controls
-        Surface(
+        // Transport controls: timestamps row above an edge-to-edge timeline, flush to the bottom.
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(12.dp)
-                .fillMaxWidth(),
-            color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f),
-            shape = RoundedCornerShape(12.dp)
+                .fillMaxWidth()
+                .background(Color.Black.copy(alpha = 0.55f))
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -121,26 +119,40 @@ fun JpegFramePlayer(
                     Icon(
                         imageVector = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = stringResource(if (playing) R.string.player_cd_pause else R.string.player_cd_play),
-                        tint = androidx.compose.ui.graphics.Color.White
+                        tint = Color.White
                     )
                 }
-                Slider(
-                    value = if (refs.size <= 1) 0f else index.toFloat(),
-                    onValueChange = { playing = false; index = it.toInt() },
-                    valueRange = 0f..(refs.size - 1).coerceAtLeast(1).toFloat(),
-                    modifier = Modifier.weight(1f)
-                )
                 Text(
                     text = pluralStringResource(
                         R.plurals.player_time_frames, refs.size,
                         currentMs / 1000, totalMs / 1000, index + 1, refs.size
                     ),
-                    color = androidx.compose.ui.graphics.Color.White,
+                    color = Color.White,
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(start = 4.dp, end = 4.dp)
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 8.dp)
                 )
             }
+            val accent = MaterialTheme.colorScheme.primary
+            Slider(
+                value = if (refs.size <= 1) 0f else index.toFloat(),
+                onValueChange = { playing = false; index = it.toInt() },
+                valueRange = 0f..(refs.size - 1).coerceAtLeast(1).toFloat(),
+                colors = SliderDefaults.colors(
+                    thumbColor = accent,
+                    activeTrackColor = accent,
+                    inactiveTrackColor = accent.copy(alpha = 0.32f),
+                    disabledThumbColor = accent.copy(alpha = 0.38f),
+                    disabledActiveTrackColor = accent.copy(alpha = 0.38f),
+                    disabledInactiveTrackColor = accent.copy(alpha = 0.12f)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // One thumb footprint of clearance so the 44dp-tall M3 handle never sits flush to the screen edge.
+                    .padding(horizontal = 24.dp, vertical = 8.dp)
+            )
         }
     }
 }
