@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.R
 
 /** Sentinel device id for "creating a new device" (no existing row matches it). */
@@ -56,6 +57,10 @@ fun DeviceEditScreen(
         else state.devices.firstOrNull { it.id == deviceId }
         DeviceFormState(initial, resources.getString(R.string.device_default_name))
     }
+
+    // The app-scoped SIP singleton, reached the same way the call screen does. Touching it here only
+    // resolves the lazy holder; no Linphone core is created until monitoring or a probe starts one.
+    val sipCallManager = (context.applicationContext as EntryRecorderApp).sipCallManager
 
     val save = {
         if (!form.isValid) {
@@ -123,7 +128,7 @@ fun DeviceEditScreen(
 
             DeviceFormDurationsSection(form)
 
-            DeviceFormTestSection(form)
+            DeviceFormTestSection(form, sipCallManager)
 
             // Bottom breathing room so the last field clears the navigation gesture area.
             Text(

@@ -12,7 +12,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.model.DeviceType
@@ -97,12 +96,11 @@ internal fun DeviceFormNetworkSection(form: DeviceFormState) {
             label = { Text(stringResource(R.string.device_username)) },
             modifier = Modifier.weight(1f)
         )
-        OutlinedTextField(
+        PasswordTextField(
             value = form.password,
             onValueChange = { form.password = it },
-            label = { Text(stringResource(R.string.device_password)) },
-            modifier = Modifier.weight(1f),
-            visualTransformation = PasswordVisualTransformation()
+            label = stringResource(R.string.device_password),
+            modifier = Modifier.weight(1f)
         )
     }
 }

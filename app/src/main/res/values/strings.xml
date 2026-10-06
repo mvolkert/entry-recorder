@@ -240,6 +240,8 @@
     <string name="device_sip_pbx_host">PBX Host (e.g. 192.168.1.1 or fritz.box)</string>
     <string name="device_sip_user">SIP User</string>
     <string name="device_sip_password">SIP Password</string>
+    <string name="device_show_password">Show password</string>
+    <string name="device_hide_password">Hide password</string>
     <string name="device_triggers_section">Recording Triggers</string>
     <string name="device_trigger_ring">Record on Doorbell Ring</string>
     <string name="device_trigger_ring_hint">Reported by the camera; unavailable on generic cameras or when its event stream is down</string>
@@ -265,6 +267,14 @@
     <string name="device_test_connection">Test Connection to 2N IP Verso</string>
     <string name="device_test_success">Connection Successful!</string>
     <string name="device_test_failed">Failed: %1$s</string>
+    <string name="device_sip_test_button">Test SIP Registration</string>
+    <string name="device_sip_test_success">Registered with %1$s</string>
+    <string name="device_sip_test_failed">Rejected: %1$s</string>
+    <string name="device_sip_test_no_answer">No answer from %1$s within %2$d s</string>
+    <string name="device_sip_test_missing_calling_mode">Choose “SIP PBX Server” as the calling mode first</string>
+    <string name="device_sip_test_missing_pbx_host">Enter the PBX host first</string>
+    <string name="device_sip_test_missing_sip_user">Enter the SIP user first</string>
+    <string name="device_sip_test_monitoring_caution">Monitoring is already registered with this account. The test registers it a second time, which can move the live binding to the test and drop one ring.</string>
     <string name="device_save">Save Device</string>
     <string name="device_edit_back">Back</string>
     <string name="device_edit_footer_hint">Changes are saved with \"Save Device\" at the top.</string>

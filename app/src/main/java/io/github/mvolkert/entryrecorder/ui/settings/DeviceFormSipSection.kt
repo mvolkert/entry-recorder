@@ -9,7 +9,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.model.SipMode
@@ -47,12 +46,11 @@ internal fun DeviceFormSipSection(form: DeviceFormState) {
                 label = { Text(stringResource(R.string.device_sip_user)) },
                 modifier = Modifier.weight(1f)
             )
-            OutlinedTextField(
+            PasswordTextField(
                 value = form.sipPassword,
                 onValueChange = { form.sipPassword = it },
-                label = { Text(stringResource(R.string.device_sip_password)) },
-                modifier = Modifier.weight(1f),
-                visualTransformation = PasswordVisualTransformation()
+                label = stringResource(R.string.device_sip_password),
+                modifier = Modifier.weight(1f)
             )
         }
     }

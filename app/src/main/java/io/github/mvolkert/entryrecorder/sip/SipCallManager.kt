@@ -8,6 +8,8 @@ import android.os.Build
 import android.util.Log
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.SipMode
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -17,6 +19,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.linphone.core.*
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -37,6 +41,27 @@ data class SipSessionState(
     val rawCallState: String? = null
 )
 
+/** Which input [SipCallManager.probeRegistration] needs before it can ask a registrar anything. */
+enum class SipMissingField { CALLING_MODE, PBX_HOST, SIP_USER }
+
+/**
+ * Outcome of a one-shot registration attempt, delivered as data so the device form can show it instead of
+ * making the user read logcat.
+ */
+sealed interface SipProbeResult {
+    /** The registrar accepted the credentials. */
+    data class Registered(val server: String) : SipProbeResult
+
+    /** It answered no — wrong password, unknown user, refused transport. */
+    data class Rejected(val state: String, val reason: String) : SipProbeResult
+
+    /** The registrar never answered inside [SipCallTiming.SIP_PROBE_TIMEOUT_MS]. */
+    data class NoAnswer(val server: String) : SipProbeResult
+
+    /** Nothing was sent: the form is not ready to be tested yet. */
+    data class MissingFields(val field: SipMissingField) : SipProbeResult
+}
+
 // Holds Application (not an arbitrary Context) so the process-lifetime singleton in the
 // companion never retains an Activity/Service — this is what clears the StaticFieldLeak warning.
 class SipCallManager private constructor(private val app: Application) {
@@ -50,6 +75,12 @@ class SipCallManager private constructor(private val app: Application) {
 
     private val _sessionState = MutableStateFlow(SipSessionState())
     val sessionState: StateFlow<SipSessionState> = _sessionState.asStateFlow()
+
+    /**
+     * True while the monitor's core exists, i.e. while a live registration is in place that a registration
+     * probe would duplicate for the same account. The device form warns on that.
+     */
+    val hasActiveCore: Boolean get() = core != null
 
     /**
      * Invoked when the intercom actually rings this phone (SIP INVITE received), with the remote host and
@@ -190,34 +221,113 @@ class SipCallManager private constructor(private val app: Application) {
             }
             SipMode.PBX_REGISTRAR -> {
                 val host = device.sipServerHost ?: return
-                val port = device.sipServerPort ?: 5060
                 val user = device.sipUser ?: return
-                val pwd = device.sipPassword ?: ""
-
-                Log.i(tag, "Configuring SIP PBX Registrar: user=$user server=$host:$port")
-                val factory = Factory.instance()
-
-                // Auth Info
-                val authInfo = factory.createAuthInfo(user, null, pwd, null, null, host)
-                c.addAuthInfo(authInfo)
-
-                // Account / Proxy Config
-                val identity = "sip:$user@$host"
-                val proxyServer = "sip:$host:$port"
-
-                val proxyConfig = c.createProxyConfig()
-                proxyConfig.edit()
-                proxyConfig.identityAddress = factory.createAddress(identity)
-                proxyConfig.serverAddr = proxyServer
-                proxyConfig.isRegisterEnabled = true
-                proxyConfig.done()
-
-                c.addProxyConfig(proxyConfig)
-                c.defaultProxyConfig = proxyConfig
+                applyPbxRegistrar(
+                    sipCore = c,
+                    host = host,
+                    port = device.sipServerPort ?: DEFAULT_SIP_PORT,
+                    user = user,
+                    password = device.sipPassword ?: ""
+                )
             }
             SipMode.DISABLED -> {
                 c.clearProxyConfig()
             }
+        }
+    }
+
+    /**
+     * Points [sipCore] at a PBX registrar: credentials, identity and a register-enabled proxy config. One
+     * implementation shared by the live path and [probeRegistration], so a registration that tests green
+     * cannot then silently behave differently once saved.
+     */
+    private fun applyPbxRegistrar(sipCore: Core, host: String, port: Int, user: String, password: String) {
+        Log.i(tag, "Configuring SIP PBX Registrar: user=$user server=$host:$port")
+        val factory = Factory.instance()
+
+        sipCore.addAuthInfo(factory.createAuthInfo(user, null, password, null, null, host))
+
+        val proxyConfig = sipCore.createProxyConfig()
+        proxyConfig.edit()
+        proxyConfig.identityAddress = factory.createAddress("sip:$user@$host")
+        proxyConfig.serverAddr = "sip:$host:$port"
+        proxyConfig.isRegisterEnabled = true
+        proxyConfig.done()
+
+        sipCore.addProxyConfig(proxyConfig)
+        sipCore.defaultProxyConfig = proxyConfig
+    }
+
+    /**
+     * Asks a PBX registrar whether the credentials as typed would work, on a **throw-away core**: the
+     * monitor's live registration, its proxy configs and the audio routing are never touched, and nothing is
+     * written to Room. The answer arrives as [SipProbeResult] instead of logcat.
+     *
+     * Concurrent probes are not guarded here — the device form's disabled button is what serialises them.
+     */
+    suspend fun probeRegistration(device: DeviceEntity): SipProbeResult = withContext(Dispatchers.IO) {
+        if (device.sipMode != SipMode.PBX_REGISTRAR) {
+            return@withContext SipProbeResult.MissingFields(SipMissingField.CALLING_MODE)
+        }
+        val host = device.sipServerHost?.takeIf { it.isNotBlank() }
+            ?: return@withContext SipProbeResult.MissingFields(SipMissingField.PBX_HOST)
+        val user = device.sipUser?.takeIf { it.isNotBlank() }
+            ?: return@withContext SipProbeResult.MissingFields(SipMissingField.SIP_USER)
+
+        val port = device.sipServerPort ?: DEFAULT_SIP_PORT
+        val server = "$host:$port"
+        val probe = Factory.instance().createCore(null, null, app)
+        try {
+            // Its own port, never the live core's, and no TLS: this is what the app can actually offer.
+            val transports = probe.transports
+            transports.udpPort = SipCallTiming.SIP_PROBE_LOCAL_PORT
+            transports.tcpPort = SipCallTiming.SIP_PROBE_LOCAL_PORT
+            transports.tlsPort = -1
+            probe.transports = transports
+
+            applyPbxRegistrar(probe, host, port, user, device.sipPassword ?: "")
+
+            val registration = CompletableDeferred<SipProbeResult>()
+            val listener = object : CoreListenerStub() {
+                override fun onRegistrationStateChanged(
+                    core: Core,
+                    cfg: ProxyConfig,
+                    state: RegistrationState?,
+                    message: String
+                ) {
+                    val outcome = when (state) {
+                        RegistrationState.Ok -> SipProbeResult.Registered(server)
+                        // Cleared is where a refused account ends up once its 401/403 retry expires.
+                        RegistrationState.Failed, RegistrationState.Cleared -> {
+                            SipProbeResult.Rejected(state.name, message.ifBlank { state.name })
+                        }
+                        else -> null
+                    }
+                    if (outcome != null) registration.complete(outcome)
+                }
+            }
+            // Attached before start(): a rejection can arrive on the core thread's very first pass.
+            probe.addListener(listener)
+            probe.start()
+
+            val answer = withTimeoutOrNull(SipCallTiming.SIP_PROBE_TIMEOUT_MS.milliseconds) {
+                try {
+                    registration.await()
+                } finally {
+                    // Runs on the timeout path too: withTimeoutOrNull cancels the await above.
+                    probe.removeListener(listener)
+                }
+            } ?: SipProbeResult.NoAnswer(server)
+            Log.i(tag, "SIP probe on $server: $answer")
+            answer
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // A malformed address or a core that refuses to start is a real answer the user must see.
+            Log.e(tag, "SIP probe on $server could not run", e)
+            SipProbeResult.Rejected("LocalError", e.localizedMessage ?: e.javaClass.simpleName)
+        } finally {
+            probe.stop()
         }
     }
 
@@ -302,6 +412,9 @@ class SipCallManager private constructor(private val app: Application) {
     }
 
     companion object {
+        /** Registrar port used when the device row carries none; the same default the form starts from. */
+        private const val DEFAULT_SIP_PORT = 5060
+
         @Volatile
         private var INSTANCE: SipCallManager? = null
 

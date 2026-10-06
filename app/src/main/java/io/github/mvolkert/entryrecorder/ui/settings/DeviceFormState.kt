@@ -105,9 +105,10 @@ class DeviceFormState(
         get() = (snapshotFps.toIntOrNull() ?: 5).coerceIn(1, maxSnapshotFps)
 
     /**
-     * The connection probe sees exactly what was typed, including a still-empty or untrimmed port,
-     * and only carries the fields [io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory]
-     * needs to build a device.
+     * The connection probe sees exactly what was typed, including a still-empty or untrimmed port, and
+     * carries the fields [io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory] needs plus the
+     * SIP registrar ones the registration probe reads. `useHttps`/`httpsPort` stay out on purpose: the HTTP
+     * probe has always run against the typed HTTP port, and changing that is a different decision.
      */
     fun buildTestCandidate(): DeviceEntity = DeviceEntity(
         id = initial?.id ?: 0,
@@ -122,7 +123,12 @@ class DeviceFormState(
         streamProtocol = streamProtocol,
         mjpegPath = mjpegPath,
         snapshotPath = snapshotPath,
-        snapshotFps = clampedSnapshotFps
+        snapshotFps = clampedSnapshotFps,
+        sipMode = sipMode,
+        sipServerHost = sipServerHost,
+        sipServerPort = sipServerPort.toIntOrNull() ?: 5060,
+        sipUser = sipUser,
+        sipPassword = sipPassword
     )
 
     /**
