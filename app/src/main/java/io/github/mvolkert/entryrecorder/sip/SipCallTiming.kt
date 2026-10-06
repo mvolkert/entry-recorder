@@ -22,8 +22,16 @@ object SipCallTiming {
     const val SIP_PROBE_TIMEOUT_MS = 10_000L
 
     /**
-     * Local SIP port of a probe core. Fixed rather than OS-assigned because it must be deterministic on the
-     * first try, and kept off 5060 so a probe can never collide with the monitor's core.
+     * Local SIP ports a probe core may use, kept off 5060 so a probe never collides with the monitor's core.
+     *
+     * Fixed rather than OS-assigned because a refused bind is silent and port 0 is not portable across
+     * liblinphone builds. More than one port because `Core.stop()` hands its socket back only once the wrapper
+     * drops the native core, so a second probe can inherit the port the previous one was using and then send
+     * nothing at all - a timeout that has nothing to do with the credentials being tested.
      */
-    const val SIP_PROBE_LOCAL_PORT = 5090
+    private const val SIP_PROBE_PORT_BASE = 5090
+    const val SIP_PROBE_PORT_SLOTS = 4
+
+    /** The local port to give the [slot]-th probe. */
+    fun probeLocalPort(slot: Int): Int = SIP_PROBE_PORT_BASE + slot % SIP_PROBE_PORT_SLOTS
 }

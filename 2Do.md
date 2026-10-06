@@ -25,18 +25,39 @@ Legend: `[x]` done · `[~]` partial / needs validation · `[ ]` open · 🔄 on-
       Files: `ui/settings/DeviceFormComponents.kt`, `ui/settings/DeviceFormNetworkSection.kt`,
       `ui/settings/DeviceFormSipSection.kt`, `res/values/strings.xml`
 - [x] **SIP connection test button** beside the HTTP "Test Connection", on the throw-away-core option the owner
-      picked. `SipCallManager.probeRegistration(device)` builds a **second** Linphone core on its own fixed local
-      port (5090, never the live 5060), registers the typed account and returns a `SipProbeResult`
-      (`Registered` / `Rejected(state, reason)` / `NoAnswer` / `MissingFields`) within
+      picked. `SipCallManager.probeRegistration(device)` builds a **second** Linphone core on its own local port
+      (never the live 5060, rotating over four so a repeat test cannot inherit one a previous core has not handed
+      back yet), registers the typed account and returns a `SipProbeResult`
+      (`Registered` / `Rejected(state, reason)` / `NoAnswer(server, lastState)` / `MissingFields`) within
       `SipCallTiming.SIP_PROBE_TIMEOUT_MS`; the form renders it exactly like the HTTP outcome, so a wrong SIP
-      password became a line on screen instead of a logcat grep. The live core is never reconfigured, so an
-      abandoned test cannot leave the monitor holding unsaved credentials. `applyPbxRegistrar` is now the single
-      implementation the live path *and* the probe share — a green test cannot drift from what saving does — and
-      `buildTestCandidate` carries the registrar fields to keep that true. ⚠️ Open by design: the probe registers
-      the same account a second time, which some PBXs answer by moving the live binding; the form warns whenever a
-      core is already up, and the Phase G gate below is the actual proof.
+      password became a line on screen instead of a logcat grep. A `NoAnswer` now says what it saw last:
+      `nothing was sent` is a local transport problem, `Progress` means the REGISTER went out and the registrar
+      ignored it. The live core is never reconfigured, so an abandoned test cannot leave the monitor holding
+      unsaved credentials. `applyPbxRegistrar` is now the single implementation the live path *and* the probe share
+      — a green test cannot drift from what saving does — and `buildTestCandidate` carries the registrar fields to
+      keep that true. ⚠️ Open by design: the probe registers the same account a second time, which some PBXs answer
+      by moving the live binding; the form warns whenever a core is already up, and the Phase G gate below is the
+      actual proof.
       Files: `sip/SipCallManager.kt`, `sip/SipCallTiming.kt`, `ui/settings/DeviceFormTestSection.kt`,
       `ui/settings/DeviceFormState.kt`, `ui/settings/DeviceEditScreen.kt`, `res/values/strings.xml`
+- [x] **SIP registrations are now withdrawn instead of stacking forever.** Reported as "the test always times out
+      but the same credentials register on another phone", and the cause was in the live path: `addAuthInfo` /
+      `addProxyConfig` only ever append, so every save of an edited device left the **retired** account registered
+      and refreshing on the monitor's core, with two proxy configs for one address and the older `AuthInfo` still
+      available to answer its 401 challenge. `clearProxyConfig()` (what the peer-to-peer and disabled branches used
+      to call) only drops entries from the config — per the SDK it is `removeProxyConfig()` that sends the
+      unregister REGISTER — and `destroy()` did a bare `core.stop()`, so stopping monitoring left the phone's
+      binding on the PBX until expiry while `initialize()` went on to build a **second core over the same port**.
+      Done: one `unregisterAndClearAuth(core)` helper, called before every reconfiguration and in `destroy()`.
+      Two lifecycle rules the probe was violating and now follows, both from the SDK's own docs: build/start/stop a
+      core on the **main thread** (liblinphone schedules `iterate()` there and "our API isn't thread-safe"), and
+      never treat `stop()` as a synchronous release — which is why the probe holds a `Mutex`, rotates ports, and
+      tears down under `NonCancellable` so a screen left mid-test cannot strand a core. Debug builds now get
+      Linphone's logcat output (`FLAG_DEBUGGABLE` instead of a hardcoded `false`), so a SIP failure is legible
+      without a second phone. Verified so far: compile + lint only, and this one changed the path that carries the
+      working doorbell ring → Phase G gate.
+      Files: `sip/SipCallManager.kt`, `sip/SipCallTiming.kt`, `ui/settings/DeviceFormTestSection.kt`,
+      `res/values/strings.xml`
 - [x] **The call screen no longer zooms a landscape camera frame.** `LiveStreamPlayer`'s bitmap renderer used
       `ContentScale.Crop`, which scales a 16:9 snapshot until it *covers* a 9:16 portrait screen — ≈1.8× zoom with
       only about a third of the frame width surviving, so a doorbell filled the phone with the middle of the scene.
@@ -485,7 +506,15 @@ Compile-green ≠ done; run on the owner's real hardware before closing.
       press the doorbell once: the ring still has to reach the phone, i.e. the probe's second REGISTER did not
       take the live binding for good. Also confirm the probe leaves an in-progress call alone (it opens no audio
       device on purpose) and that `lintDebug`/`compileDebugKotlin` were green on a real device, not just here.
+      **Press it twice in a row** — the repeat attempt was the reported bug (a timeout no matter what was typed),
+      and if it still fails, read the `(last state: …)` suffix: `nothing was sent` is local (port/transport),
+      `Progress` means the Fritz!Box received it and ignored the probe.
       Verified so far: compile + lint only. Files: `sip/SipCallManager.kt`, `ui/settings/DeviceFormTestSection.kt`
+- [ ] 🔄 **A credential change withdraws the old registration.** Edit the SIP password and save; debug builds now
+      print Linphone's signalling, so logcat should show an unregister REGISTER for the retired account followed by
+      exactly one successful registration for the new one — never a refresh loop against the old password. Then
+      stop monitoring from the notification, start it again and press the doorbell: the ring proving the second
+      core got its port back. Files: `sip/SipCallManager.kt`, `service/IntercomMonitorService.kt`
 - [ ] 🔄 One doorbell press produces exactly one notification (look for `Duplicate ring on …, ignoring`); a call
       the intercom hangs up closes its full-screen view by itself (`ENDED` branch).
 - [ ] 🔄 A doorbell press no longer truncates a longer recording under 20 s (post-record stop is event-type-aware).

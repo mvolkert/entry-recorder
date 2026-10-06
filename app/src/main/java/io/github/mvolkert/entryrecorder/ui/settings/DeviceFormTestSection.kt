@@ -114,10 +114,15 @@ internal fun DeviceFormTestSection(form: DeviceFormState, sipCallManager: SipCal
 
                         is SipProbeResult.NoAnswer -> {
                             isSipTestSuccess = false
+                            // The last state is what separates "the registrar ignored us" from "nothing was
+                            // ever sent", which are different bugs on different sides of the LAN.
+                            val lastState = probe.observed
+                                ?: resources.getString(R.string.device_sip_test_no_state)
                             sipTestResult = resources.getString(
                                 R.string.device_sip_test_no_answer,
                                 probe.server,
-                                SipCallTiming.SIP_PROBE_TIMEOUT_MS.toInt() / 1000
+                                SipCallTiming.SIP_PROBE_TIMEOUT_MS.toInt() / 1000,
+                                lastState
                             )
                         }
 

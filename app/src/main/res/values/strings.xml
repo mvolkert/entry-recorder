@@ -270,7 +270,8 @@
     <string name="device_sip_test_button">Test SIP Registration</string>
     <string name="device_sip_test_success">Registered with %1$s</string>
     <string name="device_sip_test_failed">Rejected: %1$s</string>
-    <string name="device_sip_test_no_answer">No answer from %1$s within %2$d s</string>
+    <string name="device_sip_test_no_answer">No answer from %1$s within %2$d s (last state: %3$s)</string>
+    <string name="device_sip_test_no_state">nothing was sent</string>
     <string name="device_sip_test_missing_calling_mode">Choose “SIP PBX Server” as the calling mode first</string>
     <string name="device_sip_test_missing_pbx_host">Enter the PBX host first</string>
     <string name="device_sip_test_missing_sip_user">Enter the SIP user first</string>

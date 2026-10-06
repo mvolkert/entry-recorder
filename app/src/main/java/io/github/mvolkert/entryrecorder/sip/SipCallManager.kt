@@ -2,23 +2,28 @@ package io.github.mvolkert.entryrecorder.sip
 
 import android.app.Application
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
 import android.util.Log
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.SipMode
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.linphone.core.*
@@ -55,8 +60,12 @@ sealed interface SipProbeResult {
     /** It answered no — wrong password, unknown user, refused transport. */
     data class Rejected(val state: String, val reason: String) : SipProbeResult
 
-    /** The registrar never answered inside [SipCallTiming.SIP_PROBE_TIMEOUT_MS]. */
-    data class NoAnswer(val server: String) : SipProbeResult
+    /**
+     * The registrar never answered inside [SipCallTiming.SIP_PROBE_TIMEOUT_MS]. [observed] is the last
+     * registration state the probe core reported, null when it never left idle - which says nothing was sent,
+     * i.e. a local transport problem rather than a silent server.
+     */
+    data class NoAnswer(val server: String, val observed: String?) : SipProbeResult
 
     /** Nothing was sent: the form is not ready to be tested yet. */
     data class MissingFields(val field: SipMissingField) : SipProbeResult
@@ -72,6 +81,10 @@ class SipCallManager private constructor(private val app: Application) {
     private val audioManager = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var idleResetJob: Job? = null
+
+    // Probes share one Linphone Factory and one port space, so they run one at a time on rotating ports.
+    private val probeLock = Mutex()
+    private var probeSlot = 0
 
     private val _sessionState = MutableStateFlow(SipSessionState())
     val sessionState: StateFlow<SipSessionState> = _sessionState.asStateFlow()
@@ -164,12 +177,19 @@ class SipCallManager private constructor(private val app: Application) {
         }
     }
 
+    /** Builds the monitor's Linphone core. Call on the main thread, which is where the SDK runs its loop. */
     fun initialize() {
         if (core != null) return
 
         try {
             val factory = Factory.instance()
-            factory.setDebugMode(false, "EntryRecorderSIP")
+            // Linphone keeps every registration answer to itself unless logging is on, which is the only way
+            // to tell a REGISTER the PBX refused from one that never left the phone. Debug builds pay the
+            // noise; releases stay quiet.
+            factory.setDebugMode(
+                (app.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0,
+                "EntryRecorderSIP"
+            )
             val newCore = factory.createCore(null, null, app)
 
             newCore.addListener(coreListener)
@@ -199,41 +219,58 @@ class SipCallManager private constructor(private val app: Application) {
     }
 
     /**
-     * Configure SIP settings based on device configuration (Peer-to-Peer vs PBX registrar)
+     * Points the monitor's core at [device]'s SIP setup, retiring whatever that core had registered first.
+     *
+     * Suspend because every call below mutates a core whose loop the SDK schedules on the main thread, and
+     * Linphone's API is not thread-safe; this used to run on the service's IO dispatcher.
      */
     // TODO(sip): Core ProxyConfig APIs below (createProxyConfig/edit/done/addProxyConfig/
-    //   defaultProxyConfig/clearProxyConfig + address/register setters) and Factory.setDebugMode are
+    //   defaultProxyConfig/removeProxyConfig + address/register setters) and Factory.setDebugMode are
     //   deprecated in Linphone 5.x in favor of the Account API. Migration deferred pending real
     //   device/PBX validation (2Do Phase 2).
-    fun configureDeviceSip(device: DeviceEntity) {
-        val c = core ?: return
+    suspend fun configureDeviceSip(device: DeviceEntity) {
+        withContext(Dispatchers.Main.immediate) {
+            val c = core ?: return@withContext
 
-        when (device.sipMode) {
-            SipMode.PEER_TO_PEER -> {
-                Log.i(tag, "Configuring SIP in Direct Peer-to-Peer mode on port ${device.sipLocalPort}")
-                // Clear proxy configs
-                c.clearProxyConfig()
-                c.clearAllAuthInfo()
-                val transports = c.transports
-                transports.udpPort = device.sipLocalPort
-                transports.tcpPort = device.sipLocalPort
-                c.transports = transports
-            }
-            SipMode.PBX_REGISTRAR -> {
-                val host = device.sipServerHost ?: return
-                val user = device.sipUser ?: return
-                applyPbxRegistrar(
-                    sipCore = c,
-                    host = host,
-                    port = device.sipServerPort ?: DEFAULT_SIP_PORT,
-                    user = user,
-                    password = device.sipPassword ?: ""
-                )
-            }
-            SipMode.DISABLED -> {
-                c.clearProxyConfig()
+            when (device.sipMode) {
+                SipMode.PEER_TO_PEER -> {
+                    Log.i(tag, "Configuring SIP in Direct Peer-to-Peer mode on port ${device.sipLocalPort}")
+                    unregisterAndClearAuth(c)
+                    val transports = c.transports
+                    transports.udpPort = device.sipLocalPort
+                    transports.tcpPort = device.sipLocalPort
+                    c.transports = transports
+                }
+                SipMode.PBX_REGISTRAR -> {
+                    val host = device.sipServerHost ?: return@withContext
+                    val user = device.sipUser ?: return@withContext
+                    // addAuthInfo/addProxyConfig only ever append, so an edited credential used to leave the
+                    // retired account registered and refreshing forever: the PBX held two contacts for one
+                    // address and the older AuthInfo could still be the one answering the 401 challenge.
+                    unregisterAndClearAuth(c)
+                    applyPbxRegistrar(
+                        sipCore = c,
+                        host = host,
+                        port = device.sipServerPort ?: DEFAULT_SIP_PORT,
+                        user = user,
+                        password = device.sipPassword ?: ""
+                    )
+                }
+                SipMode.DISABLED -> {
+                    unregisterAndClearAuth(c)
+                }
             }
         }
+    }
+
+    /**
+     * Withdraws every registration on [sipCore] and forgets its credentials. Only `removeProxyConfig` makes
+     * liblinphone send the unregister REGISTER - `clearProxyConfig` merely drops the entries from the config -
+     * so without this a retired account stays bound on the PBX until its expiry.
+     */
+    private fun unregisterAndClearAuth(sipCore: Core) {
+        sipCore.proxyConfigList.toList().forEach { proxy -> sipCore.removeProxyConfig(proxy) }
+        sipCore.clearAllAuthInfo()
     }
 
     /**
@@ -263,72 +300,86 @@ class SipCallManager private constructor(private val app: Application) {
      * monitor's live registration, its proxy configs and the audio routing are never touched, and nothing is
      * written to Room. The answer arrives as [SipProbeResult] instead of logcat.
      *
-     * Concurrent probes are not guarded here — the device form's disabled button is what serialises them.
+     * Serialised by [probeLock] and rotating through [SipCallTiming.probeLocalPort]: a stopped core hands its
+     * socket back only once the wrapper releases the native object, so a second probe that reused the same port
+     * could find it bound, send nothing, and report a timeout that has nothing to do with the credentials.
      */
-    suspend fun probeRegistration(device: DeviceEntity): SipProbeResult = withContext(Dispatchers.IO) {
+    suspend fun probeRegistration(device: DeviceEntity): SipProbeResult = probeLock.withLock {
         if (device.sipMode != SipMode.PBX_REGISTRAR) {
-            return@withContext SipProbeResult.MissingFields(SipMissingField.CALLING_MODE)
+            return@withLock SipProbeResult.MissingFields(SipMissingField.CALLING_MODE)
         }
         val host = device.sipServerHost?.takeIf { it.isNotBlank() }
-            ?: return@withContext SipProbeResult.MissingFields(SipMissingField.PBX_HOST)
+            ?: return@withLock SipProbeResult.MissingFields(SipMissingField.PBX_HOST)
         val user = device.sipUser?.takeIf { it.isNotBlank() }
-            ?: return@withContext SipProbeResult.MissingFields(SipMissingField.SIP_USER)
+            ?: return@withLock SipProbeResult.MissingFields(SipMissingField.SIP_USER)
 
         val port = device.sipServerPort ?: DEFAULT_SIP_PORT
         val server = "$host:$port"
-        val probe = Factory.instance().createCore(null, null, app)
-        try {
-            // Its own port, never the live core's, and no TLS: this is what the app can actually offer.
-            val transports = probe.transports
-            transports.udpPort = SipCallTiming.SIP_PROBE_LOCAL_PORT
-            transports.tcpPort = SipCallTiming.SIP_PROBE_LOCAL_PORT
-            transports.tlsPort = -1
-            probe.transports = transports
+        probeSlot = (probeSlot + 1) % SipCallTiming.SIP_PROBE_PORT_SLOTS
+        val localPort = SipCallTiming.probeLocalPort(probeSlot)
 
-            applyPbxRegistrar(probe, host, port, user, device.sipPassword ?: "")
-
-            val registration = CompletableDeferred<SipProbeResult>()
-            val listener = object : CoreListenerStub() {
-                override fun onRegistrationStateChanged(
-                    core: Core,
-                    cfg: ProxyConfig,
-                    state: RegistrationState?,
-                    message: String
-                ) {
-                    val outcome = when (state) {
-                        RegistrationState.Ok -> SipProbeResult.Registered(server)
-                        // Cleared is where a refused account ends up once its 401/403 retry expires.
-                        RegistrationState.Failed, RegistrationState.Cleared -> {
-                            SipProbeResult.Rejected(state.name, message.ifBlank { state.name })
-                        }
-                        else -> null
+        val registration = CompletableDeferred<SipProbeResult>()
+        // Kept for the no-answer case: nothing recorded means the REGISTER never left the phone, Progress
+        // means it did and the registrar ignored it. Those need different fixes.
+        val lastState = AtomicReference<RegistrationState?>()
+        val listener = object : CoreListenerStub() {
+            override fun onRegistrationStateChanged(
+                core: Core,
+                cfg: ProxyConfig,
+                state: RegistrationState?,
+                message: String
+            ) {
+                if (state != null) lastState.set(state)
+                Log.i(tag, "SIP probe on $server registration state: $state ($message)")
+                val outcome = when (state) {
+                    RegistrationState.Ok -> SipProbeResult.Registered(server)
+                    // Cleared is where a refused account ends up once its 401/403 retry expires.
+                    RegistrationState.Failed, RegistrationState.Cleared -> {
+                        SipProbeResult.Rejected(state.name, message.ifBlank { state.name })
                     }
-                    if (outcome != null) registration.complete(outcome)
+                    else -> null
+                }
+                if (outcome != null) registration.complete(outcome)
+            }
+        }
+
+        withContext(Dispatchers.Main.immediate) {
+            // Created, configured and started on the main thread: the SDK schedules the core's iterate() there
+            // and its API is not thread-safe, so a core assembled on an IO worker never reliably sends.
+            val probe = Factory.instance().createCore(null, null, app)
+            try {
+                // Its own port, never the live core's, and no TLS: this is what the app can actually offer.
+                val transports = probe.transports
+                transports.udpPort = localPort
+                transports.tcpPort = localPort
+                transports.tlsPort = -1
+                probe.transports = transports
+
+                applyPbxRegistrar(probe, host, port, user, device.sipPassword ?: "")
+
+                // Attached before start(): a rejection can arrive on the core thread's very first pass.
+                probe.addListener(listener)
+                probe.start()
+                Log.i(tag, "SIP probe registering sip:$user@$server from local port $localPort")
+
+                withTimeoutOrNull(SipCallTiming.SIP_PROBE_TIMEOUT_MS.milliseconds) { registration.await() }
+                    ?: SipProbeResult.NoAnswer(server, lastState.get()?.name)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A malformed address or a core that refuses to start is a real answer the user must see.
+                Log.e(tag, "SIP probe on $server could not run", e)
+                SipProbeResult.Rejected("LocalError", e.localizedMessage ?: e.javaClass.simpleName)
+            } finally {
+                // NonCancellable: leaving the screen cancels the caller, and a probe left running keeps both
+                // its registration on the PBX and its port bound on the phone.
+                withContext(NonCancellable + Dispatchers.Main.immediate) {
+                    probe.removeListener(listener)
+                    unregisterAndClearAuth(probe)
+                    probe.stop()
                 }
             }
-            // Attached before start(): a rejection can arrive on the core thread's very first pass.
-            probe.addListener(listener)
-            probe.start()
-
-            val answer = withTimeoutOrNull(SipCallTiming.SIP_PROBE_TIMEOUT_MS.milliseconds) {
-                try {
-                    registration.await()
-                } finally {
-                    // Runs on the timeout path too: withTimeoutOrNull cancels the await above.
-                    probe.removeListener(listener)
-                }
-            } ?: SipProbeResult.NoAnswer(server)
-            Log.i(tag, "SIP probe on $server: $answer")
-            answer
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            // A malformed address or a core that refuses to start is a real answer the user must see.
-            Log.e(tag, "SIP probe on $server could not run", e)
-            SipProbeResult.Rejected("LocalError", e.localizedMessage ?: e.javaClass.simpleName)
-        } finally {
-            probe.stop()
-        }
+        }.also { Log.i(tag, "SIP probe on $server answered $it") }
     }
 
     /** Drops the terminal call state back to IDLE after [SipCallTiming.POST_CALL_IDLE_MS], re-armed per terminal event. */
@@ -398,13 +449,20 @@ class SipCallManager private constructor(private val app: Application) {
         }
     }
 
+    /** Stops the monitor's core. Must stay on the main thread; its only caller is the service's onDestroy(). */
     fun destroy() {
         try {
             onIncomingCall = null
             idleResetJob?.cancel()
             // The manager scope is intentionally not cancelled: this is a process singleton that a restarted
             // monitor service reuses, and a cancelled scope would silently drop the ENDED -> IDLE reset.
-            core?.stop()
+            core?.let { c ->
+                // Withdraw the registrations first: stop() alone leaves this phone's binding on the PBX until
+                // the registration expires, while initialize() would go on to build a second core for the
+                // same account after a monitoring restart inside this process.
+                unregisterAndClearAuth(c)
+                c.stop()
+            }
             core = null
         } catch (e: Exception) {
             Log.e(tag, "Error stopping Linphone Core", e)
