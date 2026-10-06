@@ -184,6 +184,9 @@
     <string name="settings_theme_mode_system">System</string>
     <string name="settings_theme_mode_light">Light</string>
     <string name="settings_theme_mode_dark">Dark</string>
+    <string name="settings_dynamic_color_label">Material You colors</string>
+    <string name="settings_dynamic_color_hint">Derive the palette from your device wallpaper. Needs Android 12 or newer; on older versions the curated accents below stay in charge.</string>
+    <string name="settings_dynamic_color_unavailable">Requires Android 12 or newer</string>
     <string name="settings_accent_hint">Pick an accent color. It is applied to every color role at once.</string>
     <string name="settings_accent_selected">Selected accent</string>
     <string name="settings_accent_roles_summary">Primary: %1$s • Secondary: %2$s • Tertiary: %3$s</string>

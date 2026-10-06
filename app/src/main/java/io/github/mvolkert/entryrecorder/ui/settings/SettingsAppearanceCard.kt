@@ -1,5 +1,6 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -84,6 +85,19 @@ internal fun SettingsAppearanceCard(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        val dynamicSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        SettingsSwitchRow(
+            title = stringResource(R.string.settings_dynamic_color_label),
+            subtitle = stringResource(
+                if (dynamicSupported) R.string.settings_dynamic_color_hint
+                else R.string.settings_dynamic_color_unavailable
+            ),
+            checked = settings.themeUseDynamicColor && dynamicSupported,
+            onCheckedChange = { onSettingsChange(settings.copy(themeUseDynamicColor = it)) },
+        )
+        // Curated accents drive every role only while dynamic color is not actually in effect; on
+        // Android 12+ with the switch on, wallpaper colours win and the swatches would be inert.
+        if (!(settings.themeUseDynamicColor && dynamicSupported)) {
         Text(
             text = stringResource(R.string.settings_accent_hint),
             style = MaterialTheme.typography.bodySmall,
@@ -143,6 +157,7 @@ internal fun SettingsAppearanceCard(
         )
         TextButton(onClick = { showRoleDialog = true }) {
             Text(stringResource(R.string.settings_accent_customize))
+        }
         }
     }
 

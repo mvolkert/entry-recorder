@@ -44,5 +44,10 @@ data class AppSettingsEntity(
     val themeTertiaryIndex: Int = 0,
     // Color mode as the ordinal of ui.theme.ThemeMode: 0 = System (follow the device), 1 = Light,
     // 2 = Dark. Defaults to System so a fresh install tracks the setting that drives the splash.
-    val themeMode: Int = 0
+    val themeMode: Int = 0,
+    // Material You / Android 12+ dynamic color. When true AND the device supports it, AppTheme
+    // sources the colorScheme from dynamic{Light,Dark}ColorScheme(context) instead of the curated
+    // accent presets; the three theme*Index columns still persist so flipping back restores the
+    // exact previous look. Older API levels silently fall through to the presets.
+    val themeUseDynamicColor: Boolean = false
 )

@@ -90,6 +90,7 @@ class MainActivity : ComponentActivity() {
                 primaryIndex = settings.themePrimaryIndex,
                 secondaryIndex = settings.themeSecondaryIndex,
                 tertiaryIndex = settings.themeTertiaryIndex,
+                useDynamicColor = settings.themeUseDynamicColor,
             ) {
                 AppNavHost(settingsViewModel)
             }

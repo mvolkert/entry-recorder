@@ -79,6 +79,7 @@ class IncomingCallActivity : ComponentActivity() {
                 primaryIndex = settings?.themePrimaryIndex ?: 0,
                 secondaryIndex = settings?.themeSecondaryIndex ?: 0,
                 tertiaryIndex = settings?.themeTertiaryIndex ?: 0,
+                useDynamicColor = settings?.themeUseDynamicColor ?: false,
             ) {
                 var device by remember { mutableStateOf<DeviceEntity?>(null) }
                 val sipState by sipManager.sessionState.collectAsStateWithLifecycle()
