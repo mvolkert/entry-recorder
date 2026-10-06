@@ -6,6 +6,8 @@ import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.BackEventCompat
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -31,7 +33,9 @@ import io.github.mvolkert.entryrecorder.sip.SipSessionState
 import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
 import io.github.mvolkert.entryrecorder.ui.theme.AppTheme
 import io.github.mvolkert.entryrecorder.ui.theme.ThemeMode
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlin.time.Duration.Companion.milliseconds
 
 class IncomingCallActivity : ComponentActivity() {
@@ -87,6 +91,19 @@ class IncomingCallActivity : ComponentActivity() {
 
                 LaunchedEffect(screen.deviceId) {
                     device = if (screen.deviceId != -1L) repository.getDeviceById(screen.deviceId) else null
+                }
+
+                // Back gesture on this Activity is a Decline: SIP is torn down and the window
+                // finishes only when the user commits the gesture; a cancelled swipe leaves the
+                // call untouched. The Manifest flag enables the system-level preview animation.
+                PredictiveBackHandler(enabled = true) { progress: Flow<BackEventCompat> ->
+                    try {
+                        progress.collect { /* fraction updates: nothing to preview locally */ }
+                        sipManager.terminateCall()
+                        finish()
+                    } catch (cancelled: CancellationException) {
+                        // Gesture aborted before commit: keep the call running.
+                    }
                 }
 
                 // Close the full-screen call once the call behind it is over. This screen is opened either for
