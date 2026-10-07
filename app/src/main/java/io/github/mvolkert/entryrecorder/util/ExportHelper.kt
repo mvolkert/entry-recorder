@@ -205,9 +205,16 @@ object ExportHelper {
      * Copies [sourceFile] into the SAF tree folder [treeUri] (a persisted ACTION_OPEN_DOCUMENT_TREE
      * URI) under [displayName], overwriting an existing document with the same name. Used by
      * "Export to folder" so exports persist to a user-accessible location independent of Share.
+     * [onProgress] receives 0..100 of bytes copied and is invoked from the caller's (IO) thread.
      * @return true on success.
      */
-    fun saveFileToSafFolder(context: Context, treeUri: Uri, sourceFile: File, displayName: String): Boolean {
+    fun saveFileToSafFolder(
+        context: Context,
+        treeUri: Uri,
+        sourceFile: File,
+        displayName: String,
+        onProgress: ((Int) -> Unit)? = null,
+    ): Boolean {
         if (!sourceFile.exists()) return false
         return try {
             val existing = findSafChildByName(context, treeUri, displayName)
@@ -221,7 +228,18 @@ object ExportHelper {
             ) ?: return false
 
             context.contentResolver.openOutputStream(child)?.use { out ->
-                FileInputStream(sourceFile).use { input -> input.copyTo(out) }
+                val total = sourceFile.length().coerceAtLeast(1L)
+                FileInputStream(sourceFile).use { input ->
+                    val buffer = ByteArray(128 * 1024)
+                    var copied = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        out.write(buffer, 0, read)
+                        copied += read
+                        onProgress?.invoke(((copied * 100) / total).coerceAtMost(100L).toInt())
+                    }
+                }
             } ?: return false
             true
         } catch (e: Exception) {

@@ -20,9 +20,11 @@ import io.github.mvolkert.entryrecorder.data.server.ServerRecordingDto
 import io.github.mvolkert.entryrecorder.util.ExportHelper
 import io.github.mvolkert.entryrecorder.video.ExportTranscoder
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /** Where a manually triggered export delivers the file. */
@@ -82,9 +84,12 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     private val _selectedIds = MutableStateFlow<Set<Long>>(emptySet())
     val selectedIds: StateFlow<Set<Long>> = _selectedIds.asStateFlow()
 
-    /** Percent (0..100) of the running single-item transcode, null while idle. */
-    private val _exportProgress = MutableStateFlow<Int?>(null)
-    val exportProgress: StateFlow<Int?> = _exportProgress.asStateFlow()
+    /** Stage of the running single-item export, null while idle; [bodyRes] labels the dialog's percent line. */
+    data class ExportRunProgress(val percent: Int, @StringRes val bodyRes: Int)
+
+    /** Progress of the running single-item export (transcode or folder copy), null while idle. */
+    private val _exportProgress = MutableStateFlow<ExportRunProgress?>(null)
+    val exportProgress: StateFlow<ExportRunProgress?> = _exportProgress.asStateFlow()
 
     /** Done/total pair of a running multi-select export, null while idle. */
     private val _batchProgress = MutableStateFlow<Pair<Int, Int>?>(null)
@@ -344,19 +349,24 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    private fun deliverRemote(item: GalleryItem.Remote, file: File, kind: RecordingExportKind, exportFolderUri: String) {
+    private suspend fun deliverRemote(item: GalleryItem.Remote, file: File, kind: RecordingExportKind, exportFolderUri: String) {
         val deviceName = item.deviceName
         val label = item.eventType.name
         when (kind) {
             RecordingExportKind.SHARE ->
                 _events.trySend(RecordingsUiEvent.Share(listOf(file), recording = null, deviceName = deviceName, eventTypeLabel = label))
 
-            RecordingExportKind.GALLERY -> ExportHelper.saveFileToGallery(context, file, deviceName)
+            RecordingExportKind.GALLERY -> withContext(Dispatchers.IO) {
+                ExportHelper.saveFileToGallery(context, file, deviceName)
+            }
 
             // RAW_FOLDER never reaches a server row (no local original), it just keeps the when exhaustive.
             RecordingExportKind.FOLDER, RecordingExportKind.RAW_FOLDER -> {
                 val treeUri = exportFolderUri.toUri()
-                if (ExportHelper.saveFileToSafFolder(context, treeUri, file, file.name)) {
+                val ok = withContext(Dispatchers.IO) {
+                    ExportHelper.saveFileToSafFolder(context, treeUri, file, file.name)
+                }
+                if (ok) {
                     toast(R.string.recordings_toast_exported_to, ExportHelper.safFolderDisplayName(treeUri))
                 } else {
                     toast(R.string.recordings_toast_export_folder_failed)
@@ -373,6 +383,8 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
      * explicit user action, never during capture. SHARE opens the system sheet and persists nothing;
      * FOLDER writes one file per recording (the re-encode when it exists, otherwise the original), so
      * the lossless original stays in-app and the folder isn't cluttered with near-duplicates.
+     * RAW_FOLDER always ships the original. The blocking deliver work runs on IO with the progress
+     * dialog driven by percent callbacks, so the UI stays responsive and shows what is happening.
      */
     fun exportRecording(recording: RecordingEntity, kind: RecordingExportKind) {
         viewModelScope.launch {
@@ -380,10 +392,11 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
             // must not depend on whether anything happens to be subscribed to them.
             val settings = repository.getSettings()
             val src = File(recording.filePath)
+            val goesToFolder = kind == RecordingExportKind.FOLDER || kind == RecordingExportKind.RAW_FOLDER
             val willTranscode = settings.transcodeOnExport && kind != RecordingExportKind.RAW_FOLDER &&
                     src.extension.equals("mkv", ignoreCase = true)
 
-            if (kind == RecordingExportKind.FOLDER || kind == RecordingExportKind.RAW_FOLDER) {
+            if (goesToFolder) {
                 if (settings.exportFolderUri.isBlank()) {
                     toast(R.string.recordings_toast_set_folder_first)
                     return@launch
@@ -393,23 +406,24 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
                     return@launch
                 }
             }
-            // Raw file, no progress dialog: the path taken when transcoding is off or the source is not MKV.
-            if (!willTranscode && kind != RecordingExportKind.FOLDER) {
+            // Raw file straight to Share/Gallery: no progress dialog, the deliver itself is on IO.
+            if (!willTranscode && !goesToFolder) {
                 deliver(recording, src, kind, settings.exportFolderUri)
                 return@launch
             }
 
             try {
-                if (willTranscode) _exportProgress.value = 0
+                if (willTranscode) {
+                    _exportProgress.value = ExportRunProgress(0, R.string.recordings_export_progress_body)
+                }
                 val out = if (willTranscode) transcodeWithProgress(recording) else src
-                _exportProgress.value = null
                 deliver(recording, out, kind, settings.exportFolderUri)
             } catch (e: CancellationException) {
-                _exportProgress.value = null
                 throw e
             } catch (e: Exception) {
-                _exportProgress.value = null
                 toast(R.string.recordings_toast_export_failed, e.message ?: "")
+            } finally {
+                _exportProgress.value = null
             }
         }
     }
@@ -455,12 +469,16 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
                     when (kind) {
                         RecordingExportKind.SHARE -> toShare.add(out)
                         RecordingExportKind.GALLERY ->
-                            if (ExportHelper.saveFileToGallery(context, out, rec, showToast = false)) saved++
+                            withContext(Dispatchers.IO) {
+                                if (ExportHelper.saveFileToGallery(context, out, rec, showToast = false)) saved++
+                            }
 
                         RecordingExportKind.FOLDER, RecordingExportKind.RAW_FOLDER -> {
                             // One file per recording (H.264 when produced, else original) — as single-item.
                             val treeUri = settings.exportFolderUri.toUri()
-                            if (ExportHelper.saveFileToSafFolder(context, treeUri, out, out.name)) saved++
+                            withContext(Dispatchers.IO) {
+                                if (ExportHelper.saveFileToSafFolder(context, treeUri, out, out.name)) saved++
+                            }
                         }
                     }
                     _batchProgress.value = ++done to targets.size
@@ -492,18 +510,28 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
 
     private suspend fun transcodeWithProgress(recording: RecordingEntity): File =
         ExportTranscoder.transcodeToH264(context, recording) { done, total ->
-            _exportProgress.value = if (total > 0) done * 100 / total else 0
+            _exportProgress.value = ExportRunProgress(
+                if (total > 0) done * 100 / total else 0,
+                R.string.recordings_export_progress_body
+            )
         }
 
-    private fun deliver(recording: RecordingEntity, file: File, kind: RecordingExportKind, exportFolderUri: String) {
+    private suspend fun deliver(recording: RecordingEntity, file: File, kind: RecordingExportKind, exportFolderUri: String) {
         when (kind) {
             RecordingExportKind.SHARE -> _events.trySend(RecordingsUiEvent.Share(listOf(file), recording))
 
-            RecordingExportKind.GALLERY -> ExportHelper.saveFileToGallery(context, file, recording)
+            RecordingExportKind.GALLERY -> withContext(Dispatchers.IO) {
+                ExportHelper.saveFileToGallery(context, file, recording)
+            }
 
             RecordingExportKind.FOLDER, RecordingExportKind.RAW_FOLDER -> {
                 val treeUri = exportFolderUri.toUri()
-                if (ExportHelper.saveFileToSafFolder(context, treeUri, file, file.name)) {
+                val ok = withContext(Dispatchers.IO) {
+                    ExportHelper.saveFileToSafFolder(context, treeUri, file, file.name) { percent ->
+                        _exportProgress.value = ExportRunProgress(percent, R.string.recordings_copy_progress_body)
+                    }
+                }
+                if (ok) {
                     toast(R.string.recordings_toast_exported_to, ExportHelper.safFolderDisplayName(treeUri))
                 } else {
                     toast(R.string.recordings_toast_export_folder_failed)

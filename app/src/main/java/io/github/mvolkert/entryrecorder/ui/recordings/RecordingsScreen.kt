@@ -257,8 +257,8 @@ fun RecordingsScreen(
         )
     }
 
-    exportProgress?.let { pct ->
-        ExportProgressDialog(progressPercent = pct)
+    exportProgress?.let { progress ->
+        ExportProgressDialog(progressPercent = progress.percent, bodyRes = progress.bodyRes)
     }
 
     batchProgress?.let { (done, total) ->

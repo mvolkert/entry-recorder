@@ -1,5 +1,6 @@
 package io.github.mvolkert.entryrecorder.ui.recordings
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -64,15 +65,18 @@ internal fun BulkDeleteDialog(
     )
 }
 
-/** Modal progress for the H.264 transcode of one recording. Not dismissible while running. */
+/**
+ * Modal progress for the H.264 transcode or the SAF copy of one recording, whichever the running
+ * export is on; [bodyRes] selects the percent line's wording. Not dismissible while running.
+ */
 @Composable
-internal fun ExportProgressDialog(progressPercent: Int) {
+internal fun ExportProgressDialog(progressPercent: Int, @StringRes bodyRes: Int) {
     AlertDialog(
         onDismissRequest = {},
         title = { Text(stringResource(R.string.recordings_export_progress_title)) },
         text = {
             Column {
-                Text(stringResource(R.string.recordings_export_progress_body, progressPercent))
+                Text(stringResource(bodyRes, progressPercent))
                 Spacer(modifier = Modifier.height(12.dp))
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
