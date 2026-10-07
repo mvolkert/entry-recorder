@@ -1,6 +1,9 @@
 package io.github.mvolkert.entryrecorder.ui
 
 import androidx.annotation.StringRes
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -36,7 +39,17 @@ import io.github.mvolkert.entryrecorder.ui.live.LiveCamerasScreen
 import io.github.mvolkert.entryrecorder.ui.recordings.RecordingsScreen
 import io.github.mvolkert.entryrecorder.ui.settings.DeviceEditScreen
 import io.github.mvolkert.entryrecorder.ui.settings.NEW_DEVICE_ID
+import io.github.mvolkert.entryrecorder.ui.settings.ROUTE_SETTINGS_APPEARANCE
+import io.github.mvolkert.entryrecorder.ui.settings.ROUTE_SETTINGS_BACKUP
+import io.github.mvolkert.entryrecorder.ui.settings.ROUTE_SETTINGS_DEVICES
+import io.github.mvolkert.entryrecorder.ui.settings.ROUTE_SETTINGS_ENGINE
+import io.github.mvolkert.entryrecorder.ui.settings.ROUTE_SETTINGS_STORAGE
+import io.github.mvolkert.entryrecorder.ui.settings.SettingsAppearanceScreen
+import io.github.mvolkert.entryrecorder.ui.settings.SettingsBackupScreen
+import io.github.mvolkert.entryrecorder.ui.settings.SettingsDevicesScreen
+import io.github.mvolkert.entryrecorder.ui.settings.SettingsEngineScreen
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsScreen
+import io.github.mvolkert.entryrecorder.ui.settings.SettingsStorageScreen
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsViewModel
 import io.github.mvolkert.entryrecorder.ui.theme.appMotionScheme
 
@@ -53,8 +66,8 @@ sealed class Screen(val route: String, @StringRes val labelRes: Int, val icon: I
 
 private val TopLevelScreens = listOf(Screen.Live, Screen.Recordings, Screen.Settings)
 
-// Editing a device is a sibling fullscreen route: neither bar nor rail is drawn while it is on top.
-private const val ROUTE_DEVICE_EDIT = "device_edit/{deviceId}"
+// Editing a device is a settings-detail fullscreen route, reached from the Devices submenu.
+private const val ROUTE_DEVICE_EDIT = "settings/device/{deviceId}"
 private const val ARG_DEVICE_ID = "deviceId"
 
 /**
@@ -70,11 +83,31 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
     val currentEntry by navController.currentBackStackEntryAsState()
     val currentDestination = currentEntry?.destination
     val selectedRoute = TopLevelScreens.firstOrNull { it.route == currentDestination?.route }?.route
-    val showChrome = currentDestination?.route != ROUTE_DEVICE_EDIT
+    // The bar/rail is chrome for the three tabs only; every settings submenu and the device form are
+    // fullscreen details that own their top bar, so chrome is hidden for anything non-top-level.
+    val showChrome = currentDestination == null ||
+        TopLevelScreens.any { it.route == currentDestination?.route }
     val items = TopLevelScreens.map { AdaptiveNavItem(it.route, it.labelRes, it.icon) }
     // NavHost transition lambdas are not @Composable, so resolve the seam once here and capture it.
     val slideSpec = MaterialTheme.appMotionScheme.defaultSpatialSpec<IntOffset>()
     val fadeSpec = MaterialTheme.appMotionScheme.defaultEffectsSpec<Float>()
+    // One shared-axis X transition reused by every settings detail push (submenus + device form).
+    val detailEnter: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> EnterTransition = {
+        slideInHorizontally(animationSpec = slideSpec, initialOffsetX = { it / 4 }) +
+            fadeIn(animationSpec = fadeSpec)
+    }
+    val detailExit: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> ExitTransition = {
+        slideOutHorizontally(animationSpec = slideSpec, targetOffsetX = { -it / 4 }) +
+            fadeOut(animationSpec = fadeSpec)
+    }
+    val detailPopEnter: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> EnterTransition = {
+        slideInHorizontally(animationSpec = slideSpec, initialOffsetX = { -it / 4 }) +
+            fadeIn(animationSpec = fadeSpec)
+    }
+    val detailPopExit: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> ExitTransition = {
+        slideOutHorizontally(animationSpec = slideSpec, targetOffsetX = { it / 4 }) +
+            fadeOut(animationSpec = fadeSpec)
+    }
 
     CompositionLocalProvider(LocalWindowInfo provides windowInfo) {
         AdaptiveScaffold(
@@ -102,32 +135,89 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
                     Box(Modifier.appContentMaxWidth()) {
                         SettingsScreen(
                             viewModel = settingsViewModel,
-                            onEditDevice = { id -> navController.navigate("device_edit/$id") },
-                            onAddDevice = { navController.navigate("device_edit/$NEW_DEVICE_ID") },
+                            onNavigate = { route -> navController.navigate(route) },
+                        )
+                    }
+                }
+                composable(
+                    route = ROUTE_SETTINGS_DEVICES,
+                    enterTransition = detailEnter,
+                    exitTransition = detailExit,
+                    popEnterTransition = detailPopEnter,
+                    popExitTransition = detailPopExit,
+                ) {
+                    Box(Modifier.appContentMaxWidth()) {
+                        SettingsDevicesScreen(
+                            viewModel = settingsViewModel,
+                            onBack = { navController.popBackStack() },
+                            onEditDevice = { id -> navController.navigate("settings/device/$id") },
+                            onAddDevice = { navController.navigate("settings/device/$NEW_DEVICE_ID") },
+                        )
+                    }
+                }
+                composable(
+                    route = ROUTE_SETTINGS_ENGINE,
+                    enterTransition = detailEnter,
+                    exitTransition = detailExit,
+                    popEnterTransition = detailPopEnter,
+                    popExitTransition = detailPopExit,
+                ) {
+                    Box(Modifier.appContentMaxWidth()) {
+                        SettingsEngineScreen(
+                            viewModel = settingsViewModel,
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
+                }
+                composable(
+                    route = ROUTE_SETTINGS_STORAGE,
+                    enterTransition = detailEnter,
+                    exitTransition = detailExit,
+                    popEnterTransition = detailPopEnter,
+                    popExitTransition = detailPopExit,
+                ) {
+                    Box(Modifier.appContentMaxWidth()) {
+                        SettingsStorageScreen(
+                            viewModel = settingsViewModel,
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
+                }
+                composable(
+                    route = ROUTE_SETTINGS_APPEARANCE,
+                    enterTransition = detailEnter,
+                    exitTransition = detailExit,
+                    popEnterTransition = detailPopEnter,
+                    popExitTransition = detailPopExit,
+                ) {
+                    Box(Modifier.appContentMaxWidth()) {
+                        SettingsAppearanceScreen(
+                            viewModel = settingsViewModel,
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
+                }
+                composable(
+                    route = ROUTE_SETTINGS_BACKUP,
+                    enterTransition = detailEnter,
+                    exitTransition = detailExit,
+                    popEnterTransition = detailPopEnter,
+                    popExitTransition = detailPopExit,
+                ) {
+                    Box(Modifier.appContentMaxWidth()) {
+                        SettingsBackupScreen(
+                            viewModel = settingsViewModel,
+                            onBack = { navController.popBackStack() },
                         )
                     }
                 }
                 composable(
                     route = ROUTE_DEVICE_EDIT,
                     arguments = listOf(navArgument(ARG_DEVICE_ID) { type = NavType.LongType }),
-                    // M3 shared-axis X: the form is a peer screen, not a dialog, so it enters from
-                    // the leading edge and reverses on pop.
-                    enterTransition = {
-                        slideInHorizontally(animationSpec = slideSpec, initialOffsetX = { it / 4 }) +
-                            fadeIn(animationSpec = fadeSpec)
-                    },
-                    exitTransition = {
-                        slideOutHorizontally(animationSpec = slideSpec, targetOffsetX = { -it / 4 }) +
-                            fadeOut(animationSpec = fadeSpec)
-                    },
-                    popEnterTransition = {
-                        slideInHorizontally(animationSpec = slideSpec, initialOffsetX = { -it / 4 }) +
-                            fadeIn(animationSpec = fadeSpec)
-                    },
-                    popExitTransition = {
-                        slideOutHorizontally(animationSpec = slideSpec, targetOffsetX = { it / 4 }) +
-                            fadeOut(animationSpec = fadeSpec)
-                    },
+                    enterTransition = detailEnter,
+                    exitTransition = detailExit,
+                    popEnterTransition = detailPopEnter,
+                    popExitTransition = detailPopExit,
                 ) { entry ->
                     val deviceId = entry.arguments?.getLong(ARG_DEVICE_ID) ?: NEW_DEVICE_ID
                     Box(Modifier.appContentMaxWidth()) {
