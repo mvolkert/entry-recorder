@@ -51,7 +51,7 @@ import io.github.mvolkert.entryrecorder.ui.settings.SettingsEngineScreen
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsScreen
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsStorageScreen
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsViewModel
-import io.github.mvolkert.entryrecorder.ui.theme.appMotionScheme
+import io.github.mvolkert.entryrecorder.ui.theme.motionScheme
 
 /**
  * A top-level destination reachable from either the bottom bar (Compact) or the rail (Medium+).
@@ -89,8 +89,8 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
         TopLevelScreens.any { it.route == currentDestination?.route }
     val items = TopLevelScreens.map { AdaptiveNavItem(it.route, it.labelRes, it.icon) }
     // NavHost transition lambdas are not @Composable, so resolve the seam once here and capture it.
-    val slideSpec = MaterialTheme.appMotionScheme.defaultSpatialSpec<IntOffset>()
-    val fadeSpec = MaterialTheme.appMotionScheme.defaultEffectsSpec<Float>()
+    val slideSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
+    val fadeSpec = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
     // One shared-axis X transition reused by every settings detail push (submenus + device form).
     val detailEnter: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> EnterTransition = {
         slideInHorizontally(animationSpec = slideSpec, initialOffsetX = { it / 4 }) +

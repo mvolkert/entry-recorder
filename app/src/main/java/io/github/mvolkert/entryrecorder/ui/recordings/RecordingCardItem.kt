@@ -59,10 +59,10 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.model.EventType
-import io.github.mvolkert.entryrecorder.ui.theme.appMotionScheme
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeColor
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeLabel
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeOnColor
+import io.github.mvolkert.entryrecorder.ui.theme.motionScheme
 import io.github.mvolkert.entryrecorder.ui.theme.onScrimColor
 import java.io.File
 import java.text.SimpleDateFormat
@@ -101,7 +101,7 @@ internal fun RecordingCardItem(
     val restingContainer = MaterialTheme.colorScheme.surface
     val containerColor by animateColorAsState(
         targetValue = if (selected && !isRemote) selectedContainer else restingContainer,
-        animationSpec = MaterialTheme.appMotionScheme.defaultEffectsSpec(),
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "recordingCardContainer",
     )
 

@@ -21,7 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import io.github.mvolkert.entryrecorder.ui.theme.appMotionScheme
+import io.github.mvolkert.entryrecorder.ui.theme.motionScheme
 
 /**
  * One top-level navigation entry. Kept independent of the `Screen` sealed class so the adaptive
@@ -94,7 +94,7 @@ private fun AdaptiveIcon(item: AdaptiveNavItem, selected: Boolean) {
     val label = stringResource(item.labelRes)
     val iconScale by animateFloatAsState(
         targetValue = if (selected) 1.12f else 1f,
-        animationSpec = MaterialTheme.appMotionScheme.slowSpatialSpec(),
+        animationSpec = MaterialTheme.motionScheme.slowSpatialSpec(),
         label = "adaptiveNavIconScale",
     )
     Icon(

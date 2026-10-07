@@ -90,6 +90,13 @@ Group findings by severity (High / Medium / Low) and by pattern (any issue repea
 
 # Code quality
 - Dispatcher I/O
+- 🔭 The motion seam is name-ready: `ui/theme/AppMotionScheme.kt` exposes the platform `MotionScheme`
+      member names verbatim behind `MaterialTheme.motionScheme` (composable `@ReadOnlyComposable`
+      extension; the platform member is `internal` in material3 1.4.0, so the extension resolves).
+      When AndroidX graduates it, migration is the two coupled steps documented in that file's KDoc:
+      bump material3 + delete the seam, and move `AppTheme`'s root to `MaterialExpressiveTheme` in
+      the same commit — the platform pool defaults to the tighter `standard()` scheme, so skipping
+      the second step silently re-styles every animation.
 
 ## Feature
 - [] Notification to other Smartphone when Motion was detected

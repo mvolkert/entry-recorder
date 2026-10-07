@@ -8,13 +8,22 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 
 /**
  * Local facade whose API surface mirrors the AndroidX Material 3 `MotionScheme` promoted in
- * `material3:1.5.0-alpha29` but declared `internal` in the currently resolved 1.4.0. Callers write
- * `MaterialTheme.appMotionScheme.<name>()` today; the one-line migration when AndroidX ships the
- * public API is to alias `appMotionScheme` to `MaterialTheme.motionScheme` and delete this file.
+ * `material3:1.5.0-alpha29` but declared `internal` in the currently resolved 1.4.0 (compile proof:
+ * `Cannot access 'interface MotionScheme': it is internal in file`). Callers write
+ * `MaterialTheme.motionScheme.<name>()` today against this facade.
+ *
+ * Migration day is two coupled changes, not one: (1) bump material3 and delete this file — the
+ * platform `MaterialTheme.motionScheme` member beats this extension by member-over-extension
+ * resolution, so every call site compiles unchanged; (2) in the same commit switch [AppTheme]'s
+ * root from `MaterialTheme(colorScheme = ...)` to `MaterialExpressiveTheme(colorScheme = ...)`
+ * (internal in 1.4.0, the blocker named here) or drop the [LocalAppMotionScheme] provider, because
+ * the platform pool defaults to the tighter `standard()` scheme — skipping step 2 would silently
+ * re-style every animation while looking behavior-neutral.
  */
 interface AppMotionScheme {
     fun <T> defaultSpatialSpec(): FiniteAnimationSpec<T>
@@ -106,11 +115,13 @@ private object StandardAppMotionScheme : AppMotionScheme {
 
 /**
  * Composition seam that lets the app reach the motion scheme from any `MaterialTheme` scope. M3
- * 1.4.0's `MaterialTheme(colorScheme = ...)` has no `motionScheme` parameter, so a `CompositionLocal`
- * is the only injection point available today.
+ * 1.4.0's `MaterialTheme(colorScheme = ...)` has no reachable `motionScheme` parameter, so a
+ * `CompositionLocal` is the only injection point available today. Intentionally not named
+ * `LocalMotionScheme`: AndroidX nests its equivalent inside the `MaterialTheme` companion, a
+ * placement an extension property cannot mirror, so the app-prefixed name avoids shadowing it.
  */
 val LocalAppMotionScheme = staticCompositionLocalOf<AppMotionScheme> { ExpressiveAppMotionScheme }
 
-/** Composable accessor that mirrors the future `MaterialTheme.motionScheme` extension. */
-val MaterialTheme.appMotionScheme: AppMotionScheme
-    @Composable get() = LocalAppMotionScheme.current
+/** Composable accessor matching the official `MaterialTheme.motionScheme` name and access kind. */
+val MaterialTheme.motionScheme: AppMotionScheme
+    @Composable @ReadOnlyComposable get() = LocalAppMotionScheme.current

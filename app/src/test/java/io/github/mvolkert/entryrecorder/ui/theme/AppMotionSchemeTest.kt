@@ -8,9 +8,10 @@ import org.junit.Test
 /**
  * Locks the seam's shape to the future AndroidX `MotionScheme` API: both factories return a non-null
  * scheme, every spec method resolves for the types the app actually animates today, and the two
- * built-in schemes are stable singletons so the CompositionLocal never churns on recomposition.
- * If AndroidX renames a spec, the corresponding override here stops compiling — which is the signal
- * to migrate the facade to the real type.
+ * built-in schemes are stable singletons so the CompositionLocal never churns on recomposition. The
+ * seam's accessor property name already matches the platform member (`MaterialTheme.motionScheme`),
+ * so a rename upstream surfaces as a compile break on the overrides here and on the extension in
+ * `AppMotionScheme.kt` — which is the signal to migrate the facade to the real type.
  */
 class AppMotionSchemeTest {
 
