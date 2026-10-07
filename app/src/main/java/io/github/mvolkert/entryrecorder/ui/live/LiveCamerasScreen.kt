@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -39,6 +40,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -163,6 +167,10 @@ fun LiveDeviceCard(
     onToggleMonitor: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Learned from the player once the first frame decodes; null until then. The video box adopts it
+    // so the feed sits snug inside the border instead of letterboxing a fixed-height container.
+    var videoAspectRatio by remember(device.id) { mutableStateOf<Float?>(null) }
+
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -217,11 +225,12 @@ fun LiveDeviceCard(
                 }
             }
 
-            // Live Video Player Box
+            // Live Video Player Box — height tracks the feed's aspect (clamped so a misreported or
+            // portrait stream can't blow up the row); 16:9 placeholder while joining.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(230.dp)
+                    .aspectRatio(videoAspectRatio?.coerceIn(1.2f, 2.6f) ?: 16f / 9f)
                     .background(Color.Black)
             ) {
                 LiveStreamPlayer(
@@ -229,7 +238,8 @@ fun LiveDeviceCard(
                     modifier = Modifier.fillMaxSize(),
                     useController = false,
                     serverLiveUrl = serverLiveUrl,
-                    serverApiKey = serverApiKey
+                    serverApiKey = serverApiKey,
+                    onAspectRatioChanged = { videoAspectRatio = it }
                 )
             }
 

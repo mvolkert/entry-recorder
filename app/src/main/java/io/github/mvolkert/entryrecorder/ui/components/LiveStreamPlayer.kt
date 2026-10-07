@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,6 +51,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -61,6 +63,7 @@ import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
 import kotlinx.coroutines.CancellationException
+import kotlin.math.abs
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -80,7 +83,13 @@ fun LiveStreamPlayer(
      * deployment). On stream failure the player falls back to the direct-to-device path below.
      */
     serverLiveUrl: String? = null,
-    serverApiKey: String? = null
+    serverApiKey: String? = null,
+    /**
+     * Receives the intrinsic width/height ratio of the rendered feed as soon as it is known (first
+     * decoded bitmap or RTSP video size). Lets the host container adapt its border to the video
+     * instead of letterboxing a fixed-height box. Debounced to changes > 0.01.
+     */
+    onAspectRatioChanged: ((Float) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -99,6 +108,16 @@ fun LiveStreamPlayer(
     var serverFailed by remember(serverLiveUrl) { mutableStateOf(false) }
     val renderServer = serverLiveUrl != null && !serverFailed
     val resources = LocalResources.current
+
+    // Debounce the aspect report against decoder jitter and per-frame size noise; reset on protocol
+    // fallback so RTSP -> MJPEG -> snapshot can re-report a different ratio.
+    val lastReportedRatio = remember(device.id, activeProtocol) { mutableFloatStateOf(0f) }
+    fun reportRatio(ratio: Float) {
+        if (ratio > 0f && abs(ratio - lastReportedRatio.floatValue) > 0.01f) {
+            lastReportedRatio.floatValue = ratio
+            onAspectRatioChanged?.invoke(ratio)
+        }
+    }
 
     // RTSP ExoPlayer instance
     val exoPlayer = remember {
@@ -133,6 +152,7 @@ fun LiveStreamPlayer(
                     mjpegReader.streamBitmapsFromUrl(serverUrl, device.name, serverApiKey)
                         .collect { bmp ->
                             latestBitmap = bmp
+                            reportRatio(bmp.width.toFloat() / bmp.height.toFloat())
                             isLoading = false
                             errorMessage = null
                         }
@@ -161,6 +181,17 @@ fun LiveStreamPlayer(
                                 }
                                 Player.STATE_ENDED -> isLoading = false
                                 Player.STATE_IDLE -> {}
+                            }
+                        }
+
+                        override fun onVideoSizeChanged(videoSize: VideoSize) {
+                            if (videoSize.height > 0) {
+                                // PAR-corrected: anamorphic streams store a square-pixel size that
+                                // differs from what is actually displayed.
+                                reportRatio(
+                                    videoSize.width.toFloat() / videoSize.height.toFloat() *
+                                        videoSize.pixelWidthHeightRatio
+                                )
                             }
                         }
 
@@ -219,6 +250,7 @@ fun LiveStreamPlayer(
                     try {
                         mjpegReader.streamBitmaps(device).collect { bmp ->
                             latestBitmap = bmp
+                            reportRatio(bmp.width.toFloat() / bmp.height.toFloat())
                             isLoading = false
                             errorMessage = null
                         }
@@ -252,6 +284,7 @@ fun LiveStreamPlayer(
                             val bmp = HttpSnapshotClient.fetchSnapshotBitmap(device)
                             if (bmp != null) {
                                 latestBitmap = bmp
+                                reportRatio(bmp.width.toFloat() / bmp.height.toFloat())
                                 isLoading = false
                                 errorMessage = null
                             } else if (latestBitmap == null) {
