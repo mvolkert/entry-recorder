@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
@@ -29,6 +30,7 @@ import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.ui.adaptive.AdaptiveNavItem
 import io.github.mvolkert.entryrecorder.ui.adaptive.AdaptiveScaffold
 import io.github.mvolkert.entryrecorder.ui.adaptive.LocalWindowInfo
+import io.github.mvolkert.entryrecorder.ui.adaptive.appContentMaxWidth
 import io.github.mvolkert.entryrecorder.ui.adaptive.rememberWindowInfo
 import io.github.mvolkert.entryrecorder.ui.live.LiveCamerasScreen
 import io.github.mvolkert.entryrecorder.ui.recordings.RecordingsScreen
@@ -87,17 +89,23 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
                 modifier = contentModifier.fillMaxSize(),
             ) {
                 composable(Screen.Live.route) {
-                    LiveCamerasScreen()
+                    Box(Modifier.appContentMaxWidth()) {
+                        LiveCamerasScreen()
+                    }
                 }
                 composable(Screen.Recordings.route) {
-                    RecordingsScreen()
+                    Box(Modifier.appContentMaxWidth()) {
+                        RecordingsScreen()
+                    }
                 }
                 composable(Screen.Settings.route) {
-                    SettingsScreen(
-                        viewModel = settingsViewModel,
-                        onEditDevice = { id -> navController.navigate("device_edit/$id") },
-                        onAddDevice = { navController.navigate("device_edit/$NEW_DEVICE_ID") },
-                    )
+                    Box(Modifier.appContentMaxWidth()) {
+                        SettingsScreen(
+                            viewModel = settingsViewModel,
+                            onEditDevice = { id -> navController.navigate("device_edit/$id") },
+                            onAddDevice = { navController.navigate("device_edit/$NEW_DEVICE_ID") },
+                        )
+                    }
                 }
                 composable(
                     route = ROUTE_DEVICE_EDIT,
@@ -122,11 +130,13 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
                     },
                 ) { entry ->
                     val deviceId = entry.arguments?.getLong(ARG_DEVICE_ID) ?: NEW_DEVICE_ID
-                    DeviceEditScreen(
-                        viewModel = settingsViewModel,
-                        deviceId = deviceId,
-                        onDone = { navController.popBackStack() },
-                    )
+                    Box(Modifier.appContentMaxWidth()) {
+                        DeviceEditScreen(
+                            viewModel = settingsViewModel,
+                            deviceId = deviceId,
+                            onDone = { navController.popBackStack() },
+                        )
+                    }
                 }
             }
         }
