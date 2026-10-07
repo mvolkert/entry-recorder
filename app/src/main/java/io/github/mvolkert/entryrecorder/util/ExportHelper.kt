@@ -203,10 +203,12 @@ object ExportHelper {
 
     /**
      * Copies [sourceFile] into the SAF tree folder [treeUri] (a persisted ACTION_OPEN_DOCUMENT_TREE
-     * URI) under [displayName], overwriting an existing document with the same name. Used by
-     * "Export to folder" so exports persist to a user-accessible location independent of Share.
+     * URI) under [displayName]. A document that already exists with the same name and the same byte
+     * size is left untouched and reported as success; a size mismatch (stale or interrupted copy)
+     * replaces it. Used by "Export to folder" so exports persist to a user-accessible location
+     * independent of Share.
      * [onProgress] receives 0..100 of bytes copied and is invoked from the caller's (IO) thread.
-     * @return true on success.
+     * @return true when the folder holds the file after the call, whether copied or already present.
      */
     fun saveFileToSafFolder(
         context: Context,
@@ -218,7 +220,11 @@ object ExportHelper {
         if (!sourceFile.exists()) return false
         return try {
             val existing = findSafChildByName(context, treeUri, displayName)
-            if (existing != null) DocumentsContract.deleteDocument(context.contentResolver, existing)
+            if (existing != null) {
+                val (existingUri, existingSize) = existing
+                if (existingSize == sourceFile.length()) return true
+                DocumentsContract.deleteDocument(context.contentResolver, existingUri)
+            }
 
             val parentDoc = DocumentsContract.buildDocumentUriUsingTree(
                 treeUri, DocumentsContract.getTreeDocumentId(treeUri)
@@ -248,21 +254,24 @@ object ExportHelper {
         }
     }
 
-    /** Returns the URI of a direct child document named [name] in [treeUri], or null if absent. */
-    private fun findSafChildByName(context: Context, treeUri: Uri, name: String): Uri? {
+    /** Returns the URI and byte size of a direct child document named [name] in [treeUri], or null if absent. */
+    private fun findSafChildByName(context: Context, treeUri: Uri, name: String): Pair<Uri, Long>? {
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
             treeUri, DocumentsContract.getTreeDocumentId(treeUri)
         )
         val projection = arrayOf(
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-            DocumentsContract.Document.COLUMN_DISPLAY_NAME
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_SIZE
         )
         context.contentResolver.query(childrenUri, projection, null, null, null)?.use { c ->
             val idIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
             val nameIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            val sizeIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
             while (c.moveToNext()) {
                 if (c.getString(nameIdx) == name) {
-                    return DocumentsContract.buildDocumentUriUsingTree(treeUri, c.getString(idIdx))
+                    val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, c.getString(idIdx))
+                    return uri to c.getLong(sizeIdx)
                 }
             }
         }
