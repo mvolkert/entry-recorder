@@ -1,7 +1,5 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
-import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,10 +20,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -35,12 +31,11 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.mvolkert.entryrecorder.R
-import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 
 /**
  * Configuration hub: intercom devices, recording engine, storage & retention, alerts, appearance and
- * backup. Every section is its own card composable; this file keeps the screen-level state (SAF
- * launchers, dialogs) and the LazyColumn that orders the sections.
+ * backup. Every section is its own card composable; this file keeps the SAF launchers and the
+ * LazyColumn that orders the sections, and renders the ViewModel's one-shot events.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,61 +46,40 @@ fun SettingsScreen(
     onAddDevice: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val exportFolderAccess by viewModel.exportFolderAccess.collectAsStateWithLifecycle()
+    val isTestingServer by viewModel.isTestingServer.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val backupFileName = stringResource(R.string.settings_backup_filename)
 
-    var isTestingServer by remember { mutableStateOf(false) }
-
-    val updateSettings = { settings: AppSettingsEntity -> viewModel.updateSettings(settings) }
-
-    val exportFolderFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
     val exportFolderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            try {
-                val previous = state.appSettings.exportFolderUri
-                if (previous.isNotBlank() && previous != uri.toString()) {
-                    runCatching {
-                        context.contentResolver.releasePersistableUriPermission(previous.toUri(), exportFolderFlags)
-                    }
-                }
-                context.contentResolver.takePersistableUriPermission(uri, exportFolderFlags)
-                viewModel.updateSettings(state.appSettings.copy(exportFolderUri = uri.toString()))
-            } catch (_: SecurityException) {
-                Toast.makeText(context, R.string.settings_toast_folder_permission_failed, Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-
-    fun clearExportFolder() {
-        val previous = state.appSettings.exportFolderUri
-        if (previous.isNotBlank()) {
-            runCatching {
-                context.contentResolver.releasePersistableUriPermission(previous.toUri(), exportFolderFlags)
-            }
-        }
-        viewModel.updateSettings(state.appSettings.copy(exportFolderUri = ""))
-    }
+    ) { uri -> viewModel.onExportFolderSelected(uri) }
 
     // Backup & restore (settings + devices) to a user-chosen JSON file via SAF.
     val backupExportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
-    ) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.exportBackup(uri) { _, msg ->
-                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+    ) { uri -> if (uri != null) viewModel.exportBackup(uri) }
+
+    val backupImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri -> if (uri != null) viewModel.restoreBackup(uri) }
+
+    LaunchedEffect(Unit) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is SettingsUiEvent.Message -> Toast.makeText(
+                    context,
+                    event.text,
+                    if (event.short) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
+                ).show()
             }
         }
     }
-    val backupImportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.restoreBackup(uri) { _, msg ->
-                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-            }
-        }
+
+    // Re-check the persisted export-folder grant on entry and whenever the folder changes: a revoked
+    // permission or a deleted folder is otherwise invisible until the next export fails.
+    LaunchedEffect(state.appSettings.exportFolderUri) {
+        viewModel.recheckExportFolder()
     }
 
     Scaffold(
@@ -154,17 +128,13 @@ fun SettingsScreen(
             item {
                 SettingsEngineCard(
                     settings = state.appSettings,
-                    onSettingsChange = updateSettings,
+                    onSettingsChange = viewModel::updateSettings,
                     isTestingServer = isTestingServer,
                     onTestServer = {
-                        isTestingServer = true
                         viewModel.testServerConnection(
                             state.appSettings.serverBaseUrl,
                             state.appSettings.serverApiKey
-                        ) { _, msg ->
-                            isTestingServer = false
-                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                        }
+                        )
                     }
                 )
             }
@@ -174,21 +144,28 @@ fun SettingsScreen(
             item {
                 SettingsStorageCard(
                     settings = state.appSettings,
-                    onSettingsChange = updateSettings,
+                    onSettingsChange = viewModel::updateSettings,
                     totalStorageBytes = state.totalStorageBytes,
-                    onPickExportFolder = { exportFolderPicker.launch(null) },
-                    onClearExportFolder = { clearExportFolder() },
-                    onCleanupNow = {
-                        viewModel.triggerCleanupNow()
-                        Toast.makeText(context, R.string.settings_toast_cleanup_triggered, Toast.LENGTH_SHORT).show()
-                    }
+                    exportFolderAccess = exportFolderAccess,
+                    onPickExportFolder = {
+                        // Pre-select the current folder so re-granting lands where the user left off;
+                        // a provider that cannot resolve it just opens at its root.
+                        exportFolderPicker.launch(
+                            state.appSettings.exportFolderUri.takeIf { it.isNotBlank() }?.toUri()
+                        )
+                    },
+                    onClearExportFolder = viewModel::clearExportFolder,
+                    onCleanupNow = viewModel::triggerCleanupNow
                 )
             }
 
             item { SettingsSectionHeader(R.string.settings_section_appearance, Modifier.padding(top = 16.dp)) }
 
             item {
-                SettingsAppearanceCard(settings = state.appSettings, onSettingsChange = updateSettings)
+                SettingsAppearanceCard(
+                    settings = state.appSettings,
+                    onSettingsChange = viewModel::updateSettings
+                )
             }
 
             item { SettingsSectionHeader(R.string.settings_section_backup, Modifier.padding(top = 16.dp)) }

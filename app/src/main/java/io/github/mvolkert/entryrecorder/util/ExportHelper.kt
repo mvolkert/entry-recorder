@@ -11,10 +11,32 @@ import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
 import androidx.core.content.FileProvider
+import androidx.core.net.toUri
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import java.io.File
 import java.io.FileInputStream
+
+/**
+ * Live state of the persisted SAF grant behind a stored export-folder URI, so the UI can say *why*
+ * exports stopped working instead of only failing at write time.
+ */
+enum class ExportFolderAccess {
+    /** Not measured yet. */
+    UNKNOWN,
+
+    /** No folder chosen. */
+    NONE,
+
+    /** Grant held and the tree still resolves. */
+    OK,
+
+    /** A URI is stored but the persistable permission is gone (revoked, released, or restored from backup). */
+    NO_PERMISSION,
+
+    /** Grant held but the document provider no longer serves the tree (folder deleted, provider removed). */
+    MISSING,
+}
 
 object ExportHelper {
     private const val TAG = "ExportHelper"
@@ -276,6 +298,31 @@ object ExportHelper {
             }
         }
         return null
+    }
+
+    /**
+     * Checks that the stored export folder [folderUri] still carries a readable *and* writable
+     * persistable permission and that its tree resolves. Blocking — the provider query needs an IO
+     * dispatcher. Any provider failure is reported as [ExportFolderAccess.MISSING] rather than thrown,
+     * because the caller can only act on the result, not fix the folder.
+     */
+    fun probeExportFolderAccess(context: Context, folderUri: String): ExportFolderAccess {
+        if (folderUri.isBlank()) return ExportFolderAccess.NONE
+        val treeUri = folderUri.toUri()
+        val granted = context.contentResolver.persistedUriPermissions.any {
+            it.uri == treeUri && it.isReadPermission && it.isWritePermission
+        }
+        if (!granted) return ExportFolderAccess.NO_PERMISSION
+        return runCatching {
+            val documentUri = DocumentsContract.buildDocumentUriUsingTree(
+                treeUri, DocumentsContract.getTreeDocumentId(treeUri)
+            )
+            context.contentResolver.query(
+                documentUri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null
+            )?.use { cursor ->
+                if (cursor.count > 0) ExportFolderAccess.OK else ExportFolderAccess.MISSING
+            } ?: ExportFolderAccess.MISSING
+        }.getOrDefault(ExportFolderAccess.MISSING)
     }
 
     /** Human-readable label for a SAF tree URI (the path after the volume, e.g. "Documents/Exports"). */

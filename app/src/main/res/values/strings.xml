@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">EntryRecorder</string>
+    <string name="app_name">Entry Recorder</string>
     <string name="channel_motion_name">Motion Alerts</string>
     <string name="channel_motion_desc">Notifications for detected motion events</string>
     <string name="channel_noise_name">Noise Alerts</string>
@@ -46,7 +46,7 @@
     <string name="recordings_title">Recordings Archive</string>
     <string name="recordings_selected_count">%1$d selected</string>
     <string name="recordings_total_storage">Total storage: %1$s</string>
-    <string name="recordings_search_placeholder">Search by device name or note…</string>
+    <string name="recordings_search_placeholder">Search</string>
     <string name="recordings_filter_all_events">All Events</string>
     <string name="recordings_filter_ring">🔔 Doorbell Rings</string>
     <string name="recordings_filter_motion">👁 Motion</string>
@@ -134,6 +134,11 @@
         <item quantity="other">Keep videos for %1$d days</item>
     </plurals>
     <string name="settings_retention_days_short" translatable="false">%1$dd</string>
+    <string name="settings_retention_period_edit_hint">Tap the value to enter an exact number of days</string>
+    <string name="settings_retention_dialog_title">Retention Period in Days</string>
+    <string name="settings_retention_days_label">Days</string>
+    <string name="settings_retention_dialog_hint">0 keeps recordings indefinitely; anything older than this is deleted by the daily cleanup.</string>
+    <string name="settings_retention_dialog_invalid">Enter a whole number between 0 and 3650</string>
     <string name="settings_storage_quota">Storage Quota</string>
     <string name="settings_quota_purge">Purge oldest recordings above %1$d GB</string>
     <string name="settings_quota_gb" translatable="false">%1$dGB</string>
@@ -145,8 +150,11 @@
     <string name="settings_export_folder">Export Folder</string>
     <string name="settings_export_folder_hint">Choose a folder where \"Export to folder\" saves a single file per recording (H.264 when transcoding is on) and where \"Auto-Export\" mirrors the original MKVs. The Share button only shares and never writes here.</string>
     <string name="settings_export_folder_selected">Selected: %1$s</string>
+    <string name="settings_export_folder_revoked">Access to this folder was revoked — grant it again to keep exporting</string>
+    <string name="settings_export_folder_missing">This folder no longer exists on the device — choose a new one</string>
     <string name="settings_folder_choose">Choose folder</string>
     <string name="settings_folder_change">Change folder</string>
+    <string name="settings_folder_grant_again">Grant folder again</string>
     <string name="settings_folder_remove">Remove</string>
     <string name="settings_cleanup_now">Run Storage Cleanup Now</string>
     <string name="settings_cd_decrease">Decrease</string>
