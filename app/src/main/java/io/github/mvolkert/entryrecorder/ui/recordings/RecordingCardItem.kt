@@ -85,6 +85,7 @@ internal fun RecordingCardItem(
     onShare: () -> Unit,
     onExportGallery: () -> Unit,
     onExportFolder: () -> Unit,
+    onExportRawFolder: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -132,6 +133,7 @@ internal fun RecordingCardItem(
             RecordingActionsMenu(
                 isProtected = entity?.isProtected ?: (item as? GalleryItem.Remote)?.dto?.isProtected ?: false,
                 onExportFolder = onExportFolder,
+                onExportRawFolder = onExportRawFolder,
                 onShare = onShare,
                 onExportGallery = onExportGallery,
                 onToggleProtect = onToggleProtect,
@@ -267,6 +269,7 @@ private fun RowScope.RecordingDetails(item: GalleryItem, dateStr: String, sizeSt
 private fun RecordingActionsMenu(
     isProtected: Boolean,
     onExportFolder: () -> Unit,
+    onExportRawFolder: (() -> Unit)?,
     onShare: () -> Unit,
     onExportGallery: () -> Unit,
     onToggleProtect: () -> Unit,
@@ -291,6 +294,17 @@ private fun RecordingActionsMenu(
                     onExportFolder()
                 }
             )
+            // Server rows have no local raw original, so the entry only shows when a callback was passed.
+            if (onExportRawFolder != null) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.recordings_export_raw_folder_menu)) },
+                    leadingIcon = { Icon(Icons.Default.SaveAlt, contentDescription = null) },
+                    onClick = {
+                        menuExpanded = false
+                        onExportRawFolder()
+                    }
+                )
+            }
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.recordings_share_menu)) },
                 leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },

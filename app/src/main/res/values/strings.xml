@@ -68,6 +68,8 @@
     <string name="recordings_batch_progress_body">Processing %1$d of %2$d recording(s)…</string>
     <string name="recordings_export_folder_menu">Export to folder</string>
     <string name="recordings_export_folder_batch">Export to Folder</string>
+    <string name="recordings_export_raw_folder_menu">Export raw MKV to folder</string>
+    <string name="recordings_export_raw_folder_batch">Raw MKVs to folder</string>
     <string name="recordings_share_menu">Share</string>
     <string name="recordings_share_batch">Share…</string>
     <string name="recordings_save_gallery_menu">Save to Gallery</string>

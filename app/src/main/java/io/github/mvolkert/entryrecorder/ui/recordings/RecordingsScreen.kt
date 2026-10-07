@@ -204,7 +204,11 @@ fun RecordingsScreen(
                                     is GalleryItem.Local -> viewModel.exportRecording(item.entity, RecordingExportKind.FOLDER)
                                     is GalleryItem.Remote -> viewModel.exportServerRecording(item, RecordingExportKind.FOLDER)
                                 }
-                            }
+                            },
+                            // Raw copies only exist for local clips; server rows already live on the server as H.264.
+                            onExportRawFolder = if (item is GalleryItem.Local) {
+                                { viewModel.exportRecording(item.entity, RecordingExportKind.RAW_FOLDER) }
+                            } else null
                         )
                     }
                 }

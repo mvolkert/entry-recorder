@@ -88,6 +88,10 @@ internal fun RecordingsTopBar(
                             showExportMenu = false
                             onExportSelected(RecordingExportKind.FOLDER)
                         }
+                        BatchExportOption(R.string.recordings_export_raw_folder_batch, Icons.Default.SaveAlt) {
+                            showExportMenu = false
+                            onExportSelected(RecordingExportKind.RAW_FOLDER)
+                        }
                     }
                 }
                 IconButton(
