@@ -19,6 +19,7 @@ import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.domain.device.IntercomDevice
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
+import io.github.mvolkert.entryrecorder.domain.device.logIdentity
 import io.github.mvolkert.entryrecorder.notification.NotificationHelper
 import io.github.mvolkert.entryrecorder.ui.incoming.IncomingCallActivity
 import io.github.mvolkert.entryrecorder.video.OnDeviceMotionAnalyzer
@@ -188,7 +189,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     }
 
     override fun onEvent(event: IntercomEvent) {
-        Log.i(tag, "Received IntercomEvent: $event")
+        Log.i(tag, "Received ${event.logIdentity()}")
         serviceScope.launch {
             when (event) {
                 is IntercomEvent.DoorbellRung -> {

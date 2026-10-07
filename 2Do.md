@@ -40,14 +40,26 @@ Legend: `[x]` done · `[~]` partial / needs validation · `[ ]` open · 🔄 on-
       File: `ui/components/JpegFramePlayer.kt`
 - [x] Able to export MJPEG Recordings manual
 - [x] Check logcat for mor warnings/errors
-- [] `IntercomMonitorService` logs the whole `IntercomEvent` at info, which dumps `DeviceEntity.toString()` — the HTTP
-  password and the SIP password land in logcat (seen again 2026-10-07 while verifying the polling gate). Log the device
-  id/name plus the event class instead of the entity.
-  File: `service/IntercomMonitorService.kt`
+- [x] **The monitor no longer prints the device password into logcat.** `IntercomMonitorService.onEvent` opened
+      with `Log.i(tag, "Received IntercomEvent: $event")`, and every `IntercomEvent` is a data class holding a
+      `DeviceEntity`, so the entity's generated `toString()` put the HTTP `password` and the `sipPassword` in
+      clear on **every** event — including the polling fallback, which emits one per re-probe. Done: the sealed
+      class now declares `abstract val device` (each subclass already had that property, so only the keyword was
+      added) and a pure `IntercomEvent.logIdentity()` returns `<EventClass> from device <id> (<name>)`, which is
+      what the service logs; the per-branch lines already named only `device.name`, so nothing else changed.
+      Defense in depth: `DeviceEntity` got a hand-written `toString()` listing the diagnostics-relevant fields and
+      masking both credentials, so a future `$device` / `$event` interpolation is harmless. Nothing reads that
+      `toString()` for logic — device diffing uses the data-class `equals`, Room and Gson read fields.
+      A sweep of `Log.*` in `app/src/main` found this as the only leak site; the credential-bearing
+      `rtspStreamUrl` is never logged and the OkHttp `Authorization` headers stay out of log output.
+      Files: `domain/device/IntercomDevice.kt`, `service/IntercomMonitorService.kt`,
+      `data/local/entity/DeviceEntity.kt`,
+      `app/src/test/java/.../domain/device/IntercomEventLogIdentityTest.kt` (new, 4/4)
+      ⚠️ Build/test green only — the "grep logcat for the password, zero hits" check still needs a device run.
 - [] S4 not able to export in H264
 
 # UI
-- Rework SettingsScreen to have sub-menus
+- [] Rework SettingsScreen to have sub-menus
 - [] Live View fit borders around the image
 - [x] **Multiple Selection in RecordingsScreen — long-press marks a range.** Done: mark the first row (a
       long-press opens selection on it), mark the last row and everything between is checked. `selectRangeTo`

@@ -141,7 +141,32 @@ data class DeviceEntity(
     val maxSnapshotFps: Int
         get() = SNAPSHOT_FPS_HARD_MAX
 
+    /**
+     * Diagnostic form of the row. Replaces the data-class `toString()`, which would print the HTTP and the
+     * SIP password in clear wherever an entity is interpolated into a log, so this masks both credentials
+     * and stays safe even if some future log site prints the device.
+     */
+    override fun toString(): String = buildString {
+        append("DeviceEntity(id=$id, name=$name, deviceType=$deviceType, isEnabled=$isEnabled")
+        append(", address=$ipAddress, httpPort=$httpPort, httpsPort=$httpsPort, useHttps=$useHttps")
+        append(", rtspPort=$rtspPort, rtspPath=$rtspPath, username=$username, password=$REDACTED")
+        append(", streamProtocol=$streamProtocol, mjpegPath=$mjpegPath, snapshotPath=$snapshotPath")
+        append(", snapshotFps=$snapshotFps")
+        append(", sipMode=$sipMode, sipLocalPort=$sipLocalPort, sipServerHost=$sipServerHost")
+        append(", sipServerPort=$sipServerPort, sipUser=$sipUser, sipPassword=${sipPassword?.let { REDACTED }}")
+        append(", recordOnMotion=$recordOnMotion, recordOnRing=$recordOnRing, recordOnNoise=$recordOnNoise")
+        append(", recordOnMotionOnDevice=$recordOnMotionOnDevice, motionSensitivity=$motionSensitivity")
+        append(", motionPostRecordSeconds=$motionPostRecordSeconds, noisePostRecordSeconds=$noisePostRecordSeconds")
+        append(", ringRecordSeconds=$ringRecordSeconds")
+        append(", wakeOnRing=$wakeOnRing, soundOnRing=$soundOnRing, vibrateOnRing=$vibrateOnRing")
+        append(", wakeOnMotion=$wakeOnMotion, wakeOnNoise=$wakeOnNoise")
+        append(", serverDeviceId=$serverDeviceId)")
+    }
+
     companion object {
+        /** Placeholder both credential fields collapse to in [toString]. */
+        private const val REDACTED = "<redacted>"
+
         // Single sanity ceiling for every device: beyond it the frame interval drops below a realistic
         // HTTP round trip, so no snapshot endpoint can deliver it. Per-camera capability is measured in
         // the device form rather than guessed from the type (a 2N once forced this down to a static 6).
