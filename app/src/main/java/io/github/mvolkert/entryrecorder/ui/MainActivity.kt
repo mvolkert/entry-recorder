@@ -92,7 +92,7 @@ class MainActivity : ComponentActivity() {
                 tertiaryIndex = settings.themeTertiaryIndex,
                 useDynamicColor = settings.themeUseDynamicColor,
             ) {
-                AppNavHost(settingsViewModel)
+                AppRoot(settingsViewModel)
             }
         }
     }
