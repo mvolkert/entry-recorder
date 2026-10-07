@@ -69,8 +69,9 @@ import java.util.Date
 
 /**
  * One merged gallery row. Both origins expose the same action menu; a [GalleryItem.Local] additionally
- * participates in multi-select, while a [GalleryItem.Remote] (a server recording) has no checkbox and its
- * menu actions round-trip to the server API instead of touching local storage.
+ * participates in multi-select — a tap toggles it, a long-press is the range gesture handled by
+ * [onLongSelect] — while a [GalleryItem.Remote] (a server recording) has no checkbox, ignores the
+ * long-press, and its menu actions round-trip to the server API instead of touching local storage.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -79,14 +80,15 @@ internal fun RecordingCardItem(
     selectionMode: Boolean,
     selected: Boolean,
     onSelectToggle: () -> Unit,
+    onLongSelect: () -> Unit,
     onPlay: () -> Unit,
     onDelete: () -> Unit,
     onToggleProtect: () -> Unit,
     onShare: () -> Unit,
     onExportGallery: () -> Unit,
     onExportFolder: () -> Unit,
-    onExportRawFolder: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+    onExportRawFolder: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val locale = LocalConfiguration.current.locales[0]
@@ -107,7 +109,8 @@ internal fun RecordingCardItem(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .combinedClickable(
-                onClick = { if (selectionMode && !isRemote) onSelectToggle() else onPlay() }
+                onClick = { if (selectionMode && !isRemote) onSelectToggle() else onPlay() },
+                onLongClick = if (isRemote) null else onLongSelect
             ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         colors = CardDefaults.cardColors(containerColor = containerColor)

@@ -42,7 +42,20 @@ Legend: `[x]` done · `[~]` partial / needs validation · `[ ]` open · 🔄 on-
 # UI
 - Rework SettingsScreen to have sub-menus
 - [] Live View fit borders around the image
-- Multiple Selection in RecordingsScreen
+- [x] **Multiple Selection in RecordingsScreen — long-press marks a range.** Done: mark the first row (a
+      long-press opens selection on it), mark the last row and everything between is checked. `selectRangeTo`
+      unions `rangeSelection(visibleIds, anchor, target)` over the current pick — both ends inclusive,
+      direction-independent, measured on the **visible** order so a filter-hidden row is never swept in — and
+      every tap or long-press moves the anchor; an anchor that is gone (deleted or filtered out) degrades to a
+      plain single toggle rather than selecting the whole list. Server rows stay out of selection: they keep no
+      long-press at all. Bulk delete now keeps protected clips the way retention cleanup does, says so in the
+      dialog before confirming and reports the kept count afterwards; the header count comes from the new
+      `selectionInfo` flow, which counts only rows that still exist (a single delete prunes its id).
+      Files: `ui/recordings/SelectionRange.kt` (new, pure), `ui/recordings/RecordingsViewModel.kt`,
+      `ui/recordings/RecordingsScreen.kt`, `ui/recordings/RecordingCardItem.kt`,
+      `ui/recordings/RecordingsDialogs.kt`, `res/values/strings.xml`,
+      `app/src/test/java/.../ui/recordings/SelectionRangeTest.kt` (new, 6/6)
+      ⚠️ Build/test/lint green only — the long-press gesture and the kept-protected delete need a device check.
 
 # Code quality
 - Dispatcher I/O

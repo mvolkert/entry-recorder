@@ -41,17 +41,37 @@ internal fun DeleteRecordingDialog(
     )
 }
 
-/** Confirmation shown before the multi-select batch is removed. */
+/**
+ * Confirmation shown before the multi-select batch is removed. [protectedCount] of the selected rows are
+ * protected and survive the delete, so the dialog says so instead of promising more than it will do.
+ */
 @Composable
 internal fun BulkDeleteDialog(
     selectedCount: Int,
+    protectedCount: Int,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(pluralStringResource(R.plurals.recordings_bulk_delete_title, selectedCount, selectedCount)) },
-        text = { Text(stringResource(R.string.recordings_bulk_delete_body)) },
+        text = {
+            Column {
+                Text(stringResource(R.string.recordings_bulk_delete_body))
+                if (protectedCount > 0) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = pluralStringResource(
+                            R.plurals.recordings_bulk_delete_protected_hint,
+                            protectedCount,
+                            protectedCount
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error)

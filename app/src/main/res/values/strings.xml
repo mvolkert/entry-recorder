@@ -62,6 +62,14 @@
         <item quantity="other">Delete %1$d recordings?</item>
     </plurals>
     <string name="recordings_bulk_delete_body">This permanently deletes the selected recordings and their files. This cannot be undone.</string>
+    <plurals name="recordings_bulk_delete_protected_hint">
+        <item quantity="one">%1$d of them is protected and will be kept.</item>
+        <item quantity="other">%1$d of them are protected and will be kept.</item>
+    </plurals>
+    <plurals name="recordings_toast_bulk_delete_skipped_protected">
+        <item quantity="one">Kept %1$d protected recording</item>
+        <item quantity="other">Kept %1$d protected recordings</item>
+    </plurals>
     <string name="recordings_export_progress_title">Preparing export…</string>
     <string name="recordings_export_progress_body">Converting to H.264 for universal playback…  %1$d%%</string>
     <string name="recordings_copy_progress_body">Copying to the export folder…  %1$d%%</string>

@@ -60,9 +60,11 @@ fun RecordingsScreen(
         viewModel.refreshServerRecordings()
     }
 
-    // Multi-select delete mode
+    // Multi-select mode; a tap toggles one row, a long-press marks a range between the last pick and the
+    // pressed row, and the ViewModel owns which rows are checked.
     var selectionMode by remember { mutableStateOf(false) }
     val selectedIds by viewModel.selectedIds.collectAsStateWithLifecycle()
+    val selection by viewModel.selectionInfo.collectAsStateWithLifecycle()
     var showBulkDeleteConfirm by remember { mutableStateOf(false) }
 
     // Export runs in the ViewModel; its results arrive as one-shot events. The share sheet is launched
@@ -106,7 +108,7 @@ fun RecordingsScreen(
             ) {
                 RecordingsTopBar(
                     selectionMode = selectionMode,
-                    selectedCount = selectedIds.size,
+                    selectedCount = selection.selectedCount,
                     onSelectAll = { viewModel.selectAllVisible() },
                     onExportSelected = { kind -> viewModel.exportSelected(kind) },
                     onBulkDelete = { showBulkDeleteConfirm = true },
@@ -161,6 +163,7 @@ fun RecordingsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(state.items, key = { it.stableKey }) { item ->
+                        val localId = (item as? GalleryItem.Local)?.entity?.id
                         RecordingCardItem(
                             modifier = Modifier.animateItem(),
                             item = item,
@@ -168,6 +171,16 @@ fun RecordingsScreen(
                             selected = item is GalleryItem.Local && item.entity.id in selectedIds,
                             onSelectToggle = {
                                 (item as? GalleryItem.Local)?.let { viewModel.toggleSelection(it.entity.id) }
+                            },
+                            onLongSelect = {
+                                localId?.let { id ->
+                                    if (selectionMode) {
+                                        viewModel.selectRangeTo(id)
+                                    } else {
+                                        selectionMode = true
+                                        viewModel.toggleSelection(id)
+                                    }
+                                }
                             },
                             onPlay = {
                                 activePlayback = when (item) {
@@ -247,7 +260,8 @@ fun RecordingsScreen(
 
     if (showBulkDeleteConfirm) {
         BulkDeleteDialog(
-            selectedCount = selectedIds.size,
+            selectedCount = selection.selectedCount,
+            protectedCount = selection.protectedCount,
             onDismiss = { showBulkDeleteConfirm = false },
             onConfirm = {
                 viewModel.deleteSelected()

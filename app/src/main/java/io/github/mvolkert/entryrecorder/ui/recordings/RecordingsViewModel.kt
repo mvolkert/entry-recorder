@@ -84,6 +84,9 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     private val _selectedIds = MutableStateFlow<Set<Long>>(emptySet())
     val selectedIds: StateFlow<Set<Long>> = _selectedIds.asStateFlow()
 
+    /** Row the range gesture (long-press) measures from; null until something has been picked. */
+    private var selectionAnchorId: Long? = null
+
     /** Stage of the running single-item export, null while idle; [bodyRes] labels the dialog's percent line. */
     data class ExportRunProgress(val percent: Int, @StringRes val bodyRes: Int)
 
@@ -237,6 +240,10 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun deleteRecording(recording: RecordingEntity) {
+        // Drop the row from the selection where it still sits, so the header count never names a clip
+        // that is already gone and a deleted anchor cannot stretch a range across the list.
+        _selectedIds.update { it - recording.id }
+        if (selectionAnchorId == recording.id) selectionAnchorId = null
         viewModelScope.launch {
             repository.deleteRecording(recording)
         }
@@ -246,25 +253,59 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
 
     fun toggleSelection(id: Long) {
         _selectedIds.update { if (id in it) it - id else it + id }
+        selectionAnchorId = id
+    }
+
+    /**
+     * Marks every local row between the last picked row and [targetId], inclusive — the "pick the first,
+     * pick the last" gesture. Measured on the visible order, so rows a filter hides are never swept in,
+     * and it only ever adds: deselecting stays a per-row action.
+     */
+    fun selectRangeTo(targetId: Long) {
+        val visibleIds = uiState.value.localRecordings.map { it.id }
+        _selectedIds.update { it + rangeSelection(visibleIds, selectionAnchorId, targetId) }
+        selectionAnchorId = targetId
     }
 
     fun clearSelection() {
         _selectedIds.value = emptySet()
+        selectionAnchorId = null
     }
+
+    /** What the selection bar and the bulk-delete dialog read: live counts over the rows that still exist. */
+    data class SelectionInfo(val selectedCount: Int, val protectedCount: Int)
+
+    val selectionInfo: StateFlow<SelectionInfo> = combine(uiState, _selectedIds) { state, ids ->
+        val selected = state.localRecordings.filter { it.id in ids }
+        SelectionInfo(
+            selectedCount = selected.size,
+            protectedCount = selected.count { it.isProtected }
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SelectionInfo(0, 0))
 
     /** Selects every local recording currently visible after filters (server rows are read-only). */
     fun selectAllVisible() {
         _selectedIds.value = uiState.value.localRecordings.map { it.id }.toSet()
     }
 
-    /** Deletes the selected recordings (and their files), then clears the selection. */
+    /** Deletes the unprotected selected recordings (and their files), then clears the selection. */
     fun deleteSelected() {
         val ids = _selectedIds.value
         val targets = uiState.value.localRecordings.filter { it.id in ids }
         if (targets.isEmpty()) return
+        // A protected clip survives a bulk delete just like it survives retention cleanup; the user did
+        // ask for it, so the skip is reported instead of being dropped silently.
+        val (deletable, kept) = targets.partition { !it.isProtected }
+        if (kept.isNotEmpty()) {
+            toastPlural(R.plurals.recordings_toast_bulk_delete_skipped_protected, kept.size, kept.size)
+        }
+        if (deletable.isEmpty()) {
+            clearSelection()
+            return
+        }
         viewModelScope.launch {
-            repository.deleteRecordings(targets)
-            _selectedIds.value = emptySet()
+            repository.deleteRecordings(deletable)
+            clearSelection()
         }
     }
 
