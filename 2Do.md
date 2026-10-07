@@ -30,7 +30,14 @@ Legend: `[x]` done · `[~]` partial / needs validation · `[ ]` open · 🔄 on-
 - [] The warning above only appears while Settings is open: an auto-export mirror that fails at write time
   (`video/RtspStreamRecorder.kt`, `worker/ExportTriggerWorker.kt`) is still just a `Log.e`, so a backgrounded app
   silently stops filling the archive. Surface a write failure the same way the stale grant is now surfaced.
-- [] Player Autoplay after seeking
+- [x] **Player Autoplay after seeking.** Done: `JpegFramePlayer`'s timeline forced `playing = false` on every
+      drag and never came back, so one scrub ended the clip. The drag still pauses (the frame under the thumb
+      stays put) but now remembers that the clip had been running and resumes when the thumb is released; a clip
+      the user paused first stays paused. The timing loop re-reads the frame index each iteration, so it carries
+      on from the scrubbed position with that frame's recorded dwell — no pacing change. The ExoPlayer branch
+      (server rows, non-MKV files) already kept `playWhenReady` across a seek and is untouched. Build/test/lint
+      green only — the resume needs a device check.
+      File: `ui/components/JpegFramePlayer.kt`
 - [x] Able to export MJPEG Recordings manual
 - [x] Check logcat for mor warnings/errors
 - [] `IntercomMonitorService` logs the whole `IntercomEvent` at info, which dumps `DeviceEntity.toString()` — the HTTP

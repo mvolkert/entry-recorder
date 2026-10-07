@@ -45,6 +45,7 @@ fun JpegFramePlayer(
     var refs by remember(filePath) { mutableStateOf<List<MjpegMkvReader.FrameRef>>(emptyList()) }
     var index by remember(filePath) { mutableIntStateOf(0) }
     var playing by remember(filePath) { mutableStateOf(true) }
+    var resumeAfterScrub by remember(filePath) { mutableStateOf(false) }
     var frame by remember { mutableStateOf<ImageBitmap?>(null) }
 
     LaunchedEffect(filePath) {
@@ -138,7 +139,21 @@ fun JpegFramePlayer(
             val accent = MaterialTheme.colorScheme.primary
             Slider(
                 value = if (refs.size <= 1) 0f else index.toFloat(),
-                onValueChange = { playing = false; index = it.toInt() },
+                onValueChange = {
+                    // A drag always pauses the loop so the frame under the thumb stays put, and remembers
+                    // that it was running — a clip the user stopped first stays stopped.
+                    if (playing) {
+                        playing = false
+                        resumeAfterScrub = true
+                    }
+                    index = it.toInt()
+                },
+                onValueChangeFinished = {
+                    if (resumeAfterScrub) {
+                        playing = true
+                        resumeAfterScrub = false
+                    }
+                },
                 valueRange = 0f..(refs.size - 1).coerceAtLeast(1).toFloat(),
                 colors = SliderDefaults.colors(
                     thumbColor = accent,
