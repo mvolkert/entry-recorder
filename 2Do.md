@@ -7,6 +7,18 @@ sorted minimal → architectural. Nothing was silently dropped: 34 open + 7 part
 Legend: `[x]` done · `[~]` partial / needs validation · `[ ]` open · 🔄 on-device gate (blocks closing) ·
 🔭 long-term / not scheduled · 🖥️ server-side scope
 
+Review my Compose UI for Material 3 compliance and cross-screen consistency. Do NOT fix anything yet — produce a prioritized findings report only.
+Scope: all composables under app/src/main/java/.../ui (and any feature folders).
+Check each of these dimensions and report violations with file:line, a short why-it-matters note, and a suggested fix:
+Design tokens vs hardcoded values — any literal dp, sp, Color, fontSize, corner radius, or animation duration that should come from MaterialTheme.colorScheme, .typography, .shapes, .spacing, or motionScheme. Flag custom durations especially.
+Typography — text that uses raw fontSize/fontWeight instead of an M3 TextStyle role; inconsistent heading/body hierarchy across screens.
+Component consistency — compare how cards, buttons, dialogs, and bottom sheets are built screen-to-screen. Flag divergent surfaces (e.g. one screen uses ElevatedCard, another uses Card with a hand-rolled border for the same semantic role), inconsistent touch targets, and icon usage/tinting.
+Color semantics — wrong onX pairings, status/error colors hardcoded instead of derived from the scheme, contrast problems, dark/light (DayNight) breakdowns.
+Layout & spacing rhythm — inconsistent paddings/margins/gutters for equivalent containers; layout that isn't inset/wedge-safe.
+Motion — asymmetric enter/exit transitions, animating with non-token durations, or missing MaterialTheme.motionScheme usage.
+Accessibility/UX — missing content descriptions, non-localized (hardcoded) user-facing strings that belong in strings.xml, state that isn't hoisted through the ViewModel/StateFlow pattern.
+Group findings by severity (High / Medium / Low) and by pattern (any issue repeated across many files should be reported once as a pattern with a count, not 20 separate lines). End with the top 3 highest-leverage fixes. Follow the project's AGENTS.md and existing Material 3 conventions as the source of truth over generic M3 advice.
+
 ## Bug
 - [~] Motion/ Noise pull without being toggled → Phase 2 "Gate the 2N status polling on the triggers the user
   actually asked for" — done and **Verso-verified 2026-10-07** (both triggers off: zero polls; motion-wake only: one
@@ -59,8 +71,8 @@ Legend: `[x]` done · `[~]` partial / needs validation · `[ ]` open · 🔄 on-
 - [] S4 not able to export in H264
 
 # UI
-- [] Rework SettingsScreen to have sub-menus
-- [] Live View fit borders around the image
+- [x] Rework SettingsScreen to have sub-menus
+- [x] Live View fit borders around the image
 - [x] **Multiple Selection in RecordingsScreen — long-press marks a range.** Done: mark the first row (a
       long-press opens selection on it), mark the last row and everything between is checked. `selectRangeTo`
       unions `rangeSelection(visibleIds, anchor, target)` over the current pick — both ends inclusive,
