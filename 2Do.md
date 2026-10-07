@@ -7,7 +7,48 @@ sorted minimal → architectural. Nothing was silently dropped: 34 open + 7 part
 Legend: `[x]` done · `[~]` partial / needs validation · `[ ]` open · 🔄 on-device gate (blocks closing) ·
 🔭 long-term / not scheduled · 🖥️ server-side scope
 
+## Bug
+- [~] Motion/ Noise pull without being toggled → Phase 2 "Gate the 2N status polling on the triggers the user
+  actually asked for" — done and **Verso-verified 2026-10-07** (both triggers off: zero polls; motion-wake only: one
+  endpoint polled, `code 2` → one report + 5 min re-probe); the "do not offer triggers the transport cannot deliver"
+  half and the Logging API transport are still open, run after the SIP Test gate
+- [~] 🔄 **Retention is editable in single days.** The stepper moved ±7, so 3 or 15 days were unreachable even
+  though the cleanup cutoff is day-exact (`retentionDays * 24 h`). Now ±1 day (0 = keep indefinitely, capped at
+  3650) and tapping the value opens `RetentionDaysDialog` for exact entry; unparsable or out-of-range input
+  blocks Save instead of silently clamping. Build/test/lint green, no device check yet.
+  Files: `ui/settings/SettingsStorageCard.kt`, `ui/settings/RetentionDaysDialog.kt`, `res/values/strings.xml`
+- [~] 🔄 **The export folder now says when it has to be granted again.**
+  `ExportHelper.probeExportFolderAccess` checks the persisted read **and** write grant and that the tree still
+  resolves; `SettingsViewModel.exportFolderAccess` runs it on IO behind `distinctUntilChanged` on the URI (plus a
+  re-check when Settings is shown), and `ExportFolderRow` renders `NO_PERMISSION` / `MISSING` as an error line with
+  a "Grant folder again" button. A revoked grant, a folder deleted behind a still-held grant and a URI that only
+  came back from a backup file all used to look healthy until an export failed; the picker now pre-selects the
+  stored folder. While there, the screen's ad-hoc Toasts became a `SettingsUiEvent` channel and the SAF
+  take/release handling moved out of the composable into the ViewModel. Build/test/lint green, no device check yet.
+  Files: `util/ExportHelper.kt`, `ui/settings/SettingsViewModel.kt`, `ui/settings/SettingsStorageCard.kt`,
+  `ui/settings/SettingsScreen.kt`, `res/values/strings.xml`
+- [] The warning above only appears while Settings is open: an auto-export mirror that fails at write time
+  (`video/RtspStreamRecorder.kt`, `worker/ExportTriggerWorker.kt`) is still just a `Log.e`, so a backgrounded app
+  silently stops filling the archive. Surface a write failure the same way the stale grant is now surfaced.
+- [] Player Autoplay after seeking
+- [x] Able to export MJPEG Recordings manual
+- [x] Check logcat for mor warnings/errors
+- [] `IntercomMonitorService` logs the whole `IntercomEvent` at info, which dumps `DeviceEntity.toString()` — the HTTP
+  password and the SIP password land in logcat (seen again 2026-10-07 while verifying the polling gate). Log the device
+  id/name plus the event class instead of the entity.
+  File: `service/IntercomMonitorService.kt`
+- [] S4 not able to export in H264
+
+# UI
+- Rework SettingsScreen to have sub-menus
+- [] Live View fit borders around the image
+- Multiple Selection in RecordingsScreen
+
+# Code quality
+- Dispatcher I/O
+
 ## Feature
+- [] Notification to other Smartphone when Motion was detected
 - [x] Now/Stop Monitor button in the @RecordingScreen
 - [x] Alerts & Lockscreen Behavior per camera setting not global
 - [x] Make Camera Edit Screen a full sized Screen as dialog its too much settings for a dialog
@@ -31,8 +72,10 @@ Legend: `[x]` done · `[~]` partial / needs validation · `[ ]` open · 🔄 on-
       (`Registered` / `Rejected(state, reason)` / `NoAnswer(server, lastState)` / `MissingFields`) within
       `SipCallTiming.SIP_PROBE_TIMEOUT_MS`; the form renders it exactly like the HTTP outcome, so a wrong SIP
       password became a line on screen instead of a logcat grep. A `NoAnswer` now says what it saw last:
-      `nothing was sent` is a local transport problem, `Progress` means the REGISTER went out and the registrar
-      ignored it. The live core is never reconfigured, so an abandoned test cannot leave the monitor holding
+      `nothing was sent` is a local transport problem, `Progress` only means the REGISTER went out and nothing came
+      back — a registrar ignoring it and a network dropping it are indistinguishable from here (the Tab S6 was the
+      second: a randomized Wi-Fi MAC made the Fritz!Box refuse that device's SIP outright, see Phase G).
+      The live core is never reconfigured, so an abandoned test cannot leave the monitor holding
       unsaved credentials. `applyPbxRegistrar` is now the single implementation the live path *and* the probe share
       — a green test cannot drift from what saving does — and `buildTestCandidate` carries the registrar fields to
       keep that true. ⚠️ Open by design: the probe registers the same account a second time, which some PBXs answer
@@ -274,8 +317,61 @@ the owner gate in Phase G that unblocks it.
       24/7** where SSE was meant to be a single long-lived connection — small JSON, no frames, but on the Verso's
       serial ≈5.9 req/s ceiling shared with the live/recording snapshot path and never idle. The cheaper design is
       to delete the HTTP event path outright and run rings off the SIP INVITE plus motion off the in-app analyzer,
-      at the cost of the camera's own motion/noise and `CallStateChanged`. Pick one, then implement.
+      at the cost of the camera's own motion/noise and `CallStateChanged`. **Decided 2026-10-07 by the owner: the
+      Logging API transport — the full replacement above, not the cheaper deletion.** That knowingly accepts one small
+      request every 1–2 s per device around the clock on the Verso's ≈5.9 req/s serial ceiling, shared with the live
+      view and recordings; if the Phase G gate still refuses the Logging API after the service is enabled for the
+      app's credentials, the decision reverts to the delete-the-HTTP-path branch and this closes as
+      wont-fix-on-this-firmware. Sequenced after the SIP Test gate in Phase G, together with the two gating items below.
       Files: `data/device/TwoNIPVersoDevice.kt`, `service/IntercomMonitorService.kt`
+- [~] 🔄 **Gate the 2N status polling on the triggers the user actually asked for.** Measured on the Tab S6 2026-10-07:
+      from monitoring start until the service was destroyed, `2N_Verso_1` logged
+      `Noise status poll returned no result.active from http://192.168.178.10:80/api/noise/status` every 1.53 s
+      (13:12:40.562 → 13:13:21), one line per endpoint per cycle — ≈78 requests and ≈100 warning lines per minute per
+      device, 24/7, producing **zero** events. The loop (`TwoNIPVersoDevice.kt:209-259`) reads neither
+      `recordOnMotion`/`recordOnNoise` nor `wakeOnMotion`/`wakeOnNoise`, so the owner's framing — "pull without it being
+      toggled" — is exactly right: turning both triggers off changes nothing. The tablet's Room row read afterwards
+      agrees (`recordOnMotion = 0`, `recordOnNoise = 0`, `recordOnRing = 1`) but carries no timestamp, so it
+      corroborates the report rather than proving the flags as of 13:12 — the code is the proof either way, the loop
+      reads neither flag. Done (compile/`lintDebug`/`testDebugUnitTest` green, 🔄 device gate open):
+      - one poll per trigger, gated on what consumes it: a `StatusPoller` is built for motion only while
+        `recordOnMotion || wakeOnMotion` and for noise only while `recordOnNoise || wakeOnNoise` (a wake-only trigger
+        still needs the event, it just does not arm a clip), and the loop does not start at all when neither is wanted;
+      - `requestedEventNames()` is now the single rule behind the SSE `events=` filter and the poll set alike, so the
+        Logging API item above inherits the gate when it lands instead of re-learning it;
+      - both triggers off emits **no** `ConnectionState` — it is a healthy state, not a degraded one — and the
+        entry DEGRADED line now names only the endpoints actually being polled;
+      - a body saying `code 2 invalid request path` (or an HTTP 404) is classified `Absent`, i.e. permanent for this
+        firmware: that endpoint drops to one re-probe every 5 min instead of ≈40 requests an hour, and the OFFLINE
+        report goes out once on the first such answer (with the recovery edge kept) rather than after four more dead
+        polls. Lowering the log level was rejected — the request is the cost;
+      - the polls run on a client derived from the authenticated one with 2 s connect/read + 3 s call timeout,
+        because the shared SSE client's indefinite read timeout let one silent endpoint park the whole loop.
+      **Still open:** the `*Ended` edge is **not** preserved across a mid-clip flag flip.
+      `updateMonitoredDevices` tears the device down and rebuilds it on every row change, so the poller dies with the
+      old session and no per-instance latch can outlive it — keeping that early stop needs the armed-trigger knowledge
+      to live in the service next to `pendingPostRecordStops` (Phase 4 territory), which is why no latch was written
+      here rather than unreachable code. A stale DEGRADED camera-event glyph can also survive that rebuild: "the user
+      never asked for this endpoint" has no representation in `MonitorStatusHolder` (only ONLINE/DEGRADED/OFFLINE).
+      ⚠️ Gate → Phase G: on the Verso with both camera triggers off, monitoring must log
+      `HTTP event polling not started — no camera motion/noise trigger requested` and produce no
+      `/api/motion/status` / `/api/noise/status` traffic at all; with motion on and noise off, only motion is polled.
+      Files: `data/device/TwoNIPVersoDevice.kt`
+- [ ] **Do not offer triggers the transport cannot deliver.** The form already refuses "From camera" motion on
+      generic RTSP cameras for exactly this reason (`DeviceFormTriggersSection.kt:38-40`), but on the Verso it is
+      offered anyway and has never fired: the only 2N event delivery today is the polling fallback reading two
+      nonexistent endpoints. The ring still has the SIP INVITE to fall back on, but camera-motion, `recordOnNoise`,
+      `wakeOnNoise` and the noise glyph on the live card all promise a signal that cannot arrive on this deployment.
+      The snapshot path cannot substitute — it carries JPEG bytes, no audio and no device-side motion state — so
+      "noise/motion over the snapshot poll" is not a missing feature but an impossible one, and the form should say
+      so instead of defaulting
+      it on (`DeviceEntity` ships `recordOnMotion = true` / `recordOnNoise = true`, so every newly created device asks
+      for events it will never receive). Gate on the **measured** capability, not the device type: once the Logging
+      API item lands, `/api/log/caps` says which event classes the device reports and the form renders only those;
+      until then mark camera-motion and noise unavailable on `TWO_N_VERSO` with the reason, keeping the in-app
+      analyzer the only selectable motion source, and pre-fill a new device accordingly.
+      Files: `ui/settings/DeviceFormTriggersSection.kt`, `ui/settings/DeviceFormAlertsSection.kt`,
+      `ui/settings/DeviceFormState.kt`, `ui/live/LiveCamerasScreen.kt`, `data/local/entity/DeviceEntity.kt`
 - [ ] **Snapshot URL forces `width=1280&height=720` when the path omits them.** Confirmed load-bearing on the
       one Verso, so the deferred criteria ("only if a second snapshot-only device type appears") are not met.
       Make the appended size configurable only if a non-2N snapshot-only camera is added.
@@ -529,13 +625,46 @@ Compile-green ≠ done; run on the owner's real hardware before closing.
       take the live binding for good. Also confirm the probe leaves an in-progress call alone (it opens no audio
       device on purpose) and that `lintDebug`/`compileDebugKotlin` were green on a real device, not just here.
       If it ever fails, read the `(last state: …)` suffix: `nothing was sent` is local (port/transport),
-      `Progress` means the Fritz!Box received it and ignored the probe.
+      `Progress` only means the REGISTER left the device and nothing came back — the app cannot tell "the PBX saw it
+      and stayed silent" from "it never reached the PBX", which is exactly what the Tab S6 measurement below settled.
       **Press it three or four times** — the crash this came back with was a native `SIGSEGV` a moment after a
       probe answered, so a tap that shows a result and then kills the app is the same bug, not a new one. Its
       fingerprint in logcat is `registration state: Ok` followed ~50 ms later by a `Fatal signal 11` **and no
       `SIP probe on … answered` line**: the probe died in its own teardown. Both crash rounds reproduced that
       exact shape, so if `answered` appears, the teardown is no longer the problem.
-      Verified so far: compile + lint only. Files: `sip/SipCallManager.kt`, `ui/settings/DeviceFormTestSection.kt`
+      **Tab S6 (SM-T860, Android 12) 2026-10-07 — measured, and it was not the app: the randomized Wi-Fi MAC.** The probe answers
+      `NoAnswer(server=192.168.178.1:5060, observed=Progress)`, the live core dies identically (`no message received
+      during last 60 seconds`, `[503] io error`, then `[408] timeout`), and the crash buffer is empty — the teardown
+      fix holds. Replaying the app's **own REGISTER bytes from the PC (192.168.178.220) pulls `SIP/2.0 401
+      Unauthorized`**, so `EntryRecorderTabS6` exists on the Fritz!Box and is not locked: the "unknown numbers get
+      dropped in silence" guess is dead and the credential swap is not needed. What remains is one decision inside
+      FRITZ!OS about one device — identical bytes, different source host:
+      - `REGISTER` UDP/5060: PC `401`, tablet silence. `REGISTER` TCP/5060: PC `401`, tablet silence. `OPTIONS`
+        UDP/5060: PC `401`, tablet silence — the box refuses this device's SIP outright, on both transports, before
+        authentication is even involved.
+      - The tablet is not cut off from the box otherwise: DNS on UDP/53 answers it and TCP/80, /443, /53, /5060 all
+        connect. Its SIP packets do reach the LAN — a UDP/5060 listener on the PC caught the tablet's 509-byte
+        REGISTER arriving from .45.
+      - The tablet speaks SIP fine with another host: `OPTIONS` to the 2N (192.168.178.10) came back `SIP/2.0 200 OK`.
+      - The box ignores Via/real-source-port mismatch (`;rport` honoured), so each probe above was a valid test. A
+        message with **no user part in `From`** is dropped for *any* host — that, not the network, is what made the
+        hand-built controls of the previous session look inconclusive.
+      **Resolved the same hour: the MAC was it.** Switching that SSID from the randomized address
+      (`e2:f2:18:7a:0e:11`, lease .45) to the tablet's hardware MAC (`d8:0b:9a:fa:a5:b0`, fresh lease 192.168.178.78)
+      made the box answer, and the app's own Test then printed `401 Unauthorized` → `200 OK` →
+      `Register refresher [200] reason [OK]` → `answered Registered(server=192.168.178.1:5060)` — the first
+      `Registered` this device has ever produced. The reboot and the access-profile hunt were never needed. Why the
+      silence looked absolute: FRITZ!OS matches telephony permission to the device entry it recognises by MAC, so a
+      locally-administered MAC falls back to a profile that refuses the box's SIP outright — no challenge, on either
+      transport — which from inside the app is indistinguishable from a PBX ignoring the probe. The Fairphone's entry
+      carries a non-local MAC, which is why the same account always worked there. No app change; the message was
+      already truthful.
+      What this gate still owes, now reachable for the first time: press Test three or four times in a row (two taps
+      answered and the process survived, no `Fatal signal 11`), then **press it while monitoring is active and ring the
+      doorbell once** — the probe registers the same number a second time (live core :5060 + probe :5092) and some PBXs
+      evict the first binding, so a delivered ring is the proof that this one does not. On the tablet that risk was
+      untestable because no probe ever reached `Registered`.
+      Files: `sip/SipCallManager.kt`, `ui/settings/DeviceFormTestSection.kt`
 - [ ] 🔄 **A credential change withdraws the old registration.** Edit the SIP password and save; debug builds now
       print Linphone's signalling, so logcat should show an unregister REGISTER for the retired account followed by
       exactly one successful registration for the new one — never a refresh loop against the old password. Then
@@ -561,6 +690,37 @@ Compile-green ≠ done; run on the owner's real hardware before closing.
       recording keeps exactly one badge and its old filter answers.
 
 ### Motion health (needs the Verso)
+- [ ] 🔄 **Camera event polling only runs for triggers that were asked for** (Phase 2 gating item, code done,
+      build/lint/test green). With camera motion **and** noise off: logcat shows
+      `HTTP event polling not started — no camera motion/noise trigger requested` and a packet capture / the device's
+      own HTTP log shows **zero** `/api/motion/status` + `/api/noise/status` requests while monitoring stays up;
+      the live card must not go DEGRADED/OFFLINE for the camera-event path. With motion on and noise off, exactly one
+      endpoint is polled and the fallback line names `motion` only. If dead endpoints are still being asked every
+      1.5 s, the `code 2` body is not matching this firmware's wording — capture one body and extend
+      `isInvalidRequestPath` rather than raising the poll interval.
+      **FP5 (Fairphone 5, Android 15) 2026-10-07 19:41 — first half passes, on-device.** Row read from the event log:
+      `recordOnMotion=false, recordOnNoise=false, wakeOnMotion=false, wakeOnNoise=false, recordOnRing=false`. The SSE
+      attempt failed exactly as the transport item predicts (`SSE Failure (200): Invalid content-type: application/json`)
+      and the very next line was `HTTP event polling not started — no camera motion/noise trigger requested`; the
+      following 65 s contain **zero** status-endpoint lines (the pre-fix shape was ≈100 warning lines and ≈78 requests a
+      minute) and no DEGRADED/OFFLINE camera-event report was emitted after the startup `ONLINE` line.
+      **Second half passes too, 19:46, with the real firmware body.** Toggling only *Wake Screen on Motion Detection*
+      (`wakeOnMotion=true`, noise left off) and saving restarted the session as `Starting 2N HTTP polling fallback loop
+      (motion)` with the degraded notice wording now honest — "polling **motion** status only" — and the device answered
+      the very first poll with the body the transport item predicted:
+      `{"success":false,"error":{"code":2,"description":"invalid request path"}}` → classified `Absent` immediately, one
+      OFFLINE report, and **5 status-related lines total for the next 65 s** (one-shot) instead of ≈160; the 5-minute
+      re-probe is the only remaining traffic. Two message-grammar defects surfaced by this run are fixed on the spot
+      (singular "motion status endpoint **has** returned…", and the recovery notice now names the polled labels instead
+      of hardcoding "Motion/noise"). **Still owed on this gate:** the wake-only trigger must be turned back off in the
+      device form afterwards (left `wakeOnMotion=true` on the FP5 by this test), and the 5 min re-probe itself has never
+      been observed over a long session.
+      Unrelated observations from the same session, load-bearing for the ring gate above: the **live** core registration
+      went `Progress → Failed (io error)` after 32 s, so no INVITE path was up while this ran — the phone also logged
+      `Device is restricting metered network activity … data saver is probably ON` — and the Settings device row reads
+      "Camera events (ring/motion/noise): online" whenever monitoring starts, because `startMonitoring` always emits an
+      `ONLINE` notice before the SSE attempt fails; with the triggers off nothing corrects it, which is the
+      "no representation for *not applicable*" caveat above seen from the other side.
 - [ ] 🔄 Read one `Motion analysis on …` health line idle and one walking past the camera, then pick the device's
       **Motion sensitivity** tier (Sensitive / Balanced / Power saver) from the measured peak-change percentage and
       achieved poll rate — the presets replaced editing the analyzer constants.
