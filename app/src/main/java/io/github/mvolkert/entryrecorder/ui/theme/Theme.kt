@@ -18,8 +18,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import io.github.mvolkert.entryrecorder.R
+import io.github.mvolkert.entryrecorder.data.model.EventType
+import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
+import io.github.mvolkert.entryrecorder.data.model.SipMode
+import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 
 /**
  * User-selectable color mode. Stored as the enum ordinal in [io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity.themeMode];
@@ -254,6 +261,113 @@ internal fun buildColorScheme(
 
 /** The preset at [index], falling back to the first one for stale or out-of-range stored indices. */
 fun accentPresetAt(index: Int): AccentPalette = accentPresets.getOrNull(index) ?: accentPresets.first()
+
+/**
+ * A fixed, contrast-checked status color pair. [container] is safe as a filled badge background and
+ * also clears 4.5:1 on the black video scrim, so the same hue reads as header text; [onContainer] is
+ * the dark foreground for the filled form. These hues are deliberately independent of the user accent
+ * so a doorbell, a motion clip and a live REC look the same on every screen (StatusPaletteContrastTest
+ * re-checks every pairing on each test run).
+ */
+data class StatusColor(val container: Color, val onContainer: Color)
+
+private val statusRing = StatusColor(Color(0xFFFFB74D), Color(0xFF4A2B00))
+private val statusMotion = StatusColor(Color(0xFF4FC3F7), Color(0xFF00293B))
+private val statusNoise = StatusColor(Color(0xFFCE93D8), Color(0xFF33103A))
+private val statusManual = StatusColor(Color(0xFF81C784), Color(0xFF0F2E12))
+
+/** The single trigger-badge palette, replacing the two divergent inline EventType maps. */
+fun statusColorFor(eventType: EventType): StatusColor = when (eventType) {
+    EventType.RING -> statusRing
+    EventType.MOTION -> statusMotion
+    EventType.NOISE -> statusNoise
+    EventType.MANUAL -> statusManual
+}
+
+/** Badge fill for a trigger type; also readable as on-scrim header text. */
+fun eventTypeColor(eventType: EventType): Color = statusColorFor(eventType).container
+
+/** Dark foreground to pair with [eventTypeColor] on a filled badge. */
+fun eventTypeOnColor(eventType: EventType): Color = statusColorFor(eventType).onContainer
+
+/** Live-recording badge/dot color and its high-contrast foreground. */
+val recordingStatusColor: Color = Color(0xFFD32F2F)
+val onRecordingStatusColor: Color = Color(0xFFFFFFFF)
+
+/** Amber shared by the "motion right now" walk indicator and a degraded monitor dot. */
+val statusWarnColor: Color = Color(0xFFF9A825)
+
+private val statusMonitorHealthy = Color(0xFF43A047)
+private val statusMonitorOffline = Color(0xFFE53935)
+
+/**
+ * Live-monitoring dot color. DISABLED fades to a translucent onSurfaceVariant, so it tracks the scheme
+ * while the healthy/degraded/offline dots keep their traffic-light semantics independent of the accent.
+ */
+@Composable
+fun monitorStatusColor(status: MonitorStatus): Color = when (status) {
+    MonitorStatus.DISABLED -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+    MonitorStatus.MONITORING, MonitorStatus.MOTION -> statusMonitorHealthy
+    MonitorStatus.DEGRADED -> statusWarnColor
+    MonitorStatus.OFFLINE -> statusMonitorOffline
+}
+
+/** Opaque black that pillarboxes video whose aspect ratio differs from its container. */
+val VideoScrim: Color = Color.Black
+
+/** Foreground drawn on the dark video scrim / letterbox, provided once via LocalContentColor. */
+val onScrimColor: Color = Color.White
+
+/**
+ * App spacing scale. Material 3 ships no spacing tokens, so layout gaps and container padding name a
+ * step here rather than a bare dp value. The steps are chosen so the values already in the layouts map
+ * one-to-one (xs 4, sm 8, md 12, lg 16, xl 24); genuinely tight internal metrics (badge/pill interiors)
+ * stay raw because a named step would round them up and reflow the row.
+ */
+object Spacing {
+    val xs: Dp = 4.dp
+    val sm: Dp = 8.dp
+    val md: Dp = 12.dp
+    val lg: Dp = 16.dp
+    val xl: Dp = 24.dp
+}
+
+/**
+ * Localized label for a trigger badge — the single place an [EventType] becomes UI text, shared by the
+ * recording list and the call header so both read identically (never the raw enum name). The resource
+ * id is exposed too so non-composable callers (e.g. the share-sheet ViewModel) resolve the same string.
+ */
+@StringRes
+fun eventTypeLabelRes(eventType: EventType): Int = when (eventType) {
+    EventType.MOTION -> R.string.event_type_motion
+    EventType.RING -> R.string.event_type_ring
+    EventType.NOISE -> R.string.event_type_noise
+    EventType.MANUAL -> R.string.event_type_manual
+}
+
+@Composable
+fun eventTypeLabel(eventType: EventType): String = stringResource(eventTypeLabelRes(eventType))
+
+/** Localized SIP operating-mode label for a device summary line. */
+@Composable
+fun sipModeLabel(mode: SipMode): String = stringResource(
+    when (mode) {
+        SipMode.PEER_TO_PEER -> R.string.sip_mode_peer_to_peer
+        SipMode.PBX_REGISTRAR -> R.string.sip_mode_pbx_registrar
+        SipMode.DISABLED -> R.string.sip_mode_disabled
+    }
+)
+
+/** Localized transport label for the live-stream protocol badge. */
+@Composable
+fun streamProtocolLabel(protocol: StreamProtocol): String = stringResource(
+    when (protocol) {
+        StreamProtocol.AUTO -> R.string.stream_protocol_auto
+        StreamProtocol.RTSP -> R.string.stream_protocol_rtsp
+        StreamProtocol.MJPEG_STREAM -> R.string.stream_protocol_mjpeg
+        StreamProtocol.HTTP_SNAPSHOT -> R.string.stream_protocol_snapshot
+    }
+)
 
 /**
  * Applies the persisted per-role accent presets. Every role takes its own preset's color plus that

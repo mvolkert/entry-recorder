@@ -383,4 +383,17 @@
     <string name="export_mediastore_failed">Failed to create MediaStore entry</string>
     <string name="export_saved_path">Saved to %1$s</string>
     <string name="export_save_failed">Save failed: %1$s</string>
+
+    <!-- Enum display labels (badges, status pills, capability lines) -->
+    <string name="event_type_motion">Motion</string>
+    <string name="event_type_ring">Ring</string>
+    <string name="event_type_noise">Noise</string>
+    <string name="event_type_manual">Manual</string>
+    <string name="sip_mode_peer_to_peer">Peer-to-peer</string>
+    <string name="sip_mode_pbx_registrar">PBX</string>
+    <string name="sip_mode_disabled">Disabled</string>
+    <string name="stream_protocol_auto">Auto</string>
+    <string name="stream_protocol_rtsp">RTSP</string>
+    <string name="stream_protocol_mjpeg">MJPEG</string>
+    <string name="stream_protocol_snapshot">Snapshot</string>
 </resources>
