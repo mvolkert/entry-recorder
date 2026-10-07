@@ -12,8 +12,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,6 +35,8 @@ import io.github.mvolkert.entryrecorder.sip.CallUiState
 import io.github.mvolkert.entryrecorder.sip.SipCallTiming
 import io.github.mvolkert.entryrecorder.sip.SipSessionState
 import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
+import io.github.mvolkert.entryrecorder.ui.adaptive.WindowInfo
+import io.github.mvolkert.entryrecorder.ui.adaptive.rememberWindowInfo
 import io.github.mvolkert.entryrecorder.ui.theme.AppTheme
 import io.github.mvolkert.entryrecorder.ui.theme.ThemeMode
 import kotlinx.coroutines.CancellationException
@@ -190,42 +196,70 @@ fun IncomingCallContent(
     onToggleSpeaker: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-    ) {
-        // 1. Fullscreen Live Video Stream
+    val windowInfo = rememberWindowInfo()
+    val scrim = MaterialTheme.colorScheme.scrim
+
+    // Video pane: the stream fills whatever slot the layout gives it; the loading placeholder sits
+    // behind the same Box so both branches swap only the incoming container.
+    val video: @Composable (Modifier) -> Unit = { mod ->
         if (device != null) {
             LiveStreamPlayer(
                 device = device,
-                modifier = Modifier.fillMaxSize(),
-                useController = false
+                modifier = mod,
+                useController = false,
             )
         } else {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
+            Box(modifier = mod, contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Color.White)
             }
         }
-
-        // 2. Top Header Overlay
+    }
+    val header: @Composable () -> Unit = {
         IncomingCallHeader(
             eventType = eventType,
             deviceName = device?.name,
             caller = caller,
-            onDismiss = onDismiss
+            onDismiss = onDismiss,
         )
-
-        // 3. Bottom Call Controls Overlay
+    }
+    val controls: @Composable BoxScope.() -> Unit = {
         IncomingCallControls(
             sipState = sipState,
             onAcceptCall = onAcceptCall,
             onDeclineCall = onDeclineCall,
             onToggleMute = onToggleMute,
-            onToggleSpeaker = onToggleSpeaker
+            onToggleSpeaker = onToggleSpeaker,
         )
+    }
+
+    if (windowInfo == WindowInfo.Expanded) {
+        // Tablet landscape: video on the wider left pane, header + controls in a scrim-backed
+        // right pane so they keep the same light-on-dark contrast as the Compact overlay.
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            video(Modifier.weight(3f).fillMaxHeight())
+            Box(
+                modifier = Modifier
+                    .weight(2f)
+                    .fillMaxHeight()
+                    .background(scrim.copy(alpha = 0.7f)),
+            ) {
+                header()
+                controls()
+            }
+        }
+    } else {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            video(Modifier.fillMaxSize())
+            header()
+            controls()
+        }
     }
 }
