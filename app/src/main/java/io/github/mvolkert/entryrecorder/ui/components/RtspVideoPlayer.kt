@@ -11,7 +11,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
@@ -27,6 +26,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import androidx.media3.ui.PlayerView
 import io.github.mvolkert.entryrecorder.R
+import io.github.mvolkert.entryrecorder.ui.theme.VideoScrim
+import io.github.mvolkert.entryrecorder.ui.theme.onScrimColor
 import java.net.ConnectException
 
 @OptIn(UnstableApi::class)
@@ -114,7 +115,7 @@ fun RtspVideoPlayer(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(VideoScrim),
         contentAlignment = Alignment.Center
     ) {
         AndroidView(
@@ -132,7 +133,7 @@ fun RtspVideoPlayer(
         )
 
         if (isLoading) {
-            CircularProgressIndicator(color = Color.White)
+            CircularProgressIndicator(color = onScrimColor)
         }
 
         errorMessage?.let { msg ->

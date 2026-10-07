@@ -34,7 +34,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import io.github.mvolkert.entryrecorder.R
@@ -46,6 +45,10 @@ import io.github.mvolkert.entryrecorder.ui.theme.accentPresets
  * Per-role accent picker. Each role chooses one of the curated [accentPresets] instead of a free
  * color, so the chosen palette always brings its own contrast-checked on-color. A tap writes straight
  * to persisted settings, which re-themes the app while the dialog stays open.
+ *
+ * A full-height custom [Dialog] rather than an [androidx.compose.material3.AlertDialog]: three role
+ * groups of eight swatches need a scrolling body that the AlertDialog title/text/button slots cannot
+ * lay out, so it owns its [Surface] + [Column] chrome instead of forcing the content into those slots.
  */
 @Composable
 internal fun AccentRolePickerDialog(
@@ -69,7 +72,6 @@ internal fun AccentRolePickerDialog(
                 Text(
                     text = stringResource(R.string.accent_roles_title),
                     style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(

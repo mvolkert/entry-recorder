@@ -17,6 +17,7 @@ import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingDto
+import io.github.mvolkert.entryrecorder.ui.theme.eventTypeLabelRes
 import io.github.mvolkert.entryrecorder.util.ExportHelper
 import io.github.mvolkert.entryrecorder.video.ExportTranscoder
 import kotlinx.coroutines.CancellationException
@@ -392,7 +393,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
 
     private suspend fun deliverRemote(item: GalleryItem.Remote, file: File, kind: RecordingExportKind, exportFolderUri: String) {
         val deviceName = item.deviceName
-        val label = item.eventType.name
+        val label = context.getString(eventTypeLabelRes(item.eventType))
         when (kind) {
             RecordingExportKind.SHARE ->
                 _events.trySend(RecordingsUiEvent.Share(listOf(file), recording = null, deviceName = deviceName, eventTypeLabel = label))

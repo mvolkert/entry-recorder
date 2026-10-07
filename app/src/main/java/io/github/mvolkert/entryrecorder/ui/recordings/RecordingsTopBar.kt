@@ -29,7 +29,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import io.github.mvolkert.entryrecorder.R
 
 /**
@@ -56,8 +55,7 @@ internal fun RecordingsTopBar(
             Text(
                 text = if (selectionMode)
                     stringResource(R.string.recordings_selected_count, selectedCount)
-                else stringResource(R.string.recordings_title),
-                fontWeight = FontWeight.Bold
+                else stringResource(R.string.recordings_title)
             )
         },
         actions = {

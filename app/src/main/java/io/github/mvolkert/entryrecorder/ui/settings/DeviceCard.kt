@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Doorbell
@@ -24,12 +23,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.DeviceType
+import io.github.mvolkert.entryrecorder.ui.theme.sipModeLabel
 
 /**
  * One configured intercom: identity, network/SIP summary, the per-path capability the monitor service
@@ -48,7 +47,7 @@ internal fun DeviceCard(
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.small,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Row(
@@ -69,8 +68,7 @@ internal fun DeviceCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = device.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    style = MaterialTheme.typography.titleMedium
                 )
                 Text(
                     text = stringResource(
@@ -82,7 +80,7 @@ internal fun DeviceCard(
                 Text(
                     text = stringResource(
                         R.string.settings_device_sip_line,
-                        device.sipMode.name, device.sipLocalPort
+                        sipModeLabel(device.sipMode), device.sipLocalPort
                     ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant

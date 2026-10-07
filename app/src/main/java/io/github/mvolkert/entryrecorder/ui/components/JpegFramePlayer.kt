@@ -10,7 +10,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -20,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
 import io.github.mvolkert.entryrecorder.R
+import io.github.mvolkert.entryrecorder.ui.theme.onScrimColor
 import io.github.mvolkert.entryrecorder.video.MjpegMkvReader
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -91,7 +91,7 @@ fun JpegFramePlayer(
                 text = stringResource(
                     if (file.exists()) R.string.player_no_frames else R.string.player_file_not_found
                 ),
-                color = Color.White,
+                color = onScrimColor,
                 modifier = Modifier.align(Alignment.Center)
             )
         } else if (img != null) {
@@ -120,7 +120,7 @@ fun JpegFramePlayer(
                     Icon(
                         imageVector = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = stringResource(if (playing) R.string.player_cd_pause else R.string.player_cd_play),
-                        tint = Color.White
+                        tint = onScrimColor
                     )
                 }
                 Text(
@@ -128,7 +128,7 @@ fun JpegFramePlayer(
                         R.plurals.player_time_frames, refs.size,
                         currentMs / 1000, totalMs / 1000, index + 1, refs.size
                     ),
-                    color = Color.White,
+                    color = onScrimColor,
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier

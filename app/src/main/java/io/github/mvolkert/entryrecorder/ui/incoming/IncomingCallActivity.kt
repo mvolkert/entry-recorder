@@ -26,7 +26,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
@@ -39,6 +38,8 @@ import io.github.mvolkert.entryrecorder.ui.adaptive.WindowInfo
 import io.github.mvolkert.entryrecorder.ui.adaptive.rememberWindowInfo
 import io.github.mvolkert.entryrecorder.ui.theme.AppTheme
 import io.github.mvolkert.entryrecorder.ui.theme.ThemeMode
+import io.github.mvolkert.entryrecorder.ui.theme.VideoScrim
+import io.github.mvolkert.entryrecorder.ui.theme.onScrimColor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -210,7 +211,7 @@ fun IncomingCallContent(
             )
         } else {
             Box(modifier = mod, contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Color.White)
+                CircularProgressIndicator(color = onScrimColor)
             }
         }
     }
@@ -238,7 +239,7 @@ fun IncomingCallContent(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black)
+                .background(VideoScrim)
         ) {
             video(Modifier.weight(3f).fillMaxHeight())
             Box(
@@ -255,7 +256,7 @@ fun IncomingCallContent(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black)
+                .background(VideoScrim)
         ) {
             video(Modifier.fillMaxSize())
             header()

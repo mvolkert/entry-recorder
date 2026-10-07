@@ -14,6 +14,7 @@ import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import io.github.mvolkert.entryrecorder.ui.theme.eventTypeLabelRes
 import java.io.File
 import java.io.FileInputStream
 
@@ -91,7 +92,7 @@ object ExportHelper {
 
     /** Shares a single video [file] (e.g. a transcoded H.264 export) via the system share sheet. */
     fun shareFile(context: Context, file: File, recording: RecordingEntity) =
-        shareFile(context, file, recording.deviceName, recording.eventType.name)
+        shareFile(context, file, recording.deviceName, context.getString(eventTypeLabelRes(recording.eventType)))
 
     /**
      * Shares a single video [file] using an explicit [deviceName] / [eventTypeLabel] for the sheet's

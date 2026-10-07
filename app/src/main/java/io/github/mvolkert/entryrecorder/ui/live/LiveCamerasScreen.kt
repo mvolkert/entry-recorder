@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -45,7 +44,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -58,6 +56,12 @@ import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
+import io.github.mvolkert.entryrecorder.ui.theme.VideoScrim
+import io.github.mvolkert.entryrecorder.ui.theme.Spacing
+import io.github.mvolkert.entryrecorder.ui.theme.monitorStatusColor
+import io.github.mvolkert.entryrecorder.ui.theme.onRecordingStatusColor
+import io.github.mvolkert.entryrecorder.ui.theme.recordingStatusColor
+import io.github.mvolkert.entryrecorder.ui.theme.statusWarnColor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,7 +78,7 @@ fun LiveCamerasScreen(
         contentWindowInsets = WindowInsets(0),
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.live_title), fontWeight = FontWeight.Bold) }
+                title = { Text(stringResource(R.string.live_title)) }
             )
         }
     ) { paddingValues ->
@@ -101,8 +105,7 @@ fun LiveCamerasScreen(
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = stringResource(R.string.live_empty_title),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            style = MaterialTheme.typography.titleMedium
                         )
                         Text(
                             text = stringResource(R.string.live_empty_body),
@@ -114,8 +117,8 @@ fun LiveCamerasScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    contentPadding = PaddingValues(Spacing.lg),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.lg)
                 ) {
                     items(state.devices, key = { it.id }) { device ->
                         val isRecording = device.id in state.recordingDeviceIds
@@ -173,22 +176,21 @@ fun LiveDeviceCard(
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        shape = MaterialTheme.shapes.medium,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column {
             // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = Spacing.lg, vertical = Spacing.md),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
                     text = device.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    style = MaterialTheme.typography.titleMedium
                 )
 
                 // All card status is grouped on the right: the monitoring pill, then the REC badge.
@@ -199,8 +201,8 @@ fun LiveDeviceCard(
                         // Compact badge: total height stays below the device-name line height, so the
                         // header row (and the card/video layout) never grows or shrinks when it appears.
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.Red
+                            shape = MaterialTheme.shapes.extraSmall,
+                            color = recordingStatusColor
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
@@ -209,12 +211,14 @@ fun LiveDeviceCard(
                                 Box(
                                     modifier = Modifier
                                         .size(5.dp)
-                                        .background(Color.White, shape = RoundedCornerShape(50))
+                                        .background(onRecordingStatusColor, shape = CircleShape)
                                 )
                                 Spacer(modifier = Modifier.width(3.dp))
+                                // 9.sp/12.sp sit below labelSmall on purpose: the REC Capsule Size
+                                // Constraint keeps dot+label shorter than the device-name line.
                                 Text(
                                     stringResource(R.string.live_rec_badge),
-                                    color = Color.White,
+                                    color = onRecordingStatusColor,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 9.sp,
                                     lineHeight = 12.sp
@@ -231,7 +235,7 @@ fun LiveDeviceCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(videoAspectRatio?.coerceIn(1.2f, 2.6f) ?: 16f / 9f)
-                    .background(Color.Black)
+                    .background(VideoScrim)
             ) {
                 LiveStreamPlayer(
                     device = device,
@@ -247,7 +251,7 @@ fun LiveDeviceCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -283,7 +287,7 @@ fun LiveDeviceCard(
                             Icon(
                                 imageVector = Icons.Default.StopCircle,
                                 contentDescription = stringResource(R.string.live_cd_stop_recording),
-                                tint = Color.Red
+                                tint = recordingStatusColor
                             )
                         } else {
                             // Classic record button: red dot centered in a ring
@@ -296,7 +300,7 @@ fun LiveDeviceCard(
                                 Box(
                                     modifier = Modifier
                                         .size(12.dp)
-                                        .background(Color.Red, CircleShape)
+                                        .background(recordingStatusColor, CircleShape)
                                 )
                             }
                         }
@@ -322,7 +326,7 @@ private fun MonitorStatusPill(status: MonitorStatus) {
         MonitorStatus.OFFLINE -> R.string.live_status_offline
     }
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = MaterialTheme.shapes.extraSmall,
         color = MaterialTheme.colorScheme.surfaceVariant
     ) {
         Row(
@@ -342,19 +346,6 @@ private fun MonitorStatusPill(status: MonitorStatus) {
             )
         }
     }
-}
-
-/**
- * Color of the device's live health, driven by the [MonitorStatus] the monitor service publishes
- * (degraded polling fallback and an offline camera used to both look exactly like a healthy green).
- */
-@Composable
-private fun monitorStatusColor(status: MonitorStatus): Color = when (status) {
-    MonitorStatus.DISABLED -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
-    MonitorStatus.MONITORING -> Color(0xFF4CAF50)
-    MonitorStatus.MOTION -> Color(0xFF4CAF50)
-    MonitorStatus.DEGRADED -> Color(0xFFFFB300)
-    MonitorStatus.OFFLINE -> Color(0xFFF44336)
 }
 
 /**
@@ -401,7 +392,7 @@ private fun TriggerIndicators(
                     if (motionNow) R.string.live_cd_motion_now else R.string.live_cd_motion
                 ),
                 modifier = Modifier.size(16.dp),
-                tint = if (motionNow) Color(0xFFFFB300) else walkTint
+                tint = if (motionNow) statusWarnColor else walkTint
             )
         }
         if (device.isEnabled && device.recordOnNoise) {

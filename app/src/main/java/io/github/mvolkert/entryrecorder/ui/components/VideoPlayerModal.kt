@@ -18,7 +18,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -30,6 +29,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import io.github.mvolkert.entryrecorder.R
+import io.github.mvolkert.entryrecorder.ui.theme.VideoScrim
+import io.github.mvolkert.entryrecorder.ui.theme.onScrimColor
 import java.io.File
 
 /**
@@ -61,7 +62,7 @@ fun VideoPlayerModal(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black)
+                .background(VideoScrim)
         ) {
             if (isJpegMkv && playback is PlaybackTarget.LocalFile) {
                 JpegFramePlayer(
@@ -90,7 +91,7 @@ fun VideoPlayerModal(
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = stringResource(R.string.player_cd_close),
-                    tint = Color.White
+                    tint = onScrimColor
                 )
             }
         }

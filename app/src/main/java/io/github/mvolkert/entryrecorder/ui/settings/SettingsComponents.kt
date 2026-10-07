@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -38,12 +37,12 @@ import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import kotlinx.coroutines.flow.Flow
 
-/** Section card shell shared by every settings section (16 dp rounding, 16 dp inner padding). */
+/** Section card shell shared by every settings section (content-card shape, 16 dp inner padding). */
 @Composable
 internal fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp)
+        shape = MaterialTheme.shapes.medium
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -83,7 +82,7 @@ internal fun SettingsSubscreenScaffold(
         floatingActionButton = floatingActionButton,
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(titleRes), fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(titleRes)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -122,7 +121,7 @@ internal fun SettingsNavRow(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Row(

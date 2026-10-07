@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
@@ -35,7 +34,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -43,7 +41,6 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -62,6 +59,9 @@ import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
+import io.github.mvolkert.entryrecorder.ui.theme.VideoScrim
+import io.github.mvolkert.entryrecorder.ui.theme.onScrimColor
+import io.github.mvolkert.entryrecorder.ui.theme.streamProtocolLabel
 import kotlinx.coroutines.CancellationException
 import kotlin.math.abs
 import kotlinx.coroutines.coroutineScope
@@ -303,7 +303,7 @@ fun LiveStreamPlayer(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(VideoScrim),
         contentAlignment = Alignment.Center
     ) {
         if (activeProtocol == StreamProtocol.RTSP && !renderServer) {
@@ -340,20 +340,20 @@ fun LiveStreamPlayer(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(8.dp),
-            shape = RoundedCornerShape(8.dp),
-            color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f)
+            shape = MaterialTheme.shapes.extraSmall,
+            color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
+            contentColor = onScrimColor
         ) {
             Text(
                 text = if (renderServer) stringResource(R.string.live_badge_server)
-                else activeProtocol.name.replace("_", " "),
-                color = Color.White,
-                fontSize = 10.sp,
+                else streamProtocolLabel(activeProtocol),
+                style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
             )
         }
 
         if (isLoading) {
-            CircularProgressIndicator(color = Color.White)
+            CircularProgressIndicator(color = onScrimColor)
         }
 
         errorMessage?.let { msg ->

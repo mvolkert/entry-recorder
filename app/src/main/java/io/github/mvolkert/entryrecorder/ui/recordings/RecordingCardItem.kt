@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Call
@@ -49,7 +48,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -58,11 +56,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.ui.theme.appMotionScheme
+import io.github.mvolkert.entryrecorder.ui.theme.eventTypeColor
+import io.github.mvolkert.entryrecorder.ui.theme.eventTypeLabel
+import io.github.mvolkert.entryrecorder.ui.theme.eventTypeOnColor
+import io.github.mvolkert.entryrecorder.ui.theme.onScrimColor
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -107,7 +108,7 @@ internal fun RecordingCardItem(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(MaterialTheme.shapes.medium)
             .combinedClickable(
                 onClick = { if (selectionMode && !isRemote) onSelectToggle() else onPlay() },
                 onLongClick = if (isRemote) null else onLongSelect
@@ -163,8 +164,8 @@ private fun RecordingThumbnail(item: GalleryItem) {
     Box(
         modifier = Modifier
             .size(90.dp, 68.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color.DarkGray),
+            .clip(MaterialTheme.shapes.extraSmall)
+            .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center
     ) {
         // A failed thumbnail load (e.g. an unreachable server) falls back to the event icon rather
@@ -182,7 +183,7 @@ private fun RecordingThumbnail(item: GalleryItem) {
             Icon(
                 imageVector = fallbackIcon,
                 contentDescription = null,
-                tint = Color.White
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
@@ -190,7 +191,7 @@ private fun RecordingThumbnail(item: GalleryItem) {
         Icon(
             imageVector = Icons.Default.PlayCircle,
             contentDescription = stringResource(R.string.recordings_cd_play),
-            tint = Color.White.copy(alpha = 0.85f),
+            tint = onScrimColor.copy(alpha = 0.85f),
             modifier = Modifier.size(32.dp)
         )
     }
@@ -206,21 +207,14 @@ private fun RowScope.RecordingDetails(item: GalleryItem, dateStr: String, sizeSt
             // One badge per trigger the clip covers: a doorbell pressed during a motion recording is the same
             // file, so it shows as RING MOTION rather than hiding one of the two events.
             item.eventTypes.forEach { type ->
-                val badgeColor = when (type) {
-                    EventType.RING -> Color(0xFFFF9800)
-                    EventType.MOTION -> Color(0xFF0288D1)
-                    EventType.NOISE -> Color(0xFF8E24AA)
-                    EventType.MANUAL -> Color(0xFF43A047)
-                }
                 Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = badgeColor
+                    shape = MaterialTheme.shapes.extraSmall,
+                    color = eventTypeColor(type)
                 ) {
                     Text(
-                        text = type.name,
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
+                        text = eventTypeLabel(type),
+                        color = eventTypeOnColor(type),
+                        style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                     )
                 }
@@ -236,14 +230,13 @@ private fun RowScope.RecordingDetails(item: GalleryItem, dateStr: String, sizeSt
 
             if (item is GalleryItem.Remote) {
                 Surface(
-                    shape = RoundedCornerShape(4.dp),
+                    shape = MaterialTheme.shapes.extraSmall,
                     color = MaterialTheme.colorScheme.outlineVariant
                 ) {
                     Text(
                         text = stringResource(R.string.recordings_origin_server),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                     )
                 }

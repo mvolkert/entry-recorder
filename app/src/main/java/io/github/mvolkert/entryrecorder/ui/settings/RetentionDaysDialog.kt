@@ -16,7 +16,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
@@ -39,7 +38,7 @@ internal fun RetentionDaysDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(stringResource(R.string.settings_retention_dialog_title), fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.settings_retention_dialog_title))
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
