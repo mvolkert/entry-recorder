@@ -1,5 +1,8 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.material.icons.Icons
@@ -20,11 +23,14 @@ import io.github.mvolkert.entryrecorder.R
  * and add push the fullscreen [DeviceEditScreen] via the [onEditDevice] / [onAddDevice] callbacks.
  */
 @Composable
+@OptIn(ExperimentalSharedTransitionApi::class)
 fun SettingsDevicesScreen(
     viewModel: SettingsViewModel,
     onBack: () -> Unit,
     onEditDevice: (Long) -> Unit,
     onAddDevice: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -49,7 +55,9 @@ fun SettingsDevicesScreen(
                     eventQuality = state.eventQualities[device.id],
                     snapshotQuality = state.snapshotQualities[device.id],
                     onEdit = { onEditDevice(device.id) },
-                    onDelete = { viewModel.deleteDevice(device) }
+                    onDelete = { viewModel.deleteDevice(device) },
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = animatedVisibilityScope,
                 )
             }
         }

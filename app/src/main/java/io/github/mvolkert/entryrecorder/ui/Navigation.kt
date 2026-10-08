@@ -4,6 +4,8 @@ import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -84,6 +86,7 @@ private const val ARG_DEVICE_ID = "deviceId"
  * depending on window width.
  */
 @Composable
+@OptIn(ExperimentalSharedTransitionApi::class)
 fun AppRoot(settingsViewModel: SettingsViewModel) {
     val windowInfo = rememberWindowInfo()
     val navController = rememberNavController()
@@ -132,6 +135,8 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
                 if (index >= 0) scope.launch { pagerState.animateScrollToPage(index) }
             },
         ) { contentModifier ->
+            // One scope above the whole graph so a list card and the detail screen it opens share keyed bounds.
+            SharedTransitionLayout {
             NavHost(
                 navController = navController,
                 startDestination = ROUTE_TABS,
@@ -176,6 +181,8 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
                             onBack = { navController.popBackStack() },
                             onEditDevice = { id -> navController.navigate("settings/device/$id") },
                             onAddDevice = { navController.navigate("settings/device/$NEW_DEVICE_ID") },
+                            sharedTransitionScope = this@SharedTransitionLayout,
+                            animatedVisibilityScope = this@composable,
                         )
                     }
                 }
@@ -249,9 +256,12 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
                             viewModel = settingsViewModel,
                             deviceId = deviceId,
                             onDone = { navController.popBackStack() },
+                            sharedTransitionScope = this@SharedTransitionLayout,
+                            animatedVisibilityScope = this@composable,
                         )
                     }
                 }
+            }
             }
         }
     }

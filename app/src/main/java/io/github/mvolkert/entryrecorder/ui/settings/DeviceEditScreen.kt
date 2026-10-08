@@ -1,6 +1,9 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -38,12 +41,14 @@ const val NEW_DEVICE_ID = -1L
  * gets a proper top bar (back + Save) and the full scrollable viewport without the pager or bottom
  * navigation bar interfering.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun DeviceEditScreen(
     viewModel: SettingsViewModel,
     deviceId: Long,
-    onDone: () -> Unit
+    onDone: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
 ) {
     val context = LocalContext.current
     val resources = LocalResources.current
@@ -72,6 +77,12 @@ fun DeviceEditScreen(
     }
 
     Scaffold(
+        modifier = with(sharedTransitionScope) {
+            Modifier.sharedBounds(
+                rememberSharedContentState(key = "device-$deviceId"),
+                animatedVisibilityScope,
+            )
+        },
         topBar = {
             TopAppBar(
                 title = {

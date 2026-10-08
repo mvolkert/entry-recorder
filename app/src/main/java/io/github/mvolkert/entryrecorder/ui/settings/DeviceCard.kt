@@ -1,6 +1,9 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
 import androidx.annotation.StringRes
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,16 +40,27 @@ import io.github.mvolkert.entryrecorder.ui.theme.sipModeLabel
  * camera-driven trigger can silently never fire even though the device looks "online".
  */
 @Composable
+@OptIn(ExperimentalSharedTransitionApi::class)
 internal fun DeviceCard(
     device: DeviceEntity,
     eventQuality: ConnectionQuality?,
     snapshotQuality: ConnectionQuality?,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
     modifier: Modifier = Modifier,
 ) {
+    // The card is the source of the hero: its bounds morph into the edit screen's surface on push,
+    // keyed by device id so only the tapped card finds a partner.
+    val heroModifier = with(sharedTransitionScope) {
+        modifier.sharedBounds(
+            rememberSharedContentState(key = "device-${device.id}"),
+            animatedVisibilityScope,
+        )
+    }
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = heroModifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.small,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
