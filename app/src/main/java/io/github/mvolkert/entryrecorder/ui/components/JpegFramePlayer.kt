@@ -117,7 +117,7 @@ fun JpegFramePlayer(
                 modifier = Modifier.padding(horizontal = 8.dp)
             ) {
                 IconButton(onClick = { if (refs.size >= 2) playing = !playing }) {
-                    Icon(
+                    MorphingIcon(
                         imageVector = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = stringResource(if (playing) R.string.player_cd_pause else R.string.player_cd_play),
                         tint = onScrimColor

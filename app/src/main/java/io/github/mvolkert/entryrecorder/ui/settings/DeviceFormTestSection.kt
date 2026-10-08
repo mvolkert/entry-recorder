@@ -11,7 +11,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -33,6 +32,7 @@ import io.github.mvolkert.entryrecorder.sip.SipCallManager
 import io.github.mvolkert.entryrecorder.sip.SipCallTiming
 import io.github.mvolkert.entryrecorder.sip.SipMissingField
 import io.github.mvolkert.entryrecorder.sip.SipProbeResult
+import io.github.mvolkert.entryrecorder.ui.components.MorphingIcon
 import kotlinx.coroutines.launch
 
 /**
@@ -173,7 +173,7 @@ private fun TestResultRow(message: String, success: Boolean) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Icon(
+        MorphingIcon(
             imageVector = if (success) Icons.Default.CheckCircle else Icons.Default.Error,
             contentDescription = null,
             tint = if (success) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error

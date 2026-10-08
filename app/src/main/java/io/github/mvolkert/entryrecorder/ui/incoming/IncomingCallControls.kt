@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.sip.CallUiState
 import io.github.mvolkert.entryrecorder.sip.SipSessionState
+import io.github.mvolkert.entryrecorder.ui.components.MorphingIcon
 
 /**
  * Bottom call-action bar. A [BoxScope] extension because it anchors itself to the bottom of the
@@ -72,7 +73,7 @@ internal fun BoxScope.IncomingCallControls(
                             CircleShape
                         )
                 ) {
-                    Icon(
+                    MorphingIcon(
                         imageVector = if (sipState.isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
                         contentDescription = stringResource(R.string.incoming_cd_mute),
                         tint = if (sipState.isMicMuted) scheme.onErrorContainer else scheme.onSurface,
@@ -104,7 +105,7 @@ internal fun BoxScope.IncomingCallControls(
                             CircleShape
                         )
                 ) {
-                    Icon(
+                    MorphingIcon(
                         imageVector = if (sipState.isSpeakerOn) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeDown,
                         contentDescription = stringResource(R.string.incoming_cd_speaker),
                         tint = if (sipState.isSpeakerOn) scheme.onSecondaryContainer else scheme.onSurface,

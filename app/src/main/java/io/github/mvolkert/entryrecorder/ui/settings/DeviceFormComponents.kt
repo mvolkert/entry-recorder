@@ -11,7 +11,6 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.DividerDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -31,6 +30,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
+import io.github.mvolkert.entryrecorder.ui.components.MorphingIcon
 
 /** Bold group title inside the device form. */
 @Composable
@@ -100,7 +100,7 @@ internal fun PasswordTextField(
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
         trailingIcon = {
             IconButton(onClick = { revealed = !revealed }) {
-                Icon(
+                MorphingIcon(
                     imageVector = if (revealed) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                     contentDescription = stringResource(
                         if (revealed) R.string.device_hide_password else R.string.device_show_password

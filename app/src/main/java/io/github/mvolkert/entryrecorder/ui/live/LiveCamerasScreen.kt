@@ -56,6 +56,7 @@ import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
+import io.github.mvolkert.entryrecorder.ui.components.MorphingIcon
 import io.github.mvolkert.entryrecorder.ui.theme.VideoScrim
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 import io.github.mvolkert.entryrecorder.ui.theme.monitorStatusColor
@@ -281,7 +282,7 @@ fun LiveDeviceCard(
                 // Right: the card's actions — monitor on/off, then manual record.
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onToggleMonitor) {
-                        Icon(
+                        MorphingIcon(
                             imageVector = if (isMonitored) Icons.Default.Visibility else Icons.Default.VisibilityOff,
                             contentDescription = stringResource(
                                 if (isMonitored) R.string.live_cd_stop_monitor else R.string.live_cd_monitor
