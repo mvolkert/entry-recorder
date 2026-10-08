@@ -5,7 +5,10 @@ import android.os.Build
 import androidx.annotation.StringRes
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -380,6 +383,7 @@ fun streamProtocolLabel(protocol: StreamProtocol): String = stringResource(
  * crashing.
  */
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun AppTheme(
     themeMode: Int,
     primaryIndex: Int,
@@ -423,12 +427,12 @@ fun AppTheme(
         }
     }
 
-    MaterialTheme(
+    MaterialExpressiveTheme(
         colorScheme = colorScheme,
+        motionScheme = MotionScheme.expressive(),
     ) {
         CompositionLocalProvider(
             LocalDarkTheme provides dark,
-            LocalAppMotionScheme provides AppMotionScheme.expressive(),
             content = content,
         )
     }

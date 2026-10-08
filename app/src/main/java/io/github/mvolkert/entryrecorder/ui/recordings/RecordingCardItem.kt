@@ -62,7 +62,6 @@ import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeColor
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeLabel
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeOnColor
-import io.github.mvolkert.entryrecorder.ui.theme.motionScheme
 import io.github.mvolkert.entryrecorder.ui.theme.onScrimColor
 import java.io.File
 import java.text.SimpleDateFormat

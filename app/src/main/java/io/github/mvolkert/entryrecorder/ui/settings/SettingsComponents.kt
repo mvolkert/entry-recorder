@@ -46,7 +46,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
-import io.github.mvolkert.entryrecorder.ui.theme.motionScheme
 import kotlinx.coroutines.flow.Flow
 
 /** Section card shell shared by every settings section (content-card shape, 16 dp inner padding). */

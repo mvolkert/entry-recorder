@@ -52,7 +52,6 @@ import io.github.mvolkert.entryrecorder.ui.settings.SettingsEngineScreen
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsScreen
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsStorageScreen
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsViewModel
-import io.github.mvolkert.entryrecorder.ui.theme.motionScheme
 import kotlinx.coroutines.launch
 
 /**
