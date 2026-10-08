@@ -6,6 +6,8 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.Box
@@ -91,6 +93,17 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
     // NavHost transition lambdas are not @Composable, so resolve the seam once here and capture it.
     val slideSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     val fadeSpec = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+    val tabScaleSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
+    // Tabs are siblings, so their transition is symmetric (no shared axis): fade on the effects
+    // slot, scale on the spatial one — replacing NavHost's hardcoded default tween fade/scale.
+    val tabEnter: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> EnterTransition = {
+        fadeIn(animationSpec = fadeSpec) +
+            scaleIn(animationSpec = tabScaleSpec, initialScale = 0.92f)
+    }
+    val tabExit: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> ExitTransition = {
+        fadeOut(animationSpec = fadeSpec) +
+            scaleOut(animationSpec = tabScaleSpec, targetScale = 0.92f)
+    }
     // One shared-axis X transition reused by every settings detail push (submenus + device form).
     val detailEnter: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> EnterTransition = {
         slideInHorizontally(animationSpec = slideSpec, initialOffsetX = { it / 4 }) +
@@ -121,17 +134,35 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
                 startDestination = Screen.Live.route,
                 modifier = contentModifier.fillMaxSize(),
             ) {
-                composable(Screen.Live.route) {
+                composable(
+                    route = Screen.Live.route,
+                    enterTransition = tabEnter,
+                    exitTransition = tabExit,
+                    popEnterTransition = tabEnter,
+                    popExitTransition = tabExit,
+                ) {
                     Box(Modifier.appContentMaxWidth()) {
                         LiveCamerasScreen()
                     }
                 }
-                composable(Screen.Recordings.route) {
+                composable(
+                    route = Screen.Recordings.route,
+                    enterTransition = tabEnter,
+                    exitTransition = tabExit,
+                    popEnterTransition = tabEnter,
+                    popExitTransition = tabExit,
+                ) {
                     Box(Modifier.appContentMaxWidth()) {
                         RecordingsScreen()
                     }
                 }
-                composable(Screen.Settings.route) {
+                composable(
+                    route = Screen.Settings.route,
+                    enterTransition = tabEnter,
+                    exitTransition = tabExit,
+                    popEnterTransition = tabEnter,
+                    popExitTransition = tabExit,
+                ) {
                     Box(Modifier.appContentMaxWidth()) {
                         SettingsScreen(
                             viewModel = settingsViewModel,
