@@ -95,7 +95,9 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
     val fadeSpec = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
     val tabScaleSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
     // Tabs are siblings, so their transition is symmetric (no shared axis): fade on the effects
-    // slot, scale on the spatial one — replacing NavHost's hardcoded default tween fade/scale.
+    // slot, scale on the spatial one. These are graph-level NavHost defaults, not per-destination
+    // params: with popUpTo(saveState)/restoreState tab switches, destination-level transitions can
+    // be skipped by the library, and the detail routes below keep overriding with their own slides.
     val tabEnter: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> EnterTransition = {
         fadeIn(animationSpec = fadeSpec) +
             scaleIn(animationSpec = tabScaleSpec, initialScale = 0.92f)
@@ -133,36 +135,22 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
                 navController = navController,
                 startDestination = Screen.Live.route,
                 modifier = contentModifier.fillMaxSize(),
+                enterTransition = tabEnter,
+                exitTransition = tabExit,
+                popEnterTransition = tabEnter,
+                popExitTransition = tabExit,
             ) {
-                composable(
-                    route = Screen.Live.route,
-                    enterTransition = tabEnter,
-                    exitTransition = tabExit,
-                    popEnterTransition = tabEnter,
-                    popExitTransition = tabExit,
-                ) {
+                composable(Screen.Live.route) {
                     Box(Modifier.appContentMaxWidth()) {
                         LiveCamerasScreen()
                     }
                 }
-                composable(
-                    route = Screen.Recordings.route,
-                    enterTransition = tabEnter,
-                    exitTransition = tabExit,
-                    popEnterTransition = tabEnter,
-                    popExitTransition = tabExit,
-                ) {
+                composable(Screen.Recordings.route) {
                     Box(Modifier.appContentMaxWidth()) {
                         RecordingsScreen()
                     }
                 }
-                composable(
-                    route = Screen.Settings.route,
-                    enterTransition = tabEnter,
-                    exitTransition = tabExit,
-                    popEnterTransition = tabEnter,
-                    popExitTransition = tabExit,
-                ) {
+                composable(Screen.Settings.route) {
                     Box(Modifier.appContentMaxWidth()) {
                         SettingsScreen(
                             viewModel = settingsViewModel,

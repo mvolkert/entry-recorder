@@ -3,6 +3,11 @@ package io.github.mvolkert.entryrecorder.ui.components
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,7 +20,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -30,7 +40,10 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.ui.theme.VideoScrim
+import io.github.mvolkert.entryrecorder.ui.theme.motionScheme
 import io.github.mvolkert.entryrecorder.ui.theme.onScrimColor
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
 
 /**
@@ -55,48 +68,75 @@ fun VideoPlayerModal(
     val isJpegMkv = playback is PlaybackTarget.LocalFile &&
             playback.filePath.substringAfterLast('.', "").equals("mkv", ignoreCase = true)
 
+    // The dialog content animates in and out through the motion scheme; the Dialog itself can only
+    // be dismissed once the exit has played, so dismissal is deferred by EXIT_FALLBACK_MS rather
+    // than handed straight to onDismiss (AnimatedVisibility exposes no completion hook here).
+    var visible by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val fadeSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+    val scaleSpec = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
+    LaunchedEffect(Unit) { visible = true }
+    val requestDismiss: () -> Unit = {
+        if (visible) {
+            visible = false
+            scope.launch {
+                delay(EXIT_FALLBACK_MS)
+                onDismiss()
+            }
+        }
+    }
+
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = requestDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(VideoScrim)
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = fadeSpec) + scaleIn(animationSpec = scaleSpec, initialScale = 0.92f),
+            exit = fadeOut(animationSpec = fadeSpec) + scaleOut(animationSpec = scaleSpec, targetScale = 0.92f),
         ) {
-            if (isJpegMkv && playback is PlaybackTarget.LocalFile) {
-                JpegFramePlayer(
-                    filePath = playback.filePath,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                val uri = when (playback) {
-                    is PlaybackTarget.RemoteUrl -> playback.url
-                    is PlaybackTarget.LocalFile -> File(playback.filePath).toURI().toString()
-                }
-                ExoPlayerView(
-                    uri = uri,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-
-            // Close button top right
-            IconButton(
-                onClick = onDismiss,
+            Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(16.dp)
-                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f), shape = RoundedCornerShape(50))
+                    .fillMaxSize()
+                    .background(VideoScrim)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = stringResource(R.string.player_cd_close),
-                    tint = onScrimColor
-                )
+                if (isJpegMkv && playback is PlaybackTarget.LocalFile) {
+                    JpegFramePlayer(
+                        filePath = playback.filePath,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    val uri = when (playback) {
+                        is PlaybackTarget.RemoteUrl -> playback.url
+                        is PlaybackTarget.LocalFile -> File(playback.filePath).toURI().toString()
+                    }
+                    ExoPlayerView(
+                        uri = uri,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                // Close button top right
+                IconButton(
+                    onClick = requestDismiss,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp)
+                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f), shape = RoundedCornerShape(50))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.player_cd_close),
+                        tint = onScrimColor
+                    )
+                }
             }
         }
     }
 }
+
+/** Covers the fast-spring fade/scale exit before the Dialog window is torn down. */
+private const val EXIT_FALLBACK_MS = 320L
 
 @OptIn(UnstableApi::class)
 @Composable

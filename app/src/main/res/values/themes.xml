@@ -9,5 +9,15 @@
 
     <style name="Theme.EntryRecorder.LockScreen" parent="Theme.EntryRecorder">
         <item name="android:windowBackground">@color/black</item>
+        <item name="android:windowAnimationStyle">@style/Animation.EntryRecorder.Screen</item>
+    </style>
+
+    <!-- The doorbell/preview screen is a separate Activity, so the Compose motion scheme cannot
+         reach it; it rode the platform default window animation and reported as a hard pop. -->
+    <style name="Animation.EntryRecorder.Screen" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/screen_fade_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/screen_fade_exit</item>
+        <item name="android:activityCloseEnterAnimation">@anim/screen_fade_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/screen_fade_exit</item>
     </style>
 </resources>
