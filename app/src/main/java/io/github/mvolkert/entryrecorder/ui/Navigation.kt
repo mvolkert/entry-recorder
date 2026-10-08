@@ -6,12 +6,12 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
@@ -20,11 +20,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.IntOffset
-import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -54,11 +53,13 @@ import io.github.mvolkert.entryrecorder.ui.settings.SettingsScreen
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsStorageScreen
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsViewModel
 import io.github.mvolkert.entryrecorder.ui.theme.motionScheme
+import kotlinx.coroutines.launch
 
 /**
- * A top-level destination reachable from either the bottom bar (Compact) or the rail (Medium+).
- * Each screen owns its own back stack slot inside the shared [NavHost] so switching tabs keeps the
- * per-screen scroll and any inner pushes intact.
+ * A top-level destination reachable from the pager pages as well as the bottom bar (Compact) or the
+ * rail (Medium+). The three are siblings inside a single [HorizontalPager] under [ROUTE_TABS], so
+ * switching tabs is a swipe that keeps each screen's composition (scroll position, running feeds)
+ * alive; only the settings detail routes get their own back stack slots.
  */
 sealed class Screen(val route: String, @StringRes val labelRes: Int, val icon: ImageVector) {
     object Live : Screen("live", R.string.nav_live, Icons.Default.Videocam)
@@ -68,44 +69,40 @@ sealed class Screen(val route: String, @StringRes val labelRes: Int, val icon: I
 
 private val TopLevelScreens = listOf(Screen.Live, Screen.Recordings, Screen.Settings)
 
+// Single NavHost destination hosting the three swipeable tab pages.
+private const val ROUTE_TABS = "tabs"
+
 // Editing a device is a settings-detail fullscreen route, reached from the Devices submenu.
 private const val ROUTE_DEVICE_EDIT = "settings/device/{deviceId}"
 private const val ARG_DEVICE_ID = "deviceId"
 
 /**
- * Root composable. Owns the [NavHostController], hoists the adaptive [io.github.mvolkert.entryrecorder.ui.adaptive.WindowInfo]
- * into a [LocalWindowInfo] provider, and wraps the NavHost inside an [AdaptiveScaffold] so the same
- * three destinations render either under a bottom [androidx.compose.material3.NavigationBar] or a
- * leading [androidx.compose.material3.NavigationRail] depending on window width.
+ * Root composable. Owns the [androidx.navigation.NavHostController] and the hoisted pager state (kept
+ * above the NavHost so a settings-detail push does not reset the selected tab), hoists the adaptive
+ * [io.github.mvolkert.entryrecorder.ui.adaptive.WindowInfo] into a [LocalWindowInfo] provider, and
+ * wraps the NavHost inside an [AdaptiveScaffold] so the same three destinations render either under a
+ * bottom [androidx.compose.material3.NavigationBar] or a leading [androidx.compose.material3.NavigationRail]
+ * depending on window width.
  */
 @Composable
 fun AppRoot(settingsViewModel: SettingsViewModel) {
     val windowInfo = rememberWindowInfo()
     val navController = rememberNavController()
+    val scope = rememberCoroutineScope()
+    // Hoisted above the NavHost: it is rememberSaveable internally, so it survives both the detail
+    // pushes (whose composition tears the pager down) and configuration changes.
+    val pagerState = rememberPagerState(pageCount = { TopLevelScreens.size })
     val currentEntry by navController.currentBackStackEntryAsState()
     val currentDestination = currentEntry?.destination
-    val selectedRoute = TopLevelScreens.firstOrNull { it.route == currentDestination?.route }?.route
+    val onTabsRoute = currentDestination == null || currentDestination.route == ROUTE_TABS
     // The bar/rail is chrome for the three tabs only; every settings submenu and the device form are
     // fullscreen details that own their top bar, so chrome is hidden for anything non-top-level.
-    val showChrome = currentDestination == null ||
-        TopLevelScreens.any { it.route == currentDestination?.route }
+    val showChrome = onTabsRoute
+    val selectedRoute = if (onTabsRoute) TopLevelScreens[pagerState.currentPage].route else null
     val items = TopLevelScreens.map { AdaptiveNavItem(it.route, it.labelRes, it.icon) }
     // NavHost transition lambdas are not @Composable, so resolve the seam once here and capture it.
     val slideSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     val fadeSpec = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
-    val tabScaleSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
-    // Tabs are siblings, so their transition is symmetric (no shared axis): fade on the effects
-    // slot, scale on the spatial one. These are graph-level NavHost defaults, not per-destination
-    // params: with popUpTo(saveState)/restoreState tab switches, destination-level transitions can
-    // be skipped by the library, and the detail routes below keep overriding with their own slides.
-    val tabEnter: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> EnterTransition = {
-        fadeIn(animationSpec = fadeSpec) +
-            scaleIn(animationSpec = tabScaleSpec, initialScale = 0.92f)
-    }
-    val tabExit: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> ExitTransition = {
-        fadeOut(animationSpec = fadeSpec) +
-            scaleOut(animationSpec = tabScaleSpec, targetScale = 0.92f)
-    }
     // One shared-axis X transition reused by every settings detail push (submenus + device form).
     val detailEnter: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> EnterTransition = {
         slideInHorizontally(animationSpec = slideSpec, initialOffsetX = { it / 4 }) +
@@ -129,33 +126,42 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
             items = items,
             selectedRoute = selectedRoute,
             showChrome = showChrome,
-            onNavigate = { item -> navController.navigateToTopLevel(item.route) },
+            onNavigate = { item ->
+                // Only reachable while on the tabs route (chrome is hidden on details), so the pager
+                // is attached and the animated scroll always drives the visible page.
+                val index = TopLevelScreens.indexOfFirst { it.route == item.route }
+                if (index >= 0) scope.launch { pagerState.animateScrollToPage(index) }
+            },
         ) { contentModifier ->
             NavHost(
                 navController = navController,
-                startDestination = Screen.Live.route,
+                startDestination = ROUTE_TABS,
                 modifier = contentModifier.fillMaxSize(),
-                enterTransition = tabEnter,
-                exitTransition = tabExit,
-                popEnterTransition = tabEnter,
-                popExitTransition = tabExit,
             ) {
-                composable(Screen.Live.route) {
-                    Box(Modifier.appContentMaxWidth()) {
-                        LiveCamerasScreen()
-                    }
-                }
-                composable(Screen.Recordings.route) {
-                    Box(Modifier.appContentMaxWidth()) {
-                        RecordingsScreen()
-                    }
-                }
-                composable(Screen.Settings.route) {
-                    Box(Modifier.appContentMaxWidth()) {
-                        SettingsScreen(
-                            viewModel = settingsViewModel,
-                            onNavigate = { route -> navController.navigate(route) },
-                        )
+                composable(
+                    route = ROUTE_TABS,
+                    enterTransition = { fadeIn(animationSpec = fadeSpec) },
+                    exitTransition = detailExit,
+                    popEnterTransition = detailPopEnter,
+                    popExitTransition = detailExit,
+                ) {
+                    // All pages stay composed so each tab keeps its scroll and identity across tab
+                    // switches; the Live page gates its streams on [currentPage] via `active`.
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize(),
+                        beyondViewportPageCount = TopLevelScreens.size - 1,
+                    ) { page ->
+                        Box(Modifier.appContentMaxWidth()) {
+                            when (TopLevelScreens[page]) {
+                                Screen.Live -> LiveCamerasScreen(active = pagerState.currentPage == page)
+                                Screen.Recordings -> RecordingsScreen()
+                                Screen.Settings -> SettingsScreen(
+                                    viewModel = settingsViewModel,
+                                    onNavigate = { route -> navController.navigate(route) },
+                                )
+                            }
+                        }
                     }
                 }
                 composable(
@@ -249,18 +255,5 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
                 }
             }
         }
-    }
-}
-
-/**
- * Canonical AndroidX multi-backstack navigation between top-level destinations: pop everything above
- * the start destination but save its state, launch a single instance of the target, and restore the
- * target's saved state (scroll position, inner pushes) on arrival.
- */
-private fun NavHostController.navigateToTopLevel(route: String) {
-    navigate(route) {
-        popUpTo(graph.findStartDestination().id) { saveState = true }
-        launchSingleTop = true
-        restoreState = true
     }
 }

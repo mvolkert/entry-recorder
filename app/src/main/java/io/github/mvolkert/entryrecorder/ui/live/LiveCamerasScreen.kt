@@ -67,7 +67,12 @@ import io.github.mvolkert.entryrecorder.ui.theme.statusWarnColor
 @Composable
 fun LiveCamerasScreen(
     modifier: Modifier = Modifier,
-    viewModel: LiveViewModel = viewModel()
+    viewModel: LiveViewModel = viewModel(),
+    /**
+     * False when this screen is composed but off-screen in the tab pager: the cards then hold their
+     * last frame instead of keeping RTSP/MJPEG/snapshot traffic alive for a tab nobody is watching.
+     */
+    active: Boolean = true,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -135,6 +140,7 @@ fun LiveCamerasScreen(
                         LiveDeviceCard(
                             modifier = Modifier.animateItem(),
                             device = device,
+                            active = active,
                             isRecording = isRecording,
                             isMonitored = device.isEnabled,
                             monitorStatus = monitorStatus,
@@ -160,6 +166,7 @@ fun LiveCamerasScreen(
 @Composable
 fun LiveDeviceCard(
     device: DeviceEntity,
+    active: Boolean,
     isRecording: Boolean,
     isMonitored: Boolean,
     monitorStatus: MonitorStatus,
@@ -241,6 +248,7 @@ fun LiveDeviceCard(
                     device = device,
                     modifier = Modifier.fillMaxSize(),
                     useController = false,
+                    autoPlay = active,
                     serverLiveUrl = serverLiveUrl,
                     serverApiKey = serverApiKey,
                     onAspectRatioChanged = { videoAspectRatio = it }

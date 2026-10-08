@@ -138,6 +138,14 @@ fun LiveStreamPlayer(
 
     // Effect for handling streaming lifecycle based on active protocol
     LaunchedEffect(device, activeProtocol, retryCount, autoPlay, serverLiveUrl, serverApiKey, serverFailed) {
+        // Inactive tab page (the pager keeps neighbours composed off-screen): stop the player and skip
+        // all stream setup, keeping the radio idle; the last decoded frame stays on screen. Flipping
+        // autoPlay back to true re-runs this effect and reconnects.
+        if (!autoPlay) {
+            exoPlayer.stop()
+            isLoading = false
+            return@LaunchedEffect
+        }
         isLoading = true
         errorMessage = null
 
