@@ -200,7 +200,6 @@
     <string name="settings_hub_devices_subtitle">%1$d configured</string>
     <string name="settings_hub_storage_subtitle">%1$s used</string>
     <string name="settings_hub_backup_subtitle">Export or restore settings &amp; devices</string>
-    <string name="settings_hub_footer_hint">Choose a category to configure it.</string>
 
     <!-- Appearance / accent colors -->
     <string name="settings_section_appearance">Appearance</string>

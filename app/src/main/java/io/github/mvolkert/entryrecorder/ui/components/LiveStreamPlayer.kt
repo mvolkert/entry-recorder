@@ -236,7 +236,7 @@ fun LiveStreamPlayer(
 
                     exoPlayer.setMediaSource(mediaSource)
                     exoPlayer.prepare()
-                    exoPlayer.playWhenReady = autoPlay
+                    exoPlayer.playWhenReady = true
                 } catch (e: Exception) {
                     isLoading = false
                     if (device.streamProtocol == StreamProtocol.AUTO) {

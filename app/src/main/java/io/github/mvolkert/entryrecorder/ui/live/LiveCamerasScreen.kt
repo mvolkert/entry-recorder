@@ -241,7 +241,7 @@ fun LiveDeviceCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(videoAspectRatio?.coerceIn(1.2f, 2.6f) ?: 16f / 9f)
+                    .aspectRatio(videoAspectRatio?.coerceIn(1.2f, 2.6f) ?: (16f / 9f))
                     .background(VideoScrim)
             ) {
                 LiveStreamPlayer(

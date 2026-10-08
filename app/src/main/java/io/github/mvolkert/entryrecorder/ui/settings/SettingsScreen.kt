@@ -2,6 +2,7 @@ package io.github.mvolkert.entryrecorder.ui.settings
 
 import android.text.format.Formatter
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -20,6 +21,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -68,6 +70,10 @@ fun SettingsScreen(
     )
     val backupSubtitle = stringResource(R.string.settings_hub_backup_subtitle)
 
+    val scheme = MaterialTheme.colorScheme
+    val appearanceContainer = lerp(scheme.primaryContainer, scheme.tertiaryContainer, 0.5f)
+    val appearanceOnContainer = lerp(scheme.onPrimaryContainer, scheme.onTertiaryContainer, 0.5f)
+
     Scaffold(
         // Top inset handled by TopAppBar; bottom system inset by the host NavigationBar in
         // MainActivity. Nested Scaffold stays inset-free to avoid double-counting.
@@ -81,8 +87,8 @@ fun SettingsScreen(
         LazyColumn(
             modifier = modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 16.dp),
+                .padding(paddingValues),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
@@ -90,6 +96,8 @@ fun SettingsScreen(
                     icon = Icons.Default.Doorbell,
                     titleRes = R.string.settings_section_devices,
                     subtitle = devicesSubtitle,
+                    iconContainerColor = scheme.primaryContainer,
+                    iconContentColor = scheme.onPrimaryContainer,
                     onClick = { onNavigate(ROUTE_SETTINGS_DEVICES) }
                 )
             }
@@ -98,6 +106,8 @@ fun SettingsScreen(
                     icon = Icons.Default.Videocam,
                     titleRes = R.string.settings_section_mode,
                     subtitle = engineSubtitle,
+                    iconContainerColor = scheme.secondaryContainer,
+                    iconContentColor = scheme.onSecondaryContainer,
                     onClick = { onNavigate(ROUTE_SETTINGS_ENGINE) }
                 )
             }
@@ -106,6 +116,8 @@ fun SettingsScreen(
                     icon = Icons.Default.CleaningServices,
                     titleRes = R.string.settings_section_retention,
                     subtitle = storageSubtitle,
+                    iconContainerColor = scheme.tertiaryContainer,
+                    iconContentColor = scheme.onTertiaryContainer,
                     onClick = { onNavigate(ROUTE_SETTINGS_STORAGE) }
                 )
             }
@@ -114,6 +126,8 @@ fun SettingsScreen(
                     icon = Icons.Default.Palette,
                     titleRes = R.string.settings_section_appearance,
                     subtitle = appearanceSubtitle,
+                    iconContainerColor = appearanceContainer,
+                    iconContentColor = appearanceOnContainer,
                     onClick = { onNavigate(ROUTE_SETTINGS_APPEARANCE) }
                 )
             }
@@ -122,15 +136,9 @@ fun SettingsScreen(
                     icon = Icons.Default.Download,
                     titleRes = R.string.settings_section_backup,
                     subtitle = backupSubtitle,
+                    iconContainerColor = scheme.surfaceContainerHighest,
+                    iconContentColor = scheme.onSurfaceVariant,
                     onClick = { onNavigate(ROUTE_SETTINGS_BACKUP) }
-                )
-            }
-            item {
-                Text(
-                    text = stringResource(R.string.settings_hub_footer_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp)
                 )
             }
         }
