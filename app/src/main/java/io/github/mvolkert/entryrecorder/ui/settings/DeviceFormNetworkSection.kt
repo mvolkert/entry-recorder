@@ -1,18 +1,19 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.model.DeviceType
 
@@ -23,56 +24,68 @@ internal fun DeviceFormNetworkSection(form: DeviceFormState) {
         value = form.name,
         onValueChange = { form.name = it },
         label = { Text(stringResource(R.string.device_name_label)) },
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
+        isError = form.name.isBlank(),
+        supportingText = if (form.name.isBlank()) {
+            { Text(stringResource(R.string.device_toast_name_ip_required), color = MaterialTheme.colorScheme.error) }
+        } else null
     )
 
-    FormSectionLabel(R.string.device_type_label)
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        FormRadioRow(
-            selected = form.deviceType == DeviceType.TWO_N_VERSO,
-            label = stringResource(R.string.device_type_verso),
-            onClick = { form.deviceType = DeviceType.TWO_N_VERSO },
-            modifier = Modifier.clickable { form.deviceType = DeviceType.TWO_N_VERSO }
-        )
-        FormRadioRow(
-            selected = form.deviceType == DeviceType.GENERIC_RTSP_ONVIF,
-            label = stringResource(R.string.device_type_generic),
-            onClick = { form.deviceType = DeviceType.GENERIC_RTSP_ONVIF },
-            modifier = Modifier.clickable { form.deviceType = DeviceType.GENERIC_RTSP_ONVIF }
-        )
-    }
+    val deviceTypes = listOf(DeviceType.TWO_N_VERSO, DeviceType.GENERIC_RTSP_ONVIF)
+    FormSingleChoice(
+        label = stringResource(R.string.device_type_label),
+        options = deviceTypes.map {
+            stringResource(
+                if (it == DeviceType.TWO_N_VERSO) R.string.device_type_verso else R.string.device_type_generic
+            )
+        },
+        selectedIndex = deviceTypes.indexOf(form.deviceType),
+        onSelect = { form.deviceType = deviceTypes[it] },
+    )
 
     OutlinedTextField(
         value = form.ipAddress,
         onValueChange = { form.ipAddress = it },
         label = { Text(stringResource(R.string.device_ip_label)) },
         modifier = Modifier.fillMaxWidth(),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        isError = form.ipAddress.isBlank(),
+        supportingText = if (form.ipAddress.isBlank()) {
+            { Text(stringResource(R.string.device_toast_name_ip_required), color = MaterialTheme.colorScheme.error) }
+        } else null
     )
 
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = form.httpPort,
-            onValueChange = { form.httpPort = it },
-            label = { Text(stringResource(R.string.device_http_port)) },
-            modifier = Modifier.weight(1f),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-        )
-        OutlinedTextField(
-            value = form.rtspPort,
-            onValueChange = { form.rtspPort = it },
-            label = { Text(stringResource(R.string.device_rtsp_port)) },
-            modifier = Modifier.weight(1f),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-        )
-    }
+    FormTwoFieldRow(
+        first = { m ->
+            OutlinedTextField(
+                value = form.httpPort,
+                onValueChange = { form.httpPort = it },
+                label = { Text(stringResource(R.string.device_http_port)) },
+                modifier = m,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            )
+        },
+        second = { m ->
+            OutlinedTextField(
+                value = form.rtspPort,
+                onValueChange = { form.rtspPort = it },
+                label = { Text(stringResource(R.string.device_rtsp_port)) },
+                modifier = m,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            )
+        },
+    )
 
     FormEmphasizedSwitchRow(
         title = stringResource(R.string.device_https_toggle),
         checked = form.useHttps,
         onCheckedChange = { form.useHttps = it }
     )
-    if (form.useHttps) {
+    AnimatedVisibility(
+        visible = form.useHttps,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically(),
+    ) {
         OutlinedTextField(
             value = form.httpsPort,
             onValueChange = { form.httpsPort = it },
@@ -89,18 +102,22 @@ internal fun DeviceFormNetworkSection(form: DeviceFormState) {
         modifier = Modifier.fillMaxWidth()
     )
 
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = form.username,
-            onValueChange = { form.username = it },
-            label = { Text(stringResource(R.string.device_username)) },
-            modifier = Modifier.weight(1f)
-        )
-        PasswordTextField(
-            value = form.password,
-            onValueChange = { form.password = it },
-            label = stringResource(R.string.device_password),
-            modifier = Modifier.weight(1f)
-        )
-    }
+    FormTwoFieldRow(
+        first = { m ->
+            OutlinedTextField(
+                value = form.username,
+                onValueChange = { form.username = it },
+                label = { Text(stringResource(R.string.device_username)) },
+                modifier = m
+            )
+        },
+        second = { m ->
+            PasswordTextField(
+                value = form.password,
+                onValueChange = { form.password = it },
+                label = stringResource(R.string.device_password),
+                modifier = m
+            )
+        },
+    )
 }

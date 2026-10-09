@@ -23,6 +23,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
@@ -31,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.R
+import io.github.mvolkert.entryrecorder.ui.adaptive.appContentMaxWidth
 
 /** Sentinel device id for "creating a new device" (no existing row matches it). */
 const val NEW_DEVICE_ID = -1L
@@ -113,41 +115,38 @@ fun DeviceEditScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            DeviceFormNetworkSection(form)
+            // Caps and centers the form on wide windows so fields never stretch to tablet width.
+            Column(
+                modifier = Modifier
+                    .appContentMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                SettingsCard { DeviceFormNetworkSection(form) }
 
-            FormDivider()
+                SettingsCard { DeviceFormStreamSection(form) }
 
-            DeviceFormStreamSection(form)
+                SettingsCard { DeviceFormSipSection(form) }
 
-            FormDivider()
+                SettingsCard { DeviceFormTriggersSection(form) }
 
-            DeviceFormSipSection(form)
+                SettingsCard { DeviceFormAlertsSection(form) }
 
-            FormDivider()
+                SettingsCard { DeviceFormDurationsSection(form) }
 
-            DeviceFormTriggersSection(form)
+                SettingsCard { DeviceFormTestSection(form, sipCallManager) }
 
-            FormDivider()
-
-            DeviceFormAlertsSection(form)
-
-            FormDivider()
-
-            DeviceFormDurationsSection(form)
-
-            DeviceFormTestSection(form, sipCallManager)
-
-            // Bottom breathing room so the last field clears the navigation gesture area.
-            Text(
-                text = stringResource(R.string.device_edit_footer_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp)
-            )
+                // Bottom breathing room so the last field clears the navigation gesture area.
+                Text(
+                    text = stringResource(R.string.device_edit_footer_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
         }
     }
 }

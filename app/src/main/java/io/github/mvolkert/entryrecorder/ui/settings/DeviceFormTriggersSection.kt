@@ -1,11 +1,13 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -13,7 +15,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
@@ -40,30 +41,25 @@ internal fun DeviceFormTriggersSection(form: DeviceFormState) {
     // Motion source is one exhaustive choice, not two look-alike switches that could both be on.
     // Generic RTSP/ONVIF cameras expose no event bus, so "From camera" motion cannot exist there and
     // is not offered.
-    Text(
-        stringResource(R.string.device_motion_source_label),
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.Medium
-    )
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        FormRadioRow(
-            selected = form.motionSource == MotionSource.OFF,
-            label = stringResource(R.string.device_motion_source_off),
-            onClick = { form.motionSource = MotionSource.OFF }
-        )
-        if (form.deviceType == DeviceType.TWO_N_VERSO) {
-            FormRadioRow(
-                selected = form.motionSource == MotionSource.CAMERA,
-                label = stringResource(R.string.device_motion_source_camera),
-                onClick = { form.motionSource = MotionSource.CAMERA }
-            )
-        }
-        FormRadioRow(
-            selected = form.motionSource == MotionSource.APP,
-            label = stringResource(R.string.device_motion_source_app),
-            onClick = { form.motionSource = MotionSource.APP }
-        )
+    val sources = buildList {
+        add(MotionSource.OFF)
+        if (form.deviceType == DeviceType.TWO_N_VERSO) add(MotionSource.CAMERA)
+        add(MotionSource.APP)
     }
+    FormSingleChoice(
+        label = stringResource(R.string.device_motion_source_label),
+        options = sources.map {
+            stringResource(
+                when (it) {
+                    MotionSource.OFF -> R.string.device_motion_source_off
+                    MotionSource.CAMERA -> R.string.device_motion_source_camera
+                    MotionSource.APP -> R.string.device_motion_source_app
+                }
+            )
+        },
+        selectedIndex = sources.indexOf(form.motionSource).coerceAtLeast(0),
+        onSelect = { form.motionSource = sources[it] },
+    )
     Text(
         stringResource(R.string.device_motion_source_hint),
         style = MaterialTheme.typography.bodySmall,
@@ -72,29 +68,30 @@ internal fun DeviceFormTriggersSection(form: DeviceFormState) {
 
     // Sensitivity only steers the in-app analyzer; the camera's own motion events ignore these numbers,
     // so the picker appears only once "Analyzed in-app" is the chosen source.
-    if (form.motionSource == MotionSource.APP) {
-        Text(
-            stringResource(R.string.device_motion_sensitivity_label),
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Medium
+    AnimatedVisibility(
+        visible = form.motionSource == MotionSource.APP,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically(),
+    ) {
+        val sensitivities = listOf(
+            MotionSensitivity.SENSITIVE,
+            MotionSensitivity.BALANCED,
+            MotionSensitivity.POWER_SAVER,
         )
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            FormRadioRow(
-                selected = form.motionSensitivity == MotionSensitivity.SENSITIVE,
-                label = stringResource(R.string.device_motion_sensitivity_sensitive),
-                onClick = { form.motionSensitivity = MotionSensitivity.SENSITIVE }
-            )
-            FormRadioRow(
-                selected = form.motionSensitivity == MotionSensitivity.BALANCED,
-                label = stringResource(R.string.device_motion_sensitivity_balanced),
-                onClick = { form.motionSensitivity = MotionSensitivity.BALANCED }
-            )
-            FormRadioRow(
-                selected = form.motionSensitivity == MotionSensitivity.POWER_SAVER,
-                label = stringResource(R.string.device_motion_sensitivity_power_saver),
-                onClick = { form.motionSensitivity = MotionSensitivity.POWER_SAVER }
-            )
-        }
+        FormSingleChoice(
+            label = stringResource(R.string.device_motion_sensitivity_label),
+            options = sensitivities.map {
+                stringResource(
+                    when (it) {
+                        MotionSensitivity.SENSITIVE -> R.string.device_motion_sensitivity_sensitive
+                        MotionSensitivity.BALANCED -> R.string.device_motion_sensitivity_balanced
+                        MotionSensitivity.POWER_SAVER -> R.string.device_motion_sensitivity_power_saver
+                    }
+                )
+            },
+            selectedIndex = sensitivities.indexOf(form.motionSensitivity),
+            onSelect = { form.motionSensitivity = sensitivities[it] },
+        )
         Text(
             stringResource(
                 when (form.motionSensitivity) {
@@ -142,36 +139,34 @@ internal fun DeviceFormAlertsSection(form: DeviceFormState) {
 }
 
 /** Per-event lengths plus the master enable switch the monitor service checks before arming a device. */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun DeviceFormDurationsSection(form: DeviceFormState) {
     FormSectionLabel(R.string.device_durations_section)
-    // Fixed-width fields inside a FlowRow wrap to fewer-per-line on narrow screens instead of
-    // collapsing into unusably thin thirds the way three weight(1f) columns do.
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
+    // Three equal-weight fields share one line; single-line inputs keep them short and aligned so all
+    // three fit even on a narrow phone.
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(
             value = form.ringRecordSeconds,
             onValueChange = { form.ringRecordSeconds = it },
             label = { Text(stringResource(R.string.device_duration_ring)) },
-            modifier = Modifier.width(140.dp),
+            modifier = Modifier.weight(1f),
+            singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
         )
         OutlinedTextField(
             value = form.motionPostRecordSeconds,
             onValueChange = { form.motionPostRecordSeconds = it },
             label = { Text(stringResource(R.string.device_duration_motion_post)) },
-            modifier = Modifier.width(140.dp),
+            modifier = Modifier.weight(1f),
+            singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
         )
         OutlinedTextField(
             value = form.noisePostRecordSeconds,
             onValueChange = { form.noisePostRecordSeconds = it },
             label = { Text(stringResource(R.string.device_duration_noise_post)) },
-            modifier = Modifier.width(140.dp),
+            modifier = Modifier.weight(1f),
+            singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
         )
     }

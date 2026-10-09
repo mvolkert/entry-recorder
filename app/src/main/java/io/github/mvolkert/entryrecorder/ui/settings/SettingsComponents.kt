@@ -186,10 +186,10 @@ internal fun SettingsNavRow(
 }
 
 /**
- * Shared shell for every "leading label + pinned trailing control" settings row. The leading column is
- * `weight(1f, fill = false)`, so a long (or localized) title wraps instead of pushing the trailing
- * Switch/stepper off the right edge on narrow screens, which keeps the control always visible and
- * tappable. [onClick] makes the whole row a tap target when set.
+ * Shared shell for every "leading label + pinned trailing control" settings row. The leading column
+ * takes all the leftover width (`weight(1f)`), so the Switch/stepper is always flush to the trailing
+ * edge on the same line and a long or localized title wraps inside that width instead of pushing the
+ * control off the right edge on narrow screens. [onClick] makes the whole row a tap target when set.
  */
 @Composable
 internal fun SettingsItemRow(
@@ -211,7 +211,7 @@ internal fun SettingsItemRow(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f, fill = false), content = leading)
+        Column(modifier = Modifier.weight(1f), content = leading)
         trailing()
     }
 }

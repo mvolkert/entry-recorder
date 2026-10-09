@@ -1,7 +1,11 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -40,31 +44,35 @@ import kotlin.time.Duration.Companion.milliseconds
  */
 @Composable
 internal fun DeviceFormStreamSection(form: DeviceFormState) {
-    FormSectionLabel(R.string.device_protocol_label)
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        FormRadioRow(
-            selected = form.streamProtocol == StreamProtocol.AUTO,
-            label = stringResource(R.string.device_protocol_auto),
-            onClick = { form.streamProtocol = StreamProtocol.AUTO }
-        )
-        FormRadioRow(
-            selected = form.streamProtocol == StreamProtocol.RTSP,
-            label = stringResource(R.string.device_protocol_rtsp, form.rtspPort),
-            onClick = { form.streamProtocol = StreamProtocol.RTSP }
-        )
-        FormRadioRow(
-            selected = form.streamProtocol == StreamProtocol.MJPEG_STREAM,
-            label = stringResource(R.string.device_protocol_mjpeg),
-            onClick = { form.streamProtocol = StreamProtocol.MJPEG_STREAM }
-        )
-        FormRadioRow(
-            selected = form.streamProtocol == StreamProtocol.HTTP_SNAPSHOT,
-            label = stringResource(R.string.device_protocol_snapshot),
-            onClick = { form.streamProtocol = StreamProtocol.HTTP_SNAPSHOT }
-        )
-    }
+    val protocols = listOf(
+        StreamProtocol.AUTO,
+        StreamProtocol.RTSP,
+        StreamProtocol.MJPEG_STREAM,
+        StreamProtocol.HTTP_SNAPSHOT,
+    )
+    FormSingleChoice(
+        label = stringResource(R.string.device_protocol_label),
+        options = protocols.map {
+            stringResource(
+                when (it) {
+                    StreamProtocol.AUTO -> R.string.device_protocol_auto
+                    StreamProtocol.RTSP -> R.string.device_protocol_rtsp
+                    StreamProtocol.MJPEG_STREAM -> R.string.device_protocol_mjpeg
+                    StreamProtocol.HTTP_SNAPSHOT -> R.string.device_protocol_snapshot
+                },
+                form.rtspPort,
+            )
+        },
+        selectedIndex = protocols.indexOf(form.streamProtocol),
+        onSelect = { form.streamProtocol = protocols[it] },
+    )
 
-    if (form.streamProtocol == StreamProtocol.MJPEG_STREAM || form.streamProtocol == StreamProtocol.AUTO) {
+    AnimatedVisibility(
+        visible = form.streamProtocol == StreamProtocol.MJPEG_STREAM ||
+            form.streamProtocol == StreamProtocol.AUTO,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically(),
+    ) {
         OutlinedTextField(
             value = form.mjpegPath,
             onValueChange = { form.mjpegPath = it },
@@ -73,7 +81,12 @@ internal fun DeviceFormStreamSection(form: DeviceFormState) {
         )
     }
 
-    if (form.streamProtocol == StreamProtocol.HTTP_SNAPSHOT || form.streamProtocol == StreamProtocol.AUTO) {
+    AnimatedVisibility(
+        visible = form.streamProtocol == StreamProtocol.HTTP_SNAPSHOT ||
+            form.streamProtocol == StreamProtocol.AUTO,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically(),
+    ) {
         // Snapshot path takes its own full-width row; the rate field and the measure button share the
         // next row so the button sits to the right of the FPS value.
         OutlinedTextField(
@@ -98,7 +111,8 @@ internal fun DeviceFormStreamSection(form: DeviceFormState) {
                 label = { Text(stringResource(R.string.device_snapshot_fps)) },
                 modifier = Modifier.weight(1f),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                isError = form.isSnapshotFpsAboveCeiling
+                isError = form.isSnapshotFpsAboveCeiling,
+                singleLine = true,
             )
             OutlinedButton(
                 onClick = {
@@ -124,8 +138,8 @@ internal fun DeviceFormStreamSection(form: DeviceFormState) {
                 }
             }
         }
-        // The ceiling hint sits under both the rate field and the button, in the field's error colour
-        // once the typed rate is over the limit.
+        // The ceiling hint sits on its own full-width line, so it never grows the field past the
+        // button height and knocks "Get FPS" out of vertical alignment with the input box.
         Text(
             text = stringResource(
                 if (form.isSnapshotFpsAboveCeiling) R.string.device_snapshot_fps_above_ceiling
