@@ -1,6 +1,7 @@
 package io.github.mvolkert.entryrecorder.ui.components
 
 import android.graphics.BitmapFactory
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -10,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -46,6 +48,10 @@ fun JpegFramePlayer(
     var playing by remember(filePath) { mutableStateOf(true) }
     var resumeAfterScrub by remember(filePath) { mutableStateOf(false) }
     var frame by remember { mutableStateOf<ImageBitmap?>(null) }
+    // The first decoded frame fades in over the placeholder; alpha is an appearance, so it gets the motion
+    // scheme's effects spec. Later frames must swap hard — crossfading video into the next video frame
+    // smears the motion — and this value simply stays at 1 once the first bitmap has landed.
+    val frameAlpha = remember(filePath) { Animatable(0f) }
 
     LaunchedEffect(filePath) {
         refs = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -66,15 +72,42 @@ fun JpegFramePlayer(
         frame = bmp
     }
 
-    // Timing loop: advance frames using their recorded inter-frame deltas, then loop.
+    // Timing loop: advance frames on their recorded inter-frame deltas, then loop. Each tick is a
+    // wall-clock deadline rather than another delay(dwell) chained onto the work: the decode an index
+    // change triggers runs in its own effect (on IO, while this one is suspended in delay), so the old
+    // per-frame `delay(dwell)` + decode put a *variable* decode latency on top of every dwell, which is
+    // what made the stepping uneven. Against a deadline the interval stays the dwell and the decode only
+    // offsets every frame equally.
     LaunchedEffect(playing, refs) {
         if (!playing || refs.size < 2) return@LaunchedEffect
+        var nextDue = nowMs()
         while (isActive && playing) {
             val cur = refs.getOrNull(index) ?: break
             val next = refs.getOrNull(index + 1)
             val dwell = if (next != null) (next.timestampMs - cur.timestampMs).coerceAtLeast(20L) else 200L
-            delay(dwell.milliseconds)
-            index = if (index + 1 >= refs.size) 0 else index + 1
+            nextDue += dwell
+            val wait = nextDue - nowMs()
+            if (wait <= 0L) {
+                // Behind schedule (a scrub, a slow decode, a loop wrap) is re-anchored, never repaid as a
+                // burst of frames catching up.
+                nextDue = nowMs()
+            } else {
+                delay(wait.milliseconds)
+            }
+            index = if (index + 1 >= refs.size) {
+                nextDue = nowMs()
+                0
+            } else {
+                index + 1
+            }
+        }
+    }
+
+    // The effect's coroutine is not a composable scope, so the motion spec is resolved here.
+    val firstFrameSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+    LaunchedEffect(frame != null) {
+        if (frame != null && frameAlpha.value == 0f) {
+            frameAlpha.animateTo(1f, firstFrameSpec)
         }
     }
 
@@ -97,7 +130,7 @@ fun JpegFramePlayer(
             Image(
                 bitmap = img,
                 contentDescription = stringResource(R.string.player_cd_frame),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().alpha(frameAlpha.value),
                 contentScale = ContentScale.Fit
             )
         } else {
@@ -174,3 +207,9 @@ fun JpegFramePlayer(
         }
     }
 }
+
+/**
+ * Monotonic millisecond clock for the frame schedule. `System.nanoTime` rather than
+ * `SystemClock.elapsedRealtime` so the timing stays reachable from a plain JVM test.
+ */
+private fun nowMs(): Long = System.nanoTime() / 1_000_000L
