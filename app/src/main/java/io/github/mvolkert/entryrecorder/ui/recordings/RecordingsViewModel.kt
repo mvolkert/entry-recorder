@@ -70,6 +70,12 @@ sealed interface RecordingsUiEvent {
 
     /** Sent when a batch export finishes, so the screen can leave multi-select. */
     data object SelectionCleared : RecordingsUiEvent
+
+    /**
+     * An export wrote its files successfully, so the screen spends its celebration moment on it. Only
+     * ever emitted on the success branches — a failure still reports as a plain [Message].
+     */
+    data object ExportCompleted : RecordingsUiEvent
 }
 
 class RecordingsViewModel(application: Application) : AndroidViewModel(application) {
@@ -399,7 +405,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
                 _events.trySend(RecordingsUiEvent.Share(listOf(file), recording = null, deviceName = deviceName, eventTypeLabel = label))
 
             RecordingExportKind.GALLERY -> withContext(Dispatchers.IO) {
-                ExportHelper.saveFileToGallery(context, file, deviceName)
+                if (ExportHelper.saveFileToGallery(context, file, deviceName)) celebrate()
             }
 
             // RAW_FOLDER never reaches a server row (no local original), it just keeps the when exhaustive.
@@ -410,6 +416,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
                 }
                 if (ok) {
                     toast(R.string.recordings_toast_exported_to, ExportHelper.safFolderDisplayName(treeUri))
+                    celebrate()
                 } else {
                     toast(R.string.recordings_toast_export_folder_failed)
                 }
@@ -530,13 +537,19 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
                     RecordingExportKind.SHARE ->
                         if (toShare.isNotEmpty()) _events.trySend(RecordingsUiEvent.Share(toShare, null))
 
-                    RecordingExportKind.GALLERY -> toastPlural(
-                        R.plurals.recordings_toast_saved_gallery, targets.size, saved, targets.size
-                    )
+                    RecordingExportKind.GALLERY -> {
+                        toastPlural(
+                            R.plurals.recordings_toast_saved_gallery, targets.size, saved, targets.size
+                        )
+                        if (saved > 0) celebrate()
+                    }
 
-                    RecordingExportKind.FOLDER, RecordingExportKind.RAW_FOLDER -> toastPlural(
-                        R.plurals.recordings_toast_exported_folder, targets.size, saved, targets.size
-                    )
+                    RecordingExportKind.FOLDER, RecordingExportKind.RAW_FOLDER -> {
+                        toastPlural(
+                            R.plurals.recordings_toast_exported_folder, targets.size, saved, targets.size
+                        )
+                        if (saved > 0) celebrate()
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -563,7 +576,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
             RecordingExportKind.SHARE -> _events.trySend(RecordingsUiEvent.Share(listOf(file), recording))
 
             RecordingExportKind.GALLERY -> withContext(Dispatchers.IO) {
-                ExportHelper.saveFileToGallery(context, file, recording)
+                if (ExportHelper.saveFileToGallery(context, file, recording)) celebrate()
             }
 
             RecordingExportKind.FOLDER, RecordingExportKind.RAW_FOLDER -> {
@@ -575,11 +588,17 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
                 }
                 if (ok) {
                     toast(R.string.recordings_toast_exported_to, ExportHelper.safFolderDisplayName(treeUri))
+                    celebrate()
                 } else {
                     toast(R.string.recordings_toast_export_folder_failed)
                 }
             }
         }
+    }
+
+    /** Marks a flow as completed for the screen's celebration moment (see [RecordingsUiEvent.ExportCompleted]). */
+    private fun celebrate() {
+        _events.trySend(RecordingsUiEvent.ExportCompleted)
     }
 
     private fun toast(@StringRes id: Int, vararg args: Any, short: Boolean = false) {

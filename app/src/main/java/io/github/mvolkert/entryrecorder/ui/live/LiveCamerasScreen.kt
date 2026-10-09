@@ -36,6 +36,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,8 +55,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
+import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
+import io.github.mvolkert.entryrecorder.ui.components.CelebrationCheck
 import io.github.mvolkert.entryrecorder.ui.components.ExpressiveIconBadge
 import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
 import io.github.mvolkert.entryrecorder.ui.components.MorphingIcon
@@ -63,6 +66,8 @@ import io.github.mvolkert.entryrecorder.ui.components.RecordFab
 import io.github.mvolkert.entryrecorder.ui.components.StatusChip
 import io.github.mvolkert.entryrecorder.ui.theme.VideoScrim
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
+import io.github.mvolkert.entryrecorder.ui.theme.eventTypeColor
+import io.github.mvolkert.entryrecorder.ui.theme.eventTypeOnColor
 import io.github.mvolkert.entryrecorder.ui.theme.monitorStatusColor
 import io.github.mvolkert.entryrecorder.ui.theme.onRecordingStatusColor
 import io.github.mvolkert.entryrecorder.ui.theme.recordingStatusColor
@@ -188,6 +193,18 @@ fun LiveDeviceCard(
     // so the feed sits snug inside the border instead of letterboxing a fixed-height container.
     var videoAspectRatio by remember(device.id) { mutableStateOf<Float?>(null) }
 
+    // Stopping a capture is this flow's completion moment: the recorder finalizes the file as the device
+    // leaves the active set, so the REC falling edge is what the check celebrates. Seeding the comparison
+    // with the first snapshot keeps entering the tab mid-recording from firing a check on its own.
+    var wasRecording by remember(device.id) { mutableStateOf(isRecording) }
+    var showSavedCheck by remember(device.id) { mutableStateOf(false) }
+    LaunchedEffect(isRecording) {
+        if (wasRecording && !isRecording) showSavedCheck = true
+        // A freshly armed capture supersedes the celebration of the previous one.
+        if (isRecording) showSavedCheck = false
+        wasRecording = isRecording
+    }
+
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.extraLargeIncreased,
@@ -306,10 +323,23 @@ fun LiveDeviceCard(
                         )
                     }
                     Spacer(modifier = Modifier.width(Spacing.sm))
-                    RecordFab(
-                        isRecording = isRecording,
-                        onToggleRecord = onToggleRecord,
-                    )
+                    Box {
+                        RecordFab(
+                            isRecording = isRecording,
+                            onToggleRecord = onToggleRecord,
+                        )
+                        // Same 40dp footprint as the small FAB and no label, so the control itself appears
+                        // to morph into the check while the clip is written to the archive.
+                        CelebrationCheck(
+                            visible = showSavedCheck,
+                            onDismiss = { showSavedCheck = false },
+                            containerColor = eventTypeColor(EventType.MANUAL),
+                            contentColor = eventTypeOnColor(EventType.MANUAL),
+                            message = stringResource(R.string.live_celebration_saved),
+                            modifier = Modifier.align(Alignment.Center),
+                            showMessage = false,
+                        )
+                    }
                 }
             }
         }

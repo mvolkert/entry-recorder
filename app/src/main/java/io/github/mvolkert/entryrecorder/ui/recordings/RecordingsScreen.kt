@@ -34,15 +34,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import io.github.mvolkert.entryrecorder.data.model.EventType
+import io.github.mvolkert.entryrecorder.ui.components.CelebrationCheck
 import io.github.mvolkert.entryrecorder.ui.components.ExpressiveIconBadge
 import io.github.mvolkert.entryrecorder.ui.components.LoadingSpot
 import io.github.mvolkert.entryrecorder.ui.components.PlaybackTarget
 import io.github.mvolkert.entryrecorder.ui.components.VideoPlayerModal
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
+import io.github.mvolkert.entryrecorder.ui.theme.eventTypeColor
+import io.github.mvolkert.entryrecorder.ui.theme.eventTypeOnColor
 import io.github.mvolkert.entryrecorder.util.ExportHelper
 
 /** Shared-transition key for one gallery clip's media tile, matched by the hero card and the player. */
@@ -68,6 +73,8 @@ fun RecordingsScreen(
     var playingHeroKey by remember { mutableStateOf<String?>(null) }
     var recordingToDelete by remember { mutableStateOf<RecordingEntity?>(null) }
     var serverItemToDelete by remember { mutableStateOf<GalleryItem.Remote?>(null) }
+    // Set by the ViewModel when an export wrote its files; the check floats over the list and clears itself.
+    var showSavedCheck by remember { mutableStateOf(false) }
 
     // The player fills the window instead of sitting above the navigation bar, and leaves composition
     // without a dismiss callback (tab swiped away, process restore), so the chrome is restored there too.
@@ -81,6 +88,7 @@ fun RecordingsScreen(
         if (!active) {
             activePlayback = null
             playingHeroKey = null
+            showSavedCheck = false
         }
     }
 
@@ -120,6 +128,8 @@ fun RecordingsScreen(
                 }
 
                 RecordingsUiEvent.SelectionCleared -> selectionMode = false
+
+                RecordingsUiEvent.ExportCompleted -> showSavedCheck = true
             }
         }
     }
@@ -330,6 +340,23 @@ fun RecordingsScreen(
                     }
                 }
             }
+
+            // A finished export celebrates over the top of the list instead of joining it, so the check
+            // appearing and leaving never shifts a row. Both export origins (the card menus and the bulk
+            // bar) sit above this area, and the manual green is the contrast-checked pair the record-stop
+            // celebration uses too — one hue means "done" in both places.
+            CelebrationCheck(
+                visible = showSavedCheck,
+                onDismiss = { showSavedCheck = false },
+                containerColor = eventTypeColor(EventType.MANUAL),
+                contentColor = eventTypeOnColor(EventType.MANUAL),
+                message = stringResource(R.string.recordings_celebration_saved),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = Spacing.sm),
+                size = 24.dp,
+                iconSize = 16.dp,
+            )
         }
     }
 
