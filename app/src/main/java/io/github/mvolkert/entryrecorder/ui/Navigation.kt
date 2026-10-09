@@ -100,9 +100,9 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
     val currentEntry by navController.currentBackStackEntryAsState()
     val currentDestination = currentEntry?.destination
     val onTabsRoute = currentDestination == null || currentDestination.route == ROUTE_TABS
-    // The gallery player is an in-window overlay (so it can share the hero transition), which means it
-    // has to be handed the whole window: while it is open the bar/rail is hidden exactly like a detail
-    // route is. Hoisted here because the chrome belongs to this scaffold, not to the Recordings tab.
+    // The gallery player is an in-window overlay drawn inside the tab page, so it has to be handed the
+    // whole window: while it is open the bar/rail is hidden exactly like a detail route hides it.
+    // Hoisted here because the chrome belongs to this scaffold, not to the Recordings tab.
     var immersivePlayback by remember { mutableStateOf(false) }
     // The bar/rail is chrome for the three tabs only; every settings submenu and the device form are
     // fullscreen details that own their top bar, so chrome is hidden for anything non-top-level.
@@ -168,7 +168,6 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
                                 Screen.Live -> LiveCamerasScreen(active = pagerState.currentPage == page)
                                 Screen.Recordings -> RecordingsScreen(
                                     active = pagerState.currentPage == page,
-                                    sharedTransitionScope = this@SharedTransitionLayout,
                                     onFullscreenPlayback = { immersivePlayback = it },
                                 )
                                 Screen.Settings -> SettingsScreen(

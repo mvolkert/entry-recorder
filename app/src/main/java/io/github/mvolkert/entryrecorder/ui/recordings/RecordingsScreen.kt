@@ -1,8 +1,6 @@
 package io.github.mvolkert.entryrecorder.ui.recordings
 
 import android.widget.Toast
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,15 +48,11 @@ import io.github.mvolkert.entryrecorder.ui.theme.eventTypeColor
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeOnColor
 import io.github.mvolkert.entryrecorder.util.ExportHelper
 
-/** Shared-transition key for one gallery clip's media tile, matched by the hero card and the player. */
-private fun heroMediaKey(stableKey: String) = "hero-media:$stableKey"
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecordingsScreen(
     modifier: Modifier = Modifier,
     active: Boolean = true,
-    sharedTransitionScope: SharedTransitionScope? = null,
     onFullscreenPlayback: (Boolean) -> Unit = {},
     viewModel: RecordingsViewModel = viewModel()
 ) {
@@ -68,9 +62,6 @@ fun RecordingsScreen(
     val batchProgress by viewModel.batchProgress.collectAsStateWithLifecycle()
     val serverDownload by viewModel.serverDownload.collectAsStateWithLifecycle()
     var activePlayback by remember { mutableStateOf<PlaybackTarget?>(null) }
-    // Which clip is playing, as its shared-transition key: the hero tile steps out of the list for it
-    // and the player overlay picks the same key up so the two ends morph into each other.
-    var playingHeroKey by remember { mutableStateOf<String?>(null) }
     var recordingToDelete by remember { mutableStateOf<RecordingEntity?>(null) }
     var serverItemToDelete by remember { mutableStateOf<GalleryItem.Remote?>(null) }
     // Set by the ViewModel when an export wrote its files; the check floats over the list and clears itself.
@@ -87,7 +78,6 @@ fun RecordingsScreen(
     LaunchedEffect(active) {
         if (!active) {
             activePlayback = null
-            playingHeroKey = null
             showSavedCheck = false
         }
     }
@@ -212,70 +202,14 @@ fun RecordingsScreen(
                     }
                 }
             } else {
-                // The newest clip leaves the list and becomes the hero card above it, except while
-                // multi-selecting (every row must stay selectable there). Keyed distinctly so the
-                // hero and its dropped row can never collide in the LazyColumn.
-                val heroItem = if (!selectionMode) state.items.first() else null
-                val listItems = if (heroItem != null) state.items.drop(1) else state.items
-                val heroTransitionKey = heroItem?.let { heroMediaKey(it.stableKey) }
+                // Every clip is one row of the same list: no hero above the newest item, so the gallery
+                // reads as a uniform archive and each row keeps the same tap, long-press and menu targets.
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(Spacing.lg),
                     verticalArrangement = Arrangement.spacedBy(Spacing.md)
                 ) {
-                    if (heroItem != null) {
-                        item(key = "hero:${heroItem.stableKey}") {
-                            RecordingHeroCard(
-                                modifier = Modifier.animateItem(),
-                                item = heroItem,
-                                heroKey = heroTransitionKey,
-                                sharedTransitionScope = sharedTransitionScope,
-                                isPlaying = playingHeroKey == heroTransitionKey,
-                                onPlay = {
-                                    playingHeroKey = heroTransitionKey
-                                    activePlayback = when (heroItem) {
-                                        is GalleryItem.Local -> PlaybackTarget.LocalFile(heroItem.entity.filePath)
-                                        is GalleryItem.Remote -> PlaybackTarget.RemoteUrl(heroItem.videoAbsoluteUrl)
-                                    }
-                                },
-                                onDelete = {
-                                    when (heroItem) {
-                                        is GalleryItem.Local -> recordingToDelete = heroItem.entity
-                                        is GalleryItem.Remote -> serverItemToDelete = heroItem
-                                    }
-                                },
-                                onToggleProtect = {
-                                    when (heroItem) {
-                                        is GalleryItem.Local -> viewModel.toggleProtection(heroItem.entity)
-                                        is GalleryItem.Remote -> viewModel.toggleServerProtection(heroItem)
-                                    }
-                                },
-                                onShare = {
-                                    when (heroItem) {
-                                        is GalleryItem.Local -> viewModel.exportRecording(heroItem.entity, RecordingExportKind.SHARE)
-                                        is GalleryItem.Remote -> viewModel.exportServerRecording(heroItem, RecordingExportKind.SHARE)
-                                    }
-                                },
-                                onExportGallery = {
-                                    when (heroItem) {
-                                        is GalleryItem.Local -> viewModel.exportRecording(heroItem.entity, RecordingExportKind.GALLERY)
-                                        is GalleryItem.Remote -> viewModel.exportServerRecording(heroItem, RecordingExportKind.GALLERY)
-                                    }
-                                },
-                                onExportFolder = {
-                                    when (heroItem) {
-                                        is GalleryItem.Local -> viewModel.exportRecording(heroItem.entity, RecordingExportKind.FOLDER)
-                                        is GalleryItem.Remote -> viewModel.exportServerRecording(heroItem, RecordingExportKind.FOLDER)
-                                    }
-                                },
-                                // Raw copies only exist for local clips; server rows already live on the server as H.264.
-                                onExportRawFolder = if (heroItem is GalleryItem.Local) {
-                                    { viewModel.exportRecording(heroItem.entity, RecordingExportKind.RAW_FOLDER) }
-                                } else null
-                            )
-                        }
-                    }
-                    items(listItems, key = { it.stableKey }) { item ->
+                    items(state.items, key = { it.stableKey }) { item ->
                         val localId = (item as? GalleryItem.Local)?.entity?.id
                         RecordingCardItem(
                             modifier = Modifier.animateItem(),
@@ -296,7 +230,6 @@ fun RecordingsScreen(
                                 }
                             },
                             onPlay = {
-                                playingHeroKey = heroMediaKey(item.stableKey)
                                 activePlayback = when (item) {
                                     is GalleryItem.Local -> PlaybackTarget.LocalFile(item.entity.filePath)
                                     is GalleryItem.Remote -> PlaybackTarget.RemoteUrl(item.videoAbsoluteUrl)
@@ -363,12 +296,7 @@ fun RecordingsScreen(
     activePlayback?.let { target ->
         VideoPlayerModal(
             playback = target,
-            heroKey = playingHeroKey,
-            sharedTransitionScope = sharedTransitionScope,
-            onDismiss = {
-                activePlayback = null
-                playingHeroKey = null
-            }
+            onDismiss = { activePlayback = null }
         )
     }
 

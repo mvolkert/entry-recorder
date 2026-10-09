@@ -5,8 +5,6 @@ import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -64,19 +62,17 @@ sealed interface PlaybackTarget {
 
 /**
  * Full-screen playback host. Rendered as an overlay inside the caller's own layout rather than a
- * separate window ([androidx.compose.ui.window.Dialog]), because shared-element transitions only
- * match composables that sit in one window and one shared-transition layout: the Recordings hero tile
- * morphs into this surface when [heroKey] and [sharedTransitionScope] are given. Without them — or
- * with the system animation scale at zero — it falls back to the plain scale-and-fade entrance.
+ * separate window ([androidx.compose.ui.window.Dialog]), so it inherits the activity's edge-to-edge
+ * insets and theme instead of re-establishing them, and its system-back handling stays local to the
+ * composable that owns the playback state. It enters with the motion scheme's spring scale-and-fade,
+ * or a plain crossfade when system animations are off.
  */
-@OptIn(UnstableApi::class, ExperimentalSharedTransitionApi::class)
+@OptIn(UnstableApi::class)
 @Composable
 fun VideoPlayerModal(
     playback: PlaybackTarget,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
-    heroKey: String? = null,
-    sharedTransitionScope: SharedTransitionScope? = null,
 ) {
     // Local app recordings are crash-safe MKV files holding JPEG frames on a V_MJPEG track, which
     // ExoPlayer cannot decode; play those with the dedicated JPEG frame player. Anything else (a local
@@ -90,7 +86,6 @@ fun VideoPlayerModal(
     var visible by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val motionEnabled = rememberExpressiveMotionEnabled()
-    val heroTransition = sharedTransitionScope != null && heroKey != null && motionEnabled
     val fadeSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val scaleSpec = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
     LaunchedEffect(Unit) { visible = true }
@@ -109,10 +104,18 @@ fun VideoPlayerModal(
 
     AnimatedVisibility(
         visible = visible,
-        // A matched hero already moves the media, so only fade the scrim; the scale entrance is the
-        // fallback for the unmatched / animations-off path.
-        enter = if (heroTransition) fadeIn(animationSpec = fadeSpec) else fadeIn(animationSpec = fadeSpec) + scaleIn(animationSpec = scaleSpec, initialScale = 0.92f),
-        exit = if (heroTransition) fadeOut(animationSpec = fadeSpec) else fadeOut(animationSpec = fadeSpec) + scaleOut(animationSpec = scaleSpec, targetScale = 0.92f),
+        // The spring scale entrance is the expressive form; with system animations off the overlay
+        // only crossfades.
+        enter = if (motionEnabled) {
+            fadeIn(animationSpec = fadeSpec) + scaleIn(animationSpec = scaleSpec, initialScale = 0.92f)
+        } else {
+            fadeIn(animationSpec = fadeSpec)
+        },
+        exit = if (motionEnabled) {
+            fadeOut(animationSpec = fadeSpec) + scaleOut(animationSpec = scaleSpec, targetScale = 0.92f)
+        } else {
+            fadeOut(animationSpec = fadeSpec)
+        },
         modifier = modifier
             .fillMaxSize()
             // Swallow touches that would otherwise fall through to the list behind the scrim.
@@ -123,56 +126,39 @@ fun VideoPlayerModal(
             ),
         label = "videoPlayer",
     ) {
-        // Single dim layer behind the media. The shared node holds only the player, so the morphing
-        // tile never drags the full-screen scrim along with it.
+        // Single dim layer behind the media, with the player filling it and the close control on top.
         Box(modifier = Modifier.fillMaxSize().background(VideoScrim)) {
-            val surface = Modifier.fillMaxSize()
-            Box(
-                modifier = if (sharedTransitionScope != null && heroKey != null && motionEnabled) {
-                    with(sharedTransitionScope) {
-                        surface.sharedBounds(
-                            sharedContentState = rememberSharedContentState(key = heroKey),
-                            animatedVisibilityScope = this@AnimatedVisibility,
-                            resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(),
-                            clipInOverlayDuringTransition = OverlayClip(MaterialTheme.shapes.extraLarge),
-                        )
-                    }
-                } else {
-                    surface
-                },
-            ) {
-                val localPath = (playback as? PlaybackTarget.LocalFile)?.filePath
-                if (isJpegMkv && localPath != null) {
-                    JpegFramePlayer(
-                        filePath = localPath,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    val uri = when (playback) {
-                        is PlaybackTarget.RemoteUrl -> playback.url
-                        is PlaybackTarget.LocalFile -> File(playback.filePath).toURI().toString()
-                    }
-                    ExoPlayerView(
-                        uri = uri,
-                        modifier = Modifier.fillMaxSize()
-                    )
+            val localPath = (playback as? PlaybackTarget.LocalFile)?.filePath
+            if (isJpegMkv && localPath != null) {
+                JpegFramePlayer(
+                    filePath = localPath,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                val uri = when (playback) {
+                    is PlaybackTarget.RemoteUrl -> playback.url
+                    is PlaybackTarget.LocalFile -> File(playback.filePath).toURI().toString()
                 }
+                ExoPlayerView(
+                    uri = uri,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
 
-                // Close button top right, kept clear of the status bar now that it is not in its own window.
-                IconButton(
-                    onClick = requestDismiss,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .windowInsetsPadding(WindowInsets.statusBars)
-                        .padding(Spacing.lg)
-                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f), shape = CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = stringResource(R.string.player_cd_close),
-                        tint = onScrimColor
-                    )
-                }
+            // Close button top right, kept clear of the status bar now that it is not in its own window.
+            IconButton(
+                onClick = requestDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(Spacing.lg)
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f), shape = CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = stringResource(R.string.player_cd_close),
+                    tint = onScrimColor
+                )
             }
         }
     }
