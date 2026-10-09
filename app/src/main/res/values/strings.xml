@@ -30,6 +30,7 @@
     <string name="live_rec_badge">REC</string>
     <string name="live_device_addr">%1$s (RTSP %2$d)</string>
     <string name="live_cd_stop_recording">Stop manual recording</string>
+    <string name="live_cd_start_recording">Start manual recording</string>
     <string name="live_cd_ring">Records on doorbell ring</string>
     <string name="live_cd_motion_now">Motion detected</string>
     <string name="live_cd_motion">Records on motion</string>
