@@ -69,6 +69,10 @@ fun RecordingsScreen(
 
     // The player fills the window instead of sitting above the navigation bar, and leaves composition
     // without a dismiss callback (tab swiped away, process restore), so the chrome is restored there too.
+    // The tap and the close button write the flag themselves, in the same snapshot as activePlayback: this
+    // screen's own layout is what the bar is padding, so a late flip here would resize the overlay one
+    // frame into its entrance and the whole player visibly jumps. Flipping only after the fade would be
+    // worse still - the video itself would jump by the bar height while it is fully opaque.
     LaunchedEffect(activePlayback) { onFullscreenPlayback(activePlayback != null) }
     DisposableEffect(Unit) { onDispose { onFullscreenPlayback(false) } }
 
@@ -230,6 +234,9 @@ fun RecordingsScreen(
                                 }
                             },
                             onPlay = {
+                                // Hide the chrome in the same event that opens the player, so the overlay's
+                                // first composed frame is already the full window (see the flag's effect above).
+                                onFullscreenPlayback(true)
                                 activePlayback = when (item) {
                                     is GalleryItem.Local -> PlaybackTarget.LocalFile(item.entity.filePath)
                                     is GalleryItem.Remote -> PlaybackTarget.RemoteUrl(item.videoAbsoluteUrl)
@@ -296,7 +303,12 @@ fun RecordingsScreen(
     activePlayback?.let { target ->
         VideoPlayerModal(
             playback = target,
-            onDismiss = { activePlayback = null }
+            // Both writes share one frame: the bar comes back exactly when the overlay leaves composition,
+            // never while its exit spring is still running.
+            onDismiss = {
+                activePlayback = null
+                onFullscreenPlayback(false)
+            }
         )
     }
 
