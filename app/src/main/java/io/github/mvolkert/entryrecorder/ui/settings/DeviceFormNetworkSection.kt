@@ -25,9 +25,10 @@ internal fun DeviceFormNetworkSection(form: DeviceFormState) {
         onValueChange = { form.name = it },
         label = { Text(stringResource(R.string.device_name_label)) },
         modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
         isError = form.name.isBlank(),
         supportingText = if (form.name.isBlank()) {
-            { Text(stringResource(R.string.device_toast_name_ip_required), color = MaterialTheme.colorScheme.error) }
+            { Text(stringResource(R.string.device_error_name_required), color = MaterialTheme.colorScheme.error) }
         } else null
     )
 
@@ -47,11 +48,13 @@ internal fun DeviceFormNetworkSection(form: DeviceFormState) {
         value = form.ipAddress,
         onValueChange = { form.ipAddress = it },
         label = { Text(stringResource(R.string.device_ip_label)) },
+        placeholder = { Text(stringResource(R.string.device_ip_placeholder)) },
         modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         isError = form.ipAddress.isBlank(),
         supportingText = if (form.ipAddress.isBlank()) {
-            { Text(stringResource(R.string.device_toast_name_ip_required), color = MaterialTheme.colorScheme.error) }
+            { Text(stringResource(R.string.device_error_ip_required), color = MaterialTheme.colorScheme.error) }
         } else null
     )
 
@@ -99,7 +102,9 @@ internal fun DeviceFormNetworkSection(form: DeviceFormState) {
         value = form.rtspPath,
         onValueChange = { form.rtspPath = it },
         label = { Text(stringResource(R.string.device_rtsp_path_label)) },
-        modifier = Modifier.fillMaxWidth()
+        placeholder = { Text(stringResource(R.string.device_rtsp_path_placeholder)) },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true
     )
 
     FormTwoFieldRow(
@@ -108,7 +113,9 @@ internal fun DeviceFormNetworkSection(form: DeviceFormState) {
                 value = form.username,
                 onValueChange = { form.username = it },
                 label = { Text(stringResource(R.string.device_username)) },
-                modifier = m
+                placeholder = { Text(stringResource(R.string.device_username_placeholder)) },
+                modifier = m,
+                singleLine = true
             )
         },
         second = { m ->

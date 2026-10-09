@@ -238,21 +238,26 @@
     <string name="device_type_label">Device Type</string>
     <string name="device_type_verso">2N IP Verso (intercom events, SIP, ring/noise/motion)</string>
     <string name="device_type_generic">Generic RTSP / ONVIF camera</string>
-    <string name="device_ip_label">Local IP Address (2N IP Verso)</string>
+    <string name="device_ip_label">IP Address</string>
+    <string name="device_ip_placeholder">192.168.1.100</string>
     <string name="device_http_port">HTTP Port</string>
     <string name="device_rtsp_port">RTSP Port</string>
     <string name="device_https_toggle">Use HTTPS for HTTP API/snapshot</string>
     <string name="device_https_port">HTTPS Port</string>
-    <string name="device_rtsp_path_label">RTSP Path (e.g. /live.sdp)</string>
+    <string name="device_rtsp_path_label">RTSP Path</string>
+    <string name="device_rtsp_path_placeholder">/live.sdp</string>
     <string name="device_username">Username</string>
+    <string name="device_username_placeholder">admin</string>
     <string name="device_password">Password</string>
     <string name="device_protocol_label">Video Streaming Protocol</string>
     <string name="device_protocol_auto">Auto (RTSP with MJPEG/Snapshot fallback)</string>
     <string name="device_protocol_rtsp">RTSP Stream (Port %1$s)</string>
     <string name="device_protocol_mjpeg">MJPEG Stream (HTTP multipart)</string>
     <string name="device_protocol_snapshot">HTTP Snapshot Polling</string>
-    <string name="device_mjpeg_path_label">MJPEG Stream Path (e.g. /api/camera/mjpeg)</string>
+    <string name="device_mjpeg_path_label">MJPEG Path</string>
+    <string name="device_mjpeg_path_placeholder">/api/camera/mjpeg</string>
     <string name="device_snapshot_path_label">Snapshot Path</string>
+    <string name="device_snapshot_path_placeholder">/snapshot.jpg</string>
     <string name="device_snapshot_fps">FPS</string>
     <string name="device_snapshot_fps_ceiling">Max %1$d fps. Use “Get FPS” to measure what this camera actually serves; higher values are capped.</string>
     <string name="device_snapshot_fps_above_ceiling">Above the %1$d fps limit; saved and polled as %1$d.</string>
@@ -307,6 +312,8 @@
     <string name="device_edit_back">Back</string>
     <string name="device_edit_footer_hint">Changes are saved with \"Save Device\" at the top.</string>
     <string name="device_toast_name_ip_required">Please enter name and IP address</string>
+    <string name="device_error_name_required">Name is required</string>
+    <string name="device_error_ip_required">IP address is required</string>
 
     <!-- Device card capability display -->
     <string name="settings_device_event_status">Camera events (ring/motion/noise): %1$s</string>

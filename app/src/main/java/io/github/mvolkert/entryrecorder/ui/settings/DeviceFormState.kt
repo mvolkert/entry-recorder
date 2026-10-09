@@ -163,7 +163,7 @@ class DeviceFormState(
             sipServerPort = sipServerPort.toIntOrNull() ?: 5060,
             sipUser = if (sipUser.isNotBlank()) sipUser.trim() else null,
             sipPassword = if (sipPassword.isNotBlank()) sipPassword.trim() else null,
-            recordOnMotion = recordOnMotion,
+            recordOnMotion = if (deviceType == DeviceType.GENERIC_RTSP_ONVIF) false else recordOnMotion,
             recordOnRing = recordOnRing,
             recordOnNoise = recordOnNoise,
             recordOnMotionOnDevice = recordOnMotionOnDevice,
