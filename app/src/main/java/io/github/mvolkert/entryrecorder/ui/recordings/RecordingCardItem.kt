@@ -37,7 +37,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.runtime.Composable
@@ -59,6 +58,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.model.EventType
+import io.github.mvolkert.entryrecorder.ui.components.StatusChip
+import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeColor
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeLabel
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeOnColor
@@ -91,13 +92,12 @@ internal fun RecordingCardItem(
     onExportRawFolder: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
-    val locale = LocalConfiguration.current.locales[0]
-    val dateStr = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", locale).format(Date(item.timestamp))
+    val dateStr = galleryDateStr(item.timestamp)
     val sizeStr = Formatter.formatFileSize(context, item.sizeBytes)
     val isRemote = item is GalleryItem.Remote
     val entity = (item as? GalleryItem.Local)?.entity
     val selectedContainer = MaterialTheme.colorScheme.secondaryContainer
-    val restingContainer = MaterialTheme.colorScheme.surface
+    val restingContainer = MaterialTheme.colorScheme.surfaceContainerHigh
     val containerColor by animateColorAsState(
         targetValue = if (selected && !isRemote) selectedContainer else restingContainer,
         animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
@@ -107,18 +107,17 @@ internal fun RecordingCardItem(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium)
             .combinedClickable(
                 onClick = { if (selectionMode && !isRemote) onSelectToggle() else onPlay() },
                 onLongClick = if (isRemote) null else onLongSelect
             ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = MaterialTheme.shapes.extraLarge,
         colors = CardDefaults.cardColors(containerColor = containerColor)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(Spacing.lg),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (selectionMode && !isRemote) {
@@ -146,6 +145,19 @@ internal fun RecordingCardItem(
     }
 }
 
+/** Coil model for a row's thumbnail: a local File or an absolute server URL; null when unavailable. */
+internal fun galleryThumbnailModel(item: GalleryItem): Any? = when (item) {
+    is GalleryItem.Local -> item.entity.thumbnailPath?.let { if (File(it).exists()) File(it) else null }
+    is GalleryItem.Remote -> item.thumbnailAbsoluteUrl
+}
+
+/** Locale-aware gallery timestamp, shared by the list rows and the hero card. */
+@Composable
+internal fun galleryDateStr(timestamp: Long): String {
+    val locale = LocalConfiguration.current.locales[0]
+    return SimpleDateFormat("dd.MM.yyyy HH:mm:ss", locale).format(Date(timestamp))
+}
+
 @Composable
 private fun RecordingThumbnail(item: GalleryItem) {
     val fallbackIcon = when (item.eventType) {
@@ -155,15 +167,12 @@ private fun RecordingThumbnail(item: GalleryItem) {
     }
     // Coil accepts a File (local thumbnail) or a URL string (server thumbnail); null or a failed load
     // falls back to the event icon, so an unreachable server shows an icon rather than a black box.
-    val model: Any? = when (item) {
-        is GalleryItem.Local -> item.entity.thumbnailPath?.let { if (File(it).exists()) File(it) else null }
-        is GalleryItem.Remote -> item.thumbnailAbsoluteUrl
-    }
+    val model: Any? = galleryThumbnailModel(item)
 
     Box(
         modifier = Modifier
-            .size(90.dp, 68.dp)
-            .clip(MaterialTheme.shapes.extraSmall)
+            .size(130.dp, 88.dp)
+            .clip(MaterialTheme.shapes.large)
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center
     ) {
@@ -206,17 +215,11 @@ private fun RowScope.RecordingDetails(item: GalleryItem, dateStr: String, sizeSt
             // One badge per trigger the clip covers: a doorbell pressed during a motion recording is the same
             // file, so it shows as RING MOTION rather than hiding one of the two events.
             item.eventTypes.forEach { type ->
-                Surface(
-                    shape = MaterialTheme.shapes.extraSmall,
-                    color = eventTypeColor(type)
-                ) {
-                    Text(
-                        text = eventTypeLabel(type),
-                        color = eventTypeOnColor(type),
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                    )
-                }
+                StatusChip(
+                    label = eventTypeLabel(type),
+                    containerColor = eventTypeColor(type),
+                    contentColor = eventTypeOnColor(type),
+                )
             }
 
             Text(
@@ -228,17 +231,11 @@ private fun RowScope.RecordingDetails(item: GalleryItem, dateStr: String, sizeSt
             )
 
             if (item is GalleryItem.Remote) {
-                Surface(
-                    shape = MaterialTheme.shapes.extraSmall,
-                    color = MaterialTheme.colorScheme.outlineVariant
-                ) {
-                    Text(
-                        text = stringResource(R.string.recordings_origin_server),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                    )
-                }
+                StatusChip(
+                    label = stringResource(R.string.recordings_origin_server),
+                    containerColor = MaterialTheme.colorScheme.outlineVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
 
@@ -261,7 +258,7 @@ private fun RowScope.RecordingDetails(item: GalleryItem, dateStr: String, sizeSt
 }
 
 @Composable
-private fun RecordingActionsMenu(
+internal fun RecordingActionsMenu(
     isProtected: Boolean,
     onExportFolder: () -> Unit,
     onExportRawFolder: (() -> Unit)?,

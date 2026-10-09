@@ -55,6 +55,7 @@
     <string name="recordings_filter_manual">✋ Manual</string>
     <string name="recordings_filter_all_devices">📷 All devices</string>
     <string name="recordings_empty">No recordings found.</string>
+    <string name="recordings_empty_hint">Recorded clips and server footage will appear here.</string>
     <string name="recordings_duration_size">%1$s s • %2$s</string>
     <string name="recordings_delete_title">Delete Recording?</string>
     <string name="recordings_delete_body">Are you sure you want to delete this recording from %1$s?</string>

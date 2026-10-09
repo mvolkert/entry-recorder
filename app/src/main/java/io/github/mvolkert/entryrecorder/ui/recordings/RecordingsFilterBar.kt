@@ -11,19 +11,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
+import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 
 private val EVENT_FILTER_OPTIONS: List<Pair<EventType?, Int>> = listOf(
     null to R.string.recordings_filter_all_events,
@@ -60,13 +60,14 @@ internal fun RecordingsFilterBar(
                 }
             },
             singleLine = true,
-            shape = MaterialTheme.shapes.small
+            // Search pill: beta01's Shapes has no `full` token, so CircleShape (like StatusChip).
+            shape = CircleShape
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(Spacing.sm))
 
         LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
             items(items = EVENT_FILTER_OPTIONS, key = { it.second }) { (eventType, labelRes) ->
                 FilterChip(
@@ -77,11 +78,11 @@ internal fun RecordingsFilterBar(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(Spacing.sm))
 
         if (devices.isNotEmpty()) {
             LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
             ) {
                 item {
                     FilterChip(

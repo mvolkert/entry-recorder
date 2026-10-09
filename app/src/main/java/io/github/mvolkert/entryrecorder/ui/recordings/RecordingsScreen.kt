@@ -14,7 +14,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -30,13 +31,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import io.github.mvolkert.entryrecorder.ui.components.ExpressiveIconBadge
+import io.github.mvolkert.entryrecorder.ui.components.LoadingSpot
 import io.github.mvolkert.entryrecorder.ui.components.PlaybackTarget
 import io.github.mvolkert.entryrecorder.ui.components.VideoPlayerModal
+import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 import io.github.mvolkert.entryrecorder.util.ExportHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -119,9 +122,9 @@ fun RecordingsScreen(
                     onEnterSelection = { selectionMode = true }
                 )
 
-                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                Column(modifier = Modifier.padding(horizontal = Spacing.lg)) {
                     RecordingsStorageLine(totalStorageBytes = state.totalStorageBytes)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(Spacing.sm))
                     RecordingsFilterBar(
                         searchQuery = state.searchQuery,
                         onSearchQueryChange = { viewModel.setSearchQuery(it) },
@@ -131,7 +134,7 @@ fun RecordingsScreen(
                         selectedDeviceId = state.selectedDeviceId,
                         onDeviceSelect = { viewModel.selectDeviceFilter(it) }
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(Spacing.sm))
                 }
             }
         }
@@ -144,25 +147,93 @@ fun RecordingsScreen(
                 .padding(paddingValues)
         ) {
             if (state.isLoading) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                LoadingSpot(modifier = Modifier.align(Alignment.Center))
             } else if (state.items.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = stringResource(R.string.recordings_empty),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        ExpressiveIconBadge(
+                            icon = Icons.Default.VideoLibrary,
+                            contentDescription = null,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                        Spacer(modifier = Modifier.height(Spacing.md))
+                        Text(
+                            text = stringResource(R.string.recordings_empty),
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(Spacing.xs))
+                        Text(
+                            text = stringResource(R.string.recordings_empty_hint),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             } else {
+                // The newest clip leaves the list and becomes the hero card above it, except while
+                // multi-selecting (every row must stay selectable there). Keyed distinctly so the
+                // hero and its dropped row can never collide in the LazyColumn.
+                val heroItem = if (!selectionMode) state.items.first() else null
+                val listItems = if (heroItem != null) state.items.drop(1) else state.items
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    contentPadding = PaddingValues(Spacing.lg),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.md)
                 ) {
-                    items(state.items, key = { it.stableKey }) { item ->
+                    if (heroItem != null) {
+                        item(key = "hero:${heroItem.stableKey}") {
+                            RecordingHeroCard(
+                                modifier = Modifier.animateItem(),
+                                item = heroItem,
+                                onPlay = {
+                                    activePlayback = when (heroItem) {
+                                        is GalleryItem.Local -> PlaybackTarget.LocalFile(heroItem.entity.filePath)
+                                        is GalleryItem.Remote -> PlaybackTarget.RemoteUrl(heroItem.videoAbsoluteUrl)
+                                    }
+                                },
+                                onDelete = {
+                                    when (heroItem) {
+                                        is GalleryItem.Local -> recordingToDelete = heroItem.entity
+                                        is GalleryItem.Remote -> serverItemToDelete = heroItem
+                                    }
+                                },
+                                onToggleProtect = {
+                                    when (heroItem) {
+                                        is GalleryItem.Local -> viewModel.toggleProtection(heroItem.entity)
+                                        is GalleryItem.Remote -> viewModel.toggleServerProtection(heroItem)
+                                    }
+                                },
+                                onShare = {
+                                    when (heroItem) {
+                                        is GalleryItem.Local -> viewModel.exportRecording(heroItem.entity, RecordingExportKind.SHARE)
+                                        is GalleryItem.Remote -> viewModel.exportServerRecording(heroItem, RecordingExportKind.SHARE)
+                                    }
+                                },
+                                onExportGallery = {
+                                    when (heroItem) {
+                                        is GalleryItem.Local -> viewModel.exportRecording(heroItem.entity, RecordingExportKind.GALLERY)
+                                        is GalleryItem.Remote -> viewModel.exportServerRecording(heroItem, RecordingExportKind.GALLERY)
+                                    }
+                                },
+                                onExportFolder = {
+                                    when (heroItem) {
+                                        is GalleryItem.Local -> viewModel.exportRecording(heroItem.entity, RecordingExportKind.FOLDER)
+                                        is GalleryItem.Remote -> viewModel.exportServerRecording(heroItem, RecordingExportKind.FOLDER)
+                                    }
+                                },
+                                // Raw copies only exist for local clips; server rows already live on the server as H.264.
+                                onExportRawFolder = if (heroItem is GalleryItem.Local) {
+                                    { viewModel.exportRecording(heroItem.entity, RecordingExportKind.RAW_FOLDER) }
+                                } else null
+                            )
+                        }
+                    }
+                    items(listItems, key = { it.stableKey }) { item ->
                         val localId = (item as? GalleryItem.Local)?.entity?.id
                         RecordingCardItem(
                             modifier = Modifier.animateItem(),
