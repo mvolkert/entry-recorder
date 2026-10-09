@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,12 +33,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.ui.adaptive.LocalWindowInfo
@@ -66,8 +70,9 @@ internal fun FormEmphasizedSwitchRow(
 
 /**
  * One-of-N selector shared by every choice group in the device form. Segmented on Medium+ when the
- * options are few and short so they all stay visible at once; an exposed dropdown on Compact, and for
- * any group whose labels are long, because a segmented button would ellipsize them into unreadability.
+ * options are few and each label still fits its slice of the row within two lines; an exposed dropdown
+ * on Compact, and for any group whose labels would ellipsize. The fit test measures the real text at
+ * the current font and locale instead of counting characters, so it does not misfire on wide scripts.
  * Callers map the index back to their own enum.
  */
 @Composable
@@ -79,11 +84,29 @@ internal fun FormSingleChoice(
     modifier: Modifier = Modifier,
 ) {
     val compact = LocalWindowInfo.current == WindowInfo.Compact
-    val segmentedFriendly = options.size <= 4 && options.none { it.length > 18 }
-    if (compact || !segmentedFriendly) {
+    if (compact || options.isEmpty()) {
         DropdownSingleChoice(label, options, selectedIndex, onSelect, modifier)
-    } else {
-        SegmentedSingleChoice(label, options, selectedIndex, onSelect, modifier)
+        return
+    }
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        // A segment shows up to two lines; only fall back to the dropdown when a label would need a
+        // third line inside its share of the row (minus the button's horizontal content padding).
+        val textMeasurer = rememberTextMeasurer()
+        val density = LocalDensity.current
+        val perSegmentTextPx = with(density) { (maxWidth / options.size - 32.dp).toPx() }.toInt()
+            .coerceAtLeast(1)
+        val segmentedFriendly = options.size <= 4 && options.all {
+            textMeasurer.measure(
+                text = it,
+                style = MaterialTheme.typography.labelLarge,
+                constraints = Constraints(maxWidth = perSegmentTextPx),
+            ).lineCount <= 2
+        }
+        if (segmentedFriendly) {
+            SegmentedSingleChoice(label, options, selectedIndex, onSelect, Modifier)
+        } else {
+            DropdownSingleChoice(label, options, selectedIndex, onSelect, Modifier)
+        }
     }
 }
 

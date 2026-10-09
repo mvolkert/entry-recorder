@@ -234,6 +234,7 @@
     <string name="device_add_title">Add Intercom Device</string>
     <string name="device_edit_title">Edit Device</string>
     <string name="device_default_name">2N IP Verso</string>
+    <string name="device_network_section">Connection</string>
     <string name="device_name_label">Device Name</string>
     <string name="device_type_label">Device Type</string>
     <string name="device_type_verso">2N IP Verso (intercom events, SIP, ring/noise/motion)</string>

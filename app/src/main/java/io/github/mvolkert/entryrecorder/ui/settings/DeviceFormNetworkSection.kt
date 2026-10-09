@@ -20,6 +20,8 @@ import io.github.mvolkert.entryrecorder.data.model.DeviceType
 /** Identity, addressing and HTTP credentials of the intercom. */
 @Composable
 internal fun DeviceFormNetworkSection(form: DeviceFormState) {
+    FormSectionLabel(R.string.device_network_section)
+
     OutlinedTextField(
         value = form.name,
         onValueChange = { form.name = it },
