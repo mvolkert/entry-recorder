@@ -70,6 +70,10 @@ internal fun BoxScope.IncomingCallControls(
             ) {
                 // Tonal icon button rather than a hand-painted circle: the component carries the
                 // container/on pair and morphs through its own shapes when the state flips.
+                // The glyph color goes to MorphingIcon as an explicit tint too, because Material's Icon
+                // skips tinting when its tint is unspecified, so a material icon would otherwise draw its
+                // baked black instead of the button's on-color (invisible in dark mode).
+                val micGlyphColor = if (sipState.isMicMuted) scheme.onErrorContainer else scheme.onSurface
                 FilledTonalIconButton(
                     onClick = {
                         // Tick matches the resulting state: muted is off, live is on.
@@ -82,12 +86,13 @@ internal fun BoxScope.IncomingCallControls(
                     modifier = Modifier.size(56.dp),
                     colors = IconButtonDefaults.filledTonalIconButtonColors(
                         containerColor = if (sipState.isMicMuted) scheme.errorContainer else scheme.surfaceVariant,
-                        contentColor = if (sipState.isMicMuted) scheme.onErrorContainer else scheme.onSurface,
+                        contentColor = micGlyphColor,
                     ),
                 ) {
                     MorphingIcon(
                         imageVector = if (sipState.isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
                         contentDescription = stringResource(R.string.incoming_cd_mute),
+                        tint = micGlyphColor,
                     )
                 }
 
@@ -107,6 +112,7 @@ internal fun BoxScope.IncomingCallControls(
                     )
                 }
 
+                val speakerGlyphColor = if (sipState.isSpeakerOn) scheme.onSecondaryContainer else scheme.onSurface
                 FilledTonalIconButton(
                     onClick = {
                         // The tick is the resulting state, so it reads the same as the mic toggle.
@@ -119,12 +125,13 @@ internal fun BoxScope.IncomingCallControls(
                     modifier = Modifier.size(56.dp),
                     colors = IconButtonDefaults.filledTonalIconButtonColors(
                         containerColor = if (sipState.isSpeakerOn) scheme.secondaryContainer else scheme.surfaceVariant,
-                        contentColor = if (sipState.isSpeakerOn) scheme.onSecondaryContainer else scheme.onSurface,
+                        contentColor = speakerGlyphColor,
                     ),
                 ) {
                     MorphingIcon(
                         imageVector = if (sipState.isSpeakerOn) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeDown,
                         contentDescription = stringResource(R.string.incoming_cd_speaker),
+                        tint = speakerGlyphColor,
                     )
                 }
             }
