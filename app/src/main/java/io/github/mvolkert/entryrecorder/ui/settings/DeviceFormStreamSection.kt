@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
@@ -25,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -104,45 +106,53 @@ internal fun DeviceFormStreamSection(form: DeviceFormState) {
             val scope = rememberCoroutineScope()
             var probing by remember(form.deviceId) { mutableStateOf(false) }
             var probeResult by remember(form.deviceId) { mutableStateOf(-1f) }
-            OutlinedTextField(
-                value = form.snapshotFps,
-                onValueChange = { form.snapshotFps = it },
-                label = { Text(stringResource(R.string.device_snapshot_fps)) },
+            // Rate box and measure button share a row; Top alignment keeps the button level with the
+            // input box rather than centered down the taller field+supportingText column.
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                isError = form.isSnapshotFpsAboveCeiling,
-                singleLine = true,
-                supportingText = {
-                    Text(
-                        text = stringResource(
-                            if (form.isSnapshotFpsAboveCeiling) R.string.device_snapshot_fps_above_ceiling
-                            else R.string.device_snapshot_fps_ceiling,
-                            form.maxSnapshotFps
-                        ),
-                    )
-                },
-            )
-            OutlinedButton(
-                onClick = {
-                    scope.launch {
-                        probing = true
-                        probeResult = -1f
-                        val fps = HttpSnapshotClient.probeSnapshotFps(form.buildTestCandidate())
-                        if (fps > 0f) {
-                            form.snapshotFps = fps.roundToInt().coerceIn(1, form.maxSnapshotFps).toString()
-                        }
-                        probeResult = fps
-                        probing = false
-                    }
-                },
-                enabled = !probing,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top
             ) {
-                if (probing) {
-                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.device_snapshot_fps_probing))
-                } else {
-                    Text(stringResource(R.string.device_snapshot_fps_get))
+                OutlinedTextField(
+                    value = form.snapshotFps,
+                    onValueChange = { form.snapshotFps = it },
+                    label = { Text(stringResource(R.string.device_snapshot_fps)) },
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    isError = form.isSnapshotFpsAboveCeiling,
+                    singleLine = true,
+                    supportingText = {
+                        Text(
+                            text = stringResource(
+                                if (form.isSnapshotFpsAboveCeiling) R.string.device_snapshot_fps_above_ceiling
+                                else R.string.device_snapshot_fps_ceiling,
+                                form.maxSnapshotFps
+                            ),
+                        )
+                    },
+                )
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            probing = true
+                            probeResult = -1f
+                            val fps = HttpSnapshotClient.probeSnapshotFps(form.buildTestCandidate())
+                            if (fps > 0f) {
+                                form.snapshotFps = fps.roundToInt().coerceIn(1, form.maxSnapshotFps).toString()
+                            }
+                            probeResult = fps
+                            probing = false
+                        }
+                    },
+                    enabled = !probing,
+                ) {
+                    if (probing) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(stringResource(R.string.device_snapshot_fps_probing))
+                    } else {
+                        Text(stringResource(R.string.device_snapshot_fps_get))
+                    }
                 }
             }
             if (!probing && probeResult >= 0f) {
