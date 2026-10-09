@@ -123,58 +123,62 @@ fun VideoPlayerModal(
             ),
         label = "videoPlayer",
     ) {
-        val container = Modifier.fillMaxSize().background(VideoScrim)
-        Box(
-            modifier = if (sharedTransitionScope != null && heroKey != null && motionEnabled) {
-                with(sharedTransitionScope) {
-                    container.sharedBounds(
-                        sharedContentState = rememberSharedContentState(key = heroKey),
-                        animatedVisibilityScope = this@AnimatedVisibility,
-                        resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(),
-                        clipInOverlayDuringTransition = OverlayClip(MaterialTheme.shapes.extraLarge),
+        // Single dim layer behind the media. The shared node holds only the player, so the morphing
+        // tile never drags the full-screen scrim along with it.
+        Box(modifier = Modifier.fillMaxSize().background(VideoScrim)) {
+            val surface = Modifier.fillMaxSize()
+            Box(
+                modifier = if (sharedTransitionScope != null && heroKey != null && motionEnabled) {
+                    with(sharedTransitionScope) {
+                        surface.sharedBounds(
+                            sharedContentState = rememberSharedContentState(key = heroKey),
+                            animatedVisibilityScope = this@AnimatedVisibility,
+                            resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(),
+                            clipInOverlayDuringTransition = OverlayClip(MaterialTheme.shapes.extraLarge),
+                        )
+                    }
+                } else {
+                    surface
+                },
+            ) {
+                val localPath = (playback as? PlaybackTarget.LocalFile)?.filePath
+                if (isJpegMkv && localPath != null) {
+                    JpegFramePlayer(
+                        filePath = localPath,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    val uri = when (playback) {
+                        is PlaybackTarget.RemoteUrl -> playback.url
+                        is PlaybackTarget.LocalFile -> File(playback.filePath).toURI().toString()
+                    }
+                    ExoPlayerView(
+                        uri = uri,
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
-            } else {
-                container
-            },
-        ) {
-            val localPath = (playback as? PlaybackTarget.LocalFile)?.filePath
-            if (isJpegMkv && localPath != null) {
-                JpegFramePlayer(
-                    filePath = localPath,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                val uri = when (playback) {
-                    is PlaybackTarget.RemoteUrl -> playback.url
-                    is PlaybackTarget.LocalFile -> File(playback.filePath).toURI().toString()
-                }
-                ExoPlayerView(
-                    uri = uri,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
 
-            // Close button top right, kept clear of the status bar now that it is not in its own window.
-            IconButton(
-                onClick = requestDismiss,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .windowInsetsPadding(WindowInsets.statusBars)
-                    .padding(Spacing.lg)
-                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f), shape = CircleShape)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = stringResource(R.string.player_cd_close),
-                    tint = onScrimColor
-                )
+                // Close button top right, kept clear of the status bar now that it is not in its own window.
+                IconButton(
+                    onClick = requestDismiss,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .padding(Spacing.lg)
+                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f), shape = CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.player_cd_close),
+                        tint = onScrimColor
+                    )
+                }
             }
         }
     }
 }
 
-/** Covers the fast-spring fade/scale exit before the Dialog window is torn down. */
+/** Covers the fast-spring fade/scale exit before the overlay is dropped by its caller. */
 private const val EXIT_FALLBACK_MS = 320L
 
 @OptIn(UnstableApi::class)
