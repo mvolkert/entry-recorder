@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
@@ -87,79 +88,83 @@ internal fun DeviceFormStreamSection(form: DeviceFormState) {
         enter = fadeIn() + expandVertically(),
         exit = fadeOut() + shrinkVertically(),
     ) {
-        OutlinedTextField(
-            value = form.snapshotPath,
-            onValueChange = { form.snapshotPath = it },
-            label = { Text(stringResource(R.string.device_snapshot_path_label)) },
-            placeholder = { Text(stringResource(R.string.device_snapshot_path_placeholder)) },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
-        )
-        // One-time burst measurement of what this endpoint can actually serve, so the rate stops being a
-        // per-device-type guess. Writes the measured number straight back into the field above it.
-        val scope = rememberCoroutineScope()
-        var probing by remember(form.deviceId) { mutableStateOf(false) }
-        var probeResult by remember(form.deviceId) { mutableStateOf(-1f) }
-        OutlinedTextField(
-            value = form.snapshotFps,
-            onValueChange = { form.snapshotFps = it },
-            label = { Text(stringResource(R.string.device_snapshot_fps)) },
-            modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            isError = form.isSnapshotFpsAboveCeiling,
-            singleLine = true,
-            supportingText = {
-                Text(
-                    text = stringResource(
-                        if (form.isSnapshotFpsAboveCeiling) R.string.device_snapshot_fps_above_ceiling
-                        else R.string.device_snapshot_fps_ceiling,
-                        form.maxSnapshotFps
-                    ),
-                )
-            },
-        )
-        OutlinedButton(
-            onClick = {
-                scope.launch {
-                    probing = true
-                    probeResult = -1f
-                    val fps = HttpSnapshotClient.probeSnapshotFps(form.buildTestCandidate())
-                    if (fps > 0f) {
-                        form.snapshotFps = fps.roundToInt().coerceIn(1, form.maxSnapshotFps).toString()
+        // AnimatedVisibility gives an AnimatedVisibilityScope, not a ColumnScope, so its direct
+        // children overlap unless they get their own stacking Column.
+        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = form.snapshotPath,
+                onValueChange = { form.snapshotPath = it },
+                label = { Text(stringResource(R.string.device_snapshot_path_label)) },
+                placeholder = { Text(stringResource(R.string.device_snapshot_path_placeholder)) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+            // One-time burst measurement of what this endpoint can actually serve, so the rate stops
+            // being a per-device-type guess. Writes the measured number back into the field above it.
+            val scope = rememberCoroutineScope()
+            var probing by remember(form.deviceId) { mutableStateOf(false) }
+            var probeResult by remember(form.deviceId) { mutableStateOf(-1f) }
+            OutlinedTextField(
+                value = form.snapshotFps,
+                onValueChange = { form.snapshotFps = it },
+                label = { Text(stringResource(R.string.device_snapshot_fps)) },
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                isError = form.isSnapshotFpsAboveCeiling,
+                singleLine = true,
+                supportingText = {
+                    Text(
+                        text = stringResource(
+                            if (form.isSnapshotFpsAboveCeiling) R.string.device_snapshot_fps_above_ceiling
+                            else R.string.device_snapshot_fps_ceiling,
+                            form.maxSnapshotFps
+                        ),
+                    )
+                },
+            )
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        probing = true
+                        probeResult = -1f
+                        val fps = HttpSnapshotClient.probeSnapshotFps(form.buildTestCandidate())
+                        if (fps > 0f) {
+                            form.snapshotFps = fps.roundToInt().coerceIn(1, form.maxSnapshotFps).toString()
+                        }
+                        probeResult = fps
+                        probing = false
                     }
-                    probeResult = fps
-                    probing = false
+                },
+                enabled = !probing,
+            ) {
+                if (probing) {
+                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(stringResource(R.string.device_snapshot_fps_probing))
+                } else {
+                    Text(stringResource(R.string.device_snapshot_fps_get))
                 }
-            },
-            enabled = !probing,
-        ) {
-            if (probing) {
-                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(stringResource(R.string.device_snapshot_fps_probing))
-            } else {
-                Text(stringResource(R.string.device_snapshot_fps_get))
             }
-        }
-        if (!probing && probeResult >= 0f) {
-            Text(
-                text = if (probeResult > 0f)
-                    stringResource(R.string.device_snapshot_fps_probe_result, probeResult)
-                else
-                    stringResource(R.string.device_snapshot_fps_probe_failed),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        // The rate the endpoint really delivered lately, measured by the shared snapshot client while the
-        // live view or a recording polls it. Without this the configured number is unfalsifiable.
-        val measuredFps = rememberMeasuredSnapshotFps(form.deviceId)
-        if (measuredFps > 0f) {
-            Text(
-                text = stringResource(R.string.device_snapshot_fps_measured, measuredFps),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (!probing && probeResult >= 0f) {
+                Text(
+                    text = if (probeResult > 0f)
+                        stringResource(R.string.device_snapshot_fps_probe_result, probeResult)
+                    else
+                        stringResource(R.string.device_snapshot_fps_probe_failed),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            // The rate the endpoint really delivered lately, measured by the shared snapshot client
+            // while the live view or a recording polls it. Without this the configured number is guesswork.
+            val measuredFps = rememberMeasuredSnapshotFps(form.deviceId)
+            if (measuredFps > 0f) {
+                Text(
+                    text = stringResource(R.string.device_snapshot_fps_measured, measuredFps),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

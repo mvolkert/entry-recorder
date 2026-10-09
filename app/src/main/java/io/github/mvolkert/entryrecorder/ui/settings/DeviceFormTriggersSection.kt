@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
@@ -73,36 +74,40 @@ internal fun DeviceFormTriggersSection(form: DeviceFormState) {
         enter = fadeIn() + expandVertically(),
         exit = fadeOut() + shrinkVertically(),
     ) {
-        val sensitivities = listOf(
-            MotionSensitivity.SENSITIVE,
-            MotionSensitivity.BALANCED,
-            MotionSensitivity.POWER_SAVER,
-        )
-        FormSingleChoice(
-            label = stringResource(R.string.device_motion_sensitivity_label),
-            options = sensitivities.map {
+        // AnimatedVisibility gives an AnimatedVisibilityScope, not a ColumnScope, so the picker and
+        // its explanation would otherwise overlap instead of stacking.
+        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            val sensitivities = listOf(
+                MotionSensitivity.SENSITIVE,
+                MotionSensitivity.BALANCED,
+                MotionSensitivity.POWER_SAVER,
+            )
+            FormSingleChoice(
+                label = stringResource(R.string.device_motion_sensitivity_label),
+                options = sensitivities.map {
+                    stringResource(
+                        when (it) {
+                            MotionSensitivity.SENSITIVE -> R.string.device_motion_sensitivity_sensitive
+                            MotionSensitivity.BALANCED -> R.string.device_motion_sensitivity_balanced
+                            MotionSensitivity.POWER_SAVER -> R.string.device_motion_sensitivity_power_saver
+                        }
+                    )
+                },
+                selectedIndex = sensitivities.indexOf(form.motionSensitivity),
+                onSelect = { form.motionSensitivity = sensitivities[it] },
+            )
+            Text(
                 stringResource(
-                    when (it) {
-                        MotionSensitivity.SENSITIVE -> R.string.device_motion_sensitivity_sensitive
-                        MotionSensitivity.BALANCED -> R.string.device_motion_sensitivity_balanced
-                        MotionSensitivity.POWER_SAVER -> R.string.device_motion_sensitivity_power_saver
+                    when (form.motionSensitivity) {
+                        MotionSensitivity.SENSITIVE -> R.string.device_motion_sensitivity_sensitive_hint
+                        MotionSensitivity.BALANCED -> R.string.device_motion_sensitivity_balanced_hint
+                        MotionSensitivity.POWER_SAVER -> R.string.device_motion_sensitivity_power_saver_hint
                     }
-                )
-            },
-            selectedIndex = sensitivities.indexOf(form.motionSensitivity),
-            onSelect = { form.motionSensitivity = sensitivities[it] },
-        )
-        Text(
-            stringResource(
-                when (form.motionSensitivity) {
-                    MotionSensitivity.SENSITIVE -> R.string.device_motion_sensitivity_sensitive_hint
-                    MotionSensitivity.BALANCED -> R.string.device_motion_sensitivity_balanced_hint
-                    MotionSensitivity.POWER_SAVER -> R.string.device_motion_sensitivity_power_saver_hint
-                }
-            ),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
