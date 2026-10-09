@@ -22,7 +22,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.IntOffset
@@ -97,9 +100,13 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
     val currentEntry by navController.currentBackStackEntryAsState()
     val currentDestination = currentEntry?.destination
     val onTabsRoute = currentDestination == null || currentDestination.route == ROUTE_TABS
+    // The gallery player is an in-window overlay (so it can share the hero transition), which means it
+    // has to be handed the whole window: while it is open the bar/rail is hidden exactly like a detail
+    // route is. Hoisted here because the chrome belongs to this scaffold, not to the Recordings tab.
+    var immersivePlayback by remember { mutableStateOf(false) }
     // The bar/rail is chrome for the three tabs only; every settings submenu and the device form are
     // fullscreen details that own their top bar, so chrome is hidden for anything non-top-level.
-    val showChrome = onTabsRoute
+    val showChrome = onTabsRoute && !immersivePlayback
     val selectedRoute = if (onTabsRoute) TopLevelScreens[pagerState.currentPage].route else null
     val items = TopLevelScreens.map { AdaptiveNavItem(it.route, it.labelRes, it.icon) }
     // NavHost transition lambdas are not @Composable, so resolve the seam once here and capture it.
@@ -159,7 +166,11 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
                         Box(Modifier.appContentMaxWidth()) {
                             when (TopLevelScreens[page]) {
                                 Screen.Live -> LiveCamerasScreen(active = pagerState.currentPage == page)
-                                Screen.Recordings -> RecordingsScreen()
+                                Screen.Recordings -> RecordingsScreen(
+                                    active = pagerState.currentPage == page,
+                                    sharedTransitionScope = this@SharedTransitionLayout,
+                                    onFullscreenPlayback = { immersivePlayback = it },
+                                )
                                 Screen.Settings -> SettingsScreen(
                                     viewModel = settingsViewModel,
                                     onNavigate = { route -> navController.navigate(route) },

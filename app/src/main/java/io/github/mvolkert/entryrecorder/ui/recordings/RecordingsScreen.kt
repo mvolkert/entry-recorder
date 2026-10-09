@@ -1,6 +1,8 @@
 package io.github.mvolkert.entryrecorder.ui.recordings
 
 import android.widget.Toast
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,10 +45,16 @@ import io.github.mvolkert.entryrecorder.ui.components.VideoPlayerModal
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 import io.github.mvolkert.entryrecorder.util.ExportHelper
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** Shared-transition key for one gallery clip's media tile, matched by the hero card and the player. */
+private fun heroMediaKey(stableKey: String) = "hero-media:$stableKey"
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun RecordingsScreen(
     modifier: Modifier = Modifier,
+    active: Boolean = true,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    onFullscreenPlayback: (Boolean) -> Unit = {},
     viewModel: RecordingsViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -54,8 +63,26 @@ fun RecordingsScreen(
     val batchProgress by viewModel.batchProgress.collectAsStateWithLifecycle()
     val serverDownload by viewModel.serverDownload.collectAsStateWithLifecycle()
     var activePlayback by remember { mutableStateOf<PlaybackTarget?>(null) }
+    // Which clip is playing, as its shared-transition key: the hero tile steps out of the list for it
+    // and the player overlay picks the same key up so the two ends morph into each other.
+    var playingHeroKey by remember { mutableStateOf<String?>(null) }
     var recordingToDelete by remember { mutableStateOf<RecordingEntity?>(null) }
     var serverItemToDelete by remember { mutableStateOf<GalleryItem.Remote?>(null) }
+
+    // The player fills the window instead of sitting above the navigation bar, and leaves composition
+    // without a dismiss callback (tab swiped away, process restore), so the chrome is restored there too.
+    LaunchedEffect(activePlayback) { onFullscreenPlayback(activePlayback != null) }
+    DisposableEffect(Unit) { onDispose { onFullscreenPlayback(false) } }
+
+    // All pager pages stay composed, so a player left open while swiping to another tab would keep the
+    // window fullscreen and the navigation bar hidden behind a page nobody is looking at. Playback is
+    // this screen's own state, so leaving the page ends it.
+    LaunchedEffect(active) {
+        if (!active) {
+            activePlayback = null
+            playingHeroKey = null
+        }
+    }
 
     // Server recordings are a lazy one-shot fetch, refreshed when the screen is entered (a no-op outside
     // PYTHON_SERVER mode). Local Room data drives the list immediately and never blocks on the network.
@@ -180,6 +207,7 @@ fun RecordingsScreen(
                 // hero and its dropped row can never collide in the LazyColumn.
                 val heroItem = if (!selectionMode) state.items.first() else null
                 val listItems = if (heroItem != null) state.items.drop(1) else state.items
+                val heroTransitionKey = heroItem?.let { heroMediaKey(it.stableKey) }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(Spacing.lg),
@@ -190,7 +218,11 @@ fun RecordingsScreen(
                             RecordingHeroCard(
                                 modifier = Modifier.animateItem(),
                                 item = heroItem,
+                                heroKey = heroTransitionKey,
+                                sharedTransitionScope = sharedTransitionScope,
+                                isPlaying = playingHeroKey == heroTransitionKey,
                                 onPlay = {
+                                    playingHeroKey = heroTransitionKey
                                     activePlayback = when (heroItem) {
                                         is GalleryItem.Local -> PlaybackTarget.LocalFile(heroItem.entity.filePath)
                                         is GalleryItem.Remote -> PlaybackTarget.RemoteUrl(heroItem.videoAbsoluteUrl)
@@ -254,6 +286,7 @@ fun RecordingsScreen(
                                 }
                             },
                             onPlay = {
+                                playingHeroKey = heroMediaKey(item.stableKey)
                                 activePlayback = when (item) {
                                     is GalleryItem.Local -> PlaybackTarget.LocalFile(item.entity.filePath)
                                     is GalleryItem.Remote -> PlaybackTarget.RemoteUrl(item.videoAbsoluteUrl)
@@ -303,7 +336,12 @@ fun RecordingsScreen(
     activePlayback?.let { target ->
         VideoPlayerModal(
             playback = target,
-            onDismiss = { activePlayback = null }
+            heroKey = playingHeroKey,
+            sharedTransitionScope = sharedTransitionScope,
+            onDismiss = {
+                activePlayback = null
+                playingHeroKey = null
+            }
         )
     }
 

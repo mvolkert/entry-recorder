@@ -19,15 +19,18 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -50,6 +53,7 @@ internal fun BoxScope.IncomingCallControls(
     onToggleSpeaker: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
+    val haptic = LocalHapticFeedback.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -64,19 +68,26 @@ internal fun BoxScope.IncomingCallControls(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(
-                    onClick = onToggleMute,
-                    modifier = Modifier
-                        .size(56.dp)
-                        .background(
-                            if (sipState.isMicMuted) scheme.errorContainer else scheme.surfaceVariant.copy(alpha = 0.6f),
-                            CircleShape
+                // Tonal icon button rather than a hand-painted circle: the component carries the
+                // container/on pair and morphs through its own shapes when the state flips.
+                FilledTonalIconButton(
+                    onClick = {
+                        // Tick matches the resulting state: muted is off, live is on.
+                        haptic.performHapticFeedback(
+                            if (sipState.isMicMuted) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff
                         )
+                        onToggleMute()
+                    },
+                    shapes = IconButtonDefaults.shapes(),
+                    modifier = Modifier.size(56.dp),
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = if (sipState.isMicMuted) scheme.errorContainer else scheme.surfaceVariant,
+                        contentColor = if (sipState.isMicMuted) scheme.onErrorContainer else scheme.onSurface,
+                    ),
                 ) {
                     MorphingIcon(
                         imageVector = if (sipState.isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
                         contentDescription = stringResource(R.string.incoming_cd_mute),
-                        tint = if (sipState.isMicMuted) scheme.onErrorContainer else scheme.onSurface,
                     )
                 }
 
@@ -96,19 +107,24 @@ internal fun BoxScope.IncomingCallControls(
                     )
                 }
 
-                IconButton(
-                    onClick = onToggleSpeaker,
-                    modifier = Modifier
-                        .size(56.dp)
-                        .background(
-                            if (sipState.isSpeakerOn) scheme.secondaryContainer else scheme.surfaceVariant.copy(alpha = 0.6f),
-                            CircleShape
+                FilledTonalIconButton(
+                    onClick = {
+                        // The tick is the resulting state, so it reads the same as the mic toggle.
+                        haptic.performHapticFeedback(
+                            if (sipState.isSpeakerOn) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn
                         )
+                        onToggleSpeaker()
+                    },
+                    shapes = IconButtonDefaults.shapes(),
+                    modifier = Modifier.size(56.dp),
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = if (sipState.isSpeakerOn) scheme.secondaryContainer else scheme.surfaceVariant,
+                        contentColor = if (sipState.isSpeakerOn) scheme.onSecondaryContainer else scheme.onSurface,
+                    ),
                 ) {
                     MorphingIcon(
                         imageVector = if (sipState.isSpeakerOn) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeDown,
                         contentDescription = stringResource(R.string.incoming_cd_speaker),
-                        tint = if (sipState.isSpeakerOn) scheme.onSecondaryContainer else scheme.onSurface,
                     )
                 }
             }

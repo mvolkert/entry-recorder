@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -16,6 +15,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
+import io.github.mvolkert.entryrecorder.ui.components.ProgressLine
 
 /** Confirmation shown before a single recording (local or server) is removed. */
 @Composable
@@ -98,7 +98,7 @@ internal fun ExportProgressDialog(progressPercent: Int, @StringRes bodyRes: Int)
             Column {
                 Text(stringResource(bodyRes, progressPercent))
                 Spacer(modifier = Modifier.height(12.dp))
-                LinearWavyProgressIndicator(progress = { progressPercent / 100f }, modifier = Modifier.fillMaxWidth())
+                ProgressLine(progress = progressPercent / 100f, modifier = Modifier.fillMaxWidth())
             }
         },
         confirmButton = {}
@@ -115,7 +115,7 @@ internal fun DownloadProgressDialog(progressPercent: Int) {
             Column {
                 Text(stringResource(R.string.recordings_download_progress_body, progressPercent))
                 Spacer(modifier = Modifier.height(12.dp))
-                LinearWavyProgressIndicator(progress = { progressPercent / 100f }, modifier = Modifier.fillMaxWidth())
+                ProgressLine(progress = progressPercent / 100f, modifier = Modifier.fillMaxWidth())
             }
         },
         confirmButton = {}
@@ -133,8 +133,8 @@ internal fun BatchProgressDialog(done: Int, total: Int) {
                 Text(stringResource(R.string.recordings_batch_progress_body, done, total))
                 Spacer(modifier = Modifier.height(12.dp))
                 // total is guarded: a zero-count batch must not divide by zero on the composition path.
-                LinearWavyProgressIndicator(
-                    progress = { if (total > 0) done.toFloat() / total else 0f },
+                ProgressLine(
+                    progress = if (total > 0) done.toFloat() / total else 0f,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

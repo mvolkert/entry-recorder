@@ -2,16 +2,24 @@ package io.github.mvolkert.entryrecorder.ui.components
 
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -31,8 +39,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -41,6 +47,7 @@ import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 import io.github.mvolkert.entryrecorder.ui.theme.VideoScrim
 import io.github.mvolkert.entryrecorder.ui.theme.onScrimColor
+import io.github.mvolkert.entryrecorder.ui.theme.rememberExpressiveMotionEnabled
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -55,11 +62,21 @@ sealed interface PlaybackTarget {
     data class RemoteUrl(val url: String) : PlaybackTarget
 }
 
-@OptIn(UnstableApi::class)
+/**
+ * Full-screen playback host. Rendered as an overlay inside the caller's own layout rather than a
+ * separate window ([androidx.compose.ui.window.Dialog]), because shared-element transitions only
+ * match composables that sit in one window and one shared-transition layout: the Recordings hero tile
+ * morphs into this surface when [heroKey] and [sharedTransitionScope] are given. Without them — or
+ * with the system animation scale at zero — it falls back to the plain scale-and-fade entrance.
+ */
+@OptIn(UnstableApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun VideoPlayerModal(
     playback: PlaybackTarget,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    heroKey: String? = null,
+    sharedTransitionScope: SharedTransitionScope? = null,
 ) {
     // Local app recordings are crash-safe MKV files holding JPEG frames on a V_MJPEG track, which
     // ExoPlayer cannot decode; play those with the dedicated JPEG frame player. Anything else (a local
@@ -67,11 +84,13 @@ fun VideoPlayerModal(
     val isJpegMkv = playback is PlaybackTarget.LocalFile &&
             playback.filePath.substringAfterLast('.', "").equals("mkv", ignoreCase = true)
 
-    // The dialog content animates in and out through the motion scheme; the Dialog itself can only
-    // be dismissed once the exit has played, so dismissal is deferred by EXIT_FALLBACK_MS rather
-    // than handed straight to onDismiss (AnimatedVisibility exposes no completion hook here).
+    // The overlay content animates in and out through the motion scheme; the exit is not observable
+    // from here (AnimatedVisibility exposes no completion hook), so dismissal is deferred by
+    // EXIT_FALLBACK_MS to let the spring play out before the caller drops the composable.
     var visible by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val motionEnabled = rememberExpressiveMotionEnabled()
+    val heroTransition = sharedTransitionScope != null && heroKey != null && motionEnabled
     val fadeSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     val scaleSpec = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
     LaunchedEffect(Unit) { visible = true }
@@ -84,51 +103,72 @@ fun VideoPlayerModal(
             }
         }
     }
+    // The overlay is in-window now, so the system back gesture has to be routed to the dismiss
+    // animation by hand — the Dialog window used to do this for free.
+    BackHandler(enabled = visible) { requestDismiss() }
 
-    Dialog(
-        onDismissRequest = requestDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+    AnimatedVisibility(
+        visible = visible,
+        // A matched hero already moves the media, so only fade the scrim; the scale entrance is the
+        // fallback for the unmatched / animations-off path.
+        enter = if (heroTransition) fadeIn(animationSpec = fadeSpec) else fadeIn(animationSpec = fadeSpec) + scaleIn(animationSpec = scaleSpec, initialScale = 0.92f),
+        exit = if (heroTransition) fadeOut(animationSpec = fadeSpec) else fadeOut(animationSpec = fadeSpec) + scaleOut(animationSpec = scaleSpec, targetScale = 0.92f),
+        modifier = modifier
+            .fillMaxSize()
+            // Swallow touches that would otherwise fall through to the list behind the scrim.
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {},
+            ),
+        label = "videoPlayer",
     ) {
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(animationSpec = fadeSpec) + scaleIn(animationSpec = scaleSpec, initialScale = 0.92f),
-            exit = fadeOut(animationSpec = fadeSpec) + scaleOut(animationSpec = scaleSpec, targetScale = 0.92f),
+        val container = Modifier.fillMaxSize().background(VideoScrim)
+        Box(
+            modifier = if (sharedTransitionScope != null && heroKey != null && motionEnabled) {
+                with(sharedTransitionScope) {
+                    container.sharedBounds(
+                        sharedContentState = rememberSharedContentState(key = heroKey),
+                        animatedVisibilityScope = this@AnimatedVisibility,
+                        resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(),
+                        clipInOverlayDuringTransition = OverlayClip(MaterialTheme.shapes.extraLarge),
+                    )
+                }
+            } else {
+                container
+            },
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(VideoScrim)
-            ) {
-                if (isJpegMkv && playback is PlaybackTarget.LocalFile) {
-                    JpegFramePlayer(
-                        filePath = playback.filePath,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    val uri = when (playback) {
-                        is PlaybackTarget.RemoteUrl -> playback.url
-                        is PlaybackTarget.LocalFile -> File(playback.filePath).toURI().toString()
-                    }
-                    ExoPlayerView(
-                        uri = uri,
-                        modifier = Modifier.fillMaxSize()
-                    )
+            val localPath = (playback as? PlaybackTarget.LocalFile)?.filePath
+            if (isJpegMkv && localPath != null) {
+                JpegFramePlayer(
+                    filePath = localPath,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                val uri = when (playback) {
+                    is PlaybackTarget.RemoteUrl -> playback.url
+                    is PlaybackTarget.LocalFile -> File(playback.filePath).toURI().toString()
                 }
+                ExoPlayerView(
+                    uri = uri,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
 
-                // Close button top right
-                IconButton(
-                    onClick = requestDismiss,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(Spacing.lg)
-                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f), shape = CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = stringResource(R.string.player_cd_close),
-                        tint = onScrimColor
-                    )
-                }
+            // Close button top right, kept clear of the status bar now that it is not in its own window.
+            IconButton(
+                onClick = requestDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(Spacing.lg)
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f), shape = CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = stringResource(R.string.player_cd_close),
+                    tint = onScrimColor
+                )
             }
         }
     }

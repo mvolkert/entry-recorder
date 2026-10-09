@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,6 +33,7 @@ import io.github.mvolkert.entryrecorder.sip.CallUiState
 import io.github.mvolkert.entryrecorder.sip.SipCallTiming
 import io.github.mvolkert.entryrecorder.sip.SipSessionState
 import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
+import io.github.mvolkert.entryrecorder.ui.components.LoadingSpot
 import io.github.mvolkert.entryrecorder.ui.adaptive.WindowInfo
 import io.github.mvolkert.entryrecorder.ui.adaptive.rememberWindowInfo
 import io.github.mvolkert.entryrecorder.ui.theme.AppTheme
@@ -211,7 +211,8 @@ fun IncomingCallContent(
             )
         } else {
             Box(modifier = mod, contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = onScrimColor)
+                // Device row not loaded yet: the expressive three-shape loader, tinted for the scrim.
+                LoadingSpot(color = onScrimColor)
             }
         }
     }

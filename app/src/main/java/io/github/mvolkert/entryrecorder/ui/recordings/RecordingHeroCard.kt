@@ -1,6 +1,11 @@
 package io.github.mvolkert.entryrecorder.ui.recordings
 
 import android.text.format.Formatter
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,13 +46,20 @@ import io.github.mvolkert.entryrecorder.ui.theme.eventTypeColor
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeLabel
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeOnColor
 import io.github.mvolkert.entryrecorder.ui.theme.onScrimColor
+import io.github.mvolkert.entryrecorder.ui.theme.rememberExpressiveMotionEnabled
 
 /**
  * The newest gallery clip shown once, big: the Playful-level hero card for the media-browse screen.
  * Filled `primaryContainer` with the expressive extraLargeIncreased shape and a large masked media
  * tile; tapping the media opens playback. The full action menu stays reachable from the card, so the
  * hero replacing the item's list row never hides export/delete behind a play-only surface.
+ *
+ * With [heroKey] + [sharedTransitionScope] the media tile is the shared element that grows into
+ * [io.github.mvolkert.entryrecorder.ui.components.VideoPlayerModal]; it steps out of the list while
+ * that playback is open, which is what makes the morph read as one object moving rather than two
+ * windows swapping.
  */
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun RecordingHeroCard(
     item: GalleryItem,
@@ -59,6 +71,9 @@ internal fun RecordingHeroCard(
     onExportFolder: () -> Unit,
     onExportRawFolder: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    heroKey: String? = null,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    isPlaying: Boolean = false,
 ) {
     val context = LocalContext.current
     val entity = (item as? GalleryItem.Local)?.entity
@@ -73,7 +88,12 @@ internal fun RecordingHeroCard(
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         ),
     ) {
-        HeroMedia(item = item)
+        HeroMedia(
+            item = item,
+            heroKey = heroKey,
+            sharedTransitionScope = sharedTransitionScope,
+            visible = !isPlaying,
+        )
 
         Column(modifier = Modifier.padding(Spacing.xl)) {
             Row(
@@ -123,48 +143,80 @@ internal fun RecordingHeroCard(
     }
 }
 
-/** The hero's media tile: 16:9, extraLarge corner mask, event-icon fallback like the list thumbnails. */
+/**
+ * The hero's media tile: 16:9, extraLarge corner mask, event-icon fallback like the list thumbnails.
+ * Hides (through the shared bounds when they are wired, otherwise plainly) while its own clip plays.
+ */
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-private fun HeroMedia(item: GalleryItem) {
+private fun HeroMedia(
+    item: GalleryItem,
+    heroKey: String?,
+    sharedTransitionScope: SharedTransitionScope?,
+    visible: Boolean,
+) {
     val fallbackIcon = when (item.eventType) {
         EventType.RING -> Icons.Default.Call
         EventType.NOISE -> Icons.AutoMirrored.Filled.VolumeUp
         else -> Icons.Default.Videocam
     }
     val model: Any? = galleryThumbnailModel(item)
+    val fadeSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+    // Both ends of the hero morph need a key and the outer shared scope; without them the tile is plain.
+    val shared = if (heroKey != null && rememberExpressiveMotionEnabled()) sharedTransitionScope else null
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(animationSpec = fadeSpec),
+        exit = fadeOut(animationSpec = fadeSpec),
+        modifier = Modifier.fillMaxWidth(),
+        label = "heroMedia",
+    ) {
+        val masked = Modifier
             .aspectRatio(16f / 9f)
             .padding(Spacing.md)
+            .background(MaterialTheme.colorScheme.surface)
             .clip(MaterialTheme.shapes.extraLarge)
-            .background(MaterialTheme.colorScheme.surface),
-        contentAlignment = Alignment.Center,
-    ) {
-        var loadFailed by remember(model) { mutableStateOf(false) }
-        if (model != null && !loadFailed) {
-            AsyncImage(
-                model = model,
-                contentDescription = stringResource(R.string.recordings_cd_thumbnail),
-                modifier = Modifier.matchParentSize(),
-                contentScale = ContentScale.Crop,
-                onError = { loadFailed = true },
-            )
-        } else {
+
+        Box(
+            modifier = if (shared != null) {
+                with(shared) {
+                    Modifier.sharedBounds(
+                        sharedContentState = rememberSharedContentState(key = checkNotNull(heroKey)),
+                        animatedVisibilityScope = this@AnimatedVisibility,
+                        resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(),
+                        clipInOverlayDuringTransition = OverlayClip(MaterialTheme.shapes.extraLarge),
+                    ).then(masked)
+                }
+            } else {
+                masked
+            },
+            contentAlignment = Alignment.Center,
+        ) {
+            var loadFailed by remember(model) { mutableStateOf(false) }
+            if (model != null && !loadFailed) {
+                AsyncImage(
+                    model = model,
+                    contentDescription = stringResource(R.string.recordings_cd_thumbnail),
+                    modifier = Modifier.matchParentSize(),
+                    contentScale = ContentScale.Crop,
+                    onError = { loadFailed = true },
+                )
+            } else {
+                Icon(
+                    imageVector = fallbackIcon,
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             Icon(
-                imageVector = fallbackIcon,
+                imageVector = Icons.Default.PlayCircle,
                 contentDescription = null,
-                modifier = Modifier.size(48.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(56.dp),
+                tint = onScrimColor.copy(alpha = 0.85f),
             )
         }
-
-        Icon(
-            imageVector = Icons.Default.PlayCircle,
-            contentDescription = null,
-            modifier = Modifier.size(56.dp),
-            tint = onScrimColor.copy(alpha = 0.85f),
-        )
     }
 }
