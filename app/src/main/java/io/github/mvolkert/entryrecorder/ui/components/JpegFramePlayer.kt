@@ -15,7 +15,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
 import io.github.mvolkert.entryrecorder.R
@@ -129,8 +128,8 @@ fun JpegFramePlayer(
                         currentMs / 1000, totalMs / 1000, index + 1, refs.size
                     ),
                     color = onScrimColor,
+                    // labelSmall already carries the medium weight a scrim caption needs.
                     style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Medium,
                     modifier = Modifier
                         .weight(1f)
                         .padding(start = 8.dp)

@@ -128,7 +128,9 @@ internal fun RecordingHeroCard(
 
             Text(
                 text = item.deviceName,
-                style = MaterialTheme.typography.headlineSmall,
+                // The hero's one typographic lift: the emphasized twin of the headline role, so the newest
+                // clip reads above the list without a raw weight (Design.md §4).
+                style = MaterialTheme.typography.headlineSmallEmphasized,
                 maxLines = 1,
             )
             Text(

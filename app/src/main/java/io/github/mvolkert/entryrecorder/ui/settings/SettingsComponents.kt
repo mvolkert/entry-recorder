@@ -4,12 +4,10 @@ import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.LocalIndication
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -17,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -43,9 +40,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
+import io.github.mvolkert.entryrecorder.ui.components.ExpressiveIconBadge
 import kotlinx.coroutines.flow.Flow
 
 /** Section card shell shared by every settings section (content-card shape, 16 dp inner padding). */
@@ -118,8 +115,9 @@ internal fun SettingsSubscreenScaffold(
 }
 
 /**
- * Expressive hub row that navigates into a submenu: tonal icon badge, title with optional subtitle,
- * extra-rounded card and a bouncy press-scale driven by the motion scheme. No trailing affordance.
+ * Expressive hub row that navigates into a submenu: the app's one decorative icon badge, title with
+ * optional subtitle, extra-rounded card and a bouncy press-scale driven by the motion scheme. No
+ * trailing affordance. This is the hub's single playful lift — the submenus it opens stay Balanced.
  */
 @Composable
 internal fun SettingsNavRow(
@@ -159,18 +157,14 @@ internal fun SettingsNavRow(
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(iconContainerColor, MaterialTheme.shapes.large),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = iconContentColor,
-                )
-            }
+            ExpressiveIconBadge(
+                icon = icon,
+                contentDescription = null,
+                containerColor = iconContainerColor,
+                contentColor = iconContentColor,
+                size = 48.dp,
+                iconSize = 24.dp,
+            )
             Column(modifier = Modifier.padding(start = 16.dp).weight(1f)) {
                 Text(stringResource(titleRes), style = MaterialTheme.typography.titleMedium)
                 if (subtitle != null) {
@@ -241,7 +235,8 @@ internal fun SettingsSwitchRow(
     SettingsItemRow(
         onClick = { onCheckedChange(!checked) },
         leading = {
-            Text(title, fontWeight = FontWeight.Medium)
+            // titleMedium already reads a step heavier than the hint under it; no raw weight needed.
+            Text(title, style = MaterialTheme.typography.titleMedium)
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
