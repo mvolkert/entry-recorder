@@ -7,8 +7,10 @@ import org.junit.Test
 import kotlin.math.pow
 
 /**
- * Guards the fixed status/event palette's contrast claim: every badge foreground/container pairing and
- * every event hue read as on-scrim header text must clear WCAG AA (4.5:1). The event colors are
+ * Guards the fixed status/event palette's contrast claim: every badge foreground/container pairing, every
+ * event hue read as on-scrim header text, and the resting record FAB's glyph on its neutral container must
+ * clear their WCAG bar (4.5:1 for the text-sized pairings, 3:1 for the glyph, which is a non-text element).
+ * The event colors are
  * deliberately mode-independent (they sit on the black video scrim regardless of the app theme), so this
  * checks each one against that scrim as well as against its own dark on-container. Re-tuning a hue in
  * Theme.kt without re-checking these ratios fails here before it ships.
@@ -36,9 +38,30 @@ class StatusPaletteContrastTest {
         assertAtLeast("recording onContainer", onRecordingStatusColor, recordingStatusColor)
     }
 
+    /**
+     * The resting record FAB's glyph sits on a neutral container, so the bar is the 3:1 non-text minimum
+     * rather than AA text. The check is accent-independent because the surface neutrals are fixed per mode;
+     * the container is the very role RecordFab rests on (surfaceBright, against the Live card's
+     * surfaceContainerHighest), so only the glyph red can drift.
+     */
+    @Test
+    fun `recording glyph reads on the resting fab container`() {
+        for (dark in listOf(true, false)) {
+            val preset = accentPresets.first()
+            val scheme = buildColorScheme(preset, preset, preset, dark = dark)
+            assertIconAtLeast("recording glyph dark=$dark", recordingGlyphColorFor(dark), scheme.surfaceBright)
+        }
+    }
+
     private fun assertAtLeast(name: String, fg: Color, bg: Color) {
         val ratio = contrast(fg, bg)
         assertTrue("$name contrast ${"%.2f".format(ratio)} < 4.5", ratio >= 4.5)
+    }
+
+    // WCAG AA minimum for a non-text element (a 24dp icon glyph).
+    private fun assertIconAtLeast(name: String, fg: Color, bg: Color) {
+        val ratio = contrast(fg, bg)
+        assertTrue("$name contrast ${"%.2f".format(ratio)} < 3.0", ratio >= 3.0)
     }
 
     private fun contrast(fg: Color, bg: Color): Double {

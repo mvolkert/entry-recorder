@@ -297,6 +297,18 @@ fun eventTypeOnColor(eventType: EventType): Color = statusColorFor(eventType).on
 val recordingStatusColor: Color = Color(0xFFD32F2F)
 val onRecordingStatusColor: Color = Color(0xFFFFFFFF)
 
+/**
+ * The REC red for a glyph drawn directly on the resting record FAB's neutral container, one step lighter in
+ * dark than [recordingStatusColor]. A FAB glyph is a non-text element, so the bar is 3:1, and the single
+ * darker red only clears it on the light container (about 4.7:1) — on the dark one it lands under 3:1.
+ * Kept in the same hue family so the control reads as the same signal in both modes.
+ */
+fun recordingGlyphColorFor(dark: Boolean): Color = if (dark) Color(0xFFEF5350) else Color(0xFFD32F2F)
+
+/** [recordingGlyphColorFor] for the mode the theme resolved to. */
+@Composable
+fun recordingGlyphColor(): Color = recordingGlyphColorFor(LocalDarkTheme.current)
+
 /** Amber shared by the "motion right now" walk indicator and a degraded monitor dot. */
 val statusWarnColor: Color = Color(0xFFF9A825)
 

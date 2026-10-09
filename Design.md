@@ -166,9 +166,12 @@ place, and each gets re-checked on every Material upgrade.
   the fill behind it and the glyphs on top of it cannot track the scheme. The pair is handed down once
   through `LocalContentColor` instead of being retyped per surface.
 - `ui/theme/Theme.kt` — the fixed status palette (`StatusColor`, `eventTypeColor`, `recordingStatusColor`,
-  `monitorStatusColor`, `statusWarnColor`). Trigger and recording hues are semantics, not theming, so they
-  stay independent of the accent preset and of dynamic color. `StatusPaletteContrastTest` re-proves every
-  container/on pairing on each test run.
+  `recordingGlyphColorFor`, `monitorStatusColor`, `statusWarnColor`). Trigger and recording hues are semantics,
+  not theming, so they stay independent of the accent preset and of dynamic color. The record glyph is the one
+  two-step hue (`recordingGlyphColorFor`): a FAB glyph is a non-text element, so it needs only 3:1, and the one
+  REC red clears that on the resting FAB's light neutral (`surfaceBright`, ~4.7:1) but not on the dark one —
+  the dark step is the same hue lightened. `StatusPaletteContrastTest` re-proves every container/on pairing
+  and both glyph steps on each test run.
 - `ui/theme/Theme.kt` — `Spacing` steps. Material 3 ships no spacing tokens, so the multiples of 4/8 that
   layouts already used are named once instead of repeating as dp literals.
 - Shape gap in the pinned material3 — `MaterialTheme.shapes` has no `full` token, so `CircleShape` renders
