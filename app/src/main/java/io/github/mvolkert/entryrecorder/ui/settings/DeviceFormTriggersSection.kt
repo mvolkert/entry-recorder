@@ -2,8 +2,10 @@ package io.github.mvolkert.entryrecorder.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -140,29 +142,36 @@ internal fun DeviceFormAlertsSection(form: DeviceFormState) {
 }
 
 /** Per-event lengths plus the master enable switch the monitor service checks before arming a device. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun DeviceFormDurationsSection(form: DeviceFormState) {
     FormSectionLabel(R.string.device_durations_section)
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Fixed-width fields inside a FlowRow wrap to fewer-per-line on narrow screens instead of
+    // collapsing into unusably thin thirds the way three weight(1f) columns do.
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         OutlinedTextField(
             value = form.ringRecordSeconds,
             onValueChange = { form.ringRecordSeconds = it },
             label = { Text(stringResource(R.string.device_duration_ring)) },
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.width(140.dp),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
         )
         OutlinedTextField(
             value = form.motionPostRecordSeconds,
             onValueChange = { form.motionPostRecordSeconds = it },
             label = { Text(stringResource(R.string.device_duration_motion_post)) },
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.width(140.dp),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
         )
         OutlinedTextField(
             value = form.noisePostRecordSeconds,
             onValueChange = { form.noisePostRecordSeconds = it },
             label = { Text(stringResource(R.string.device_duration_noise_post)) },
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.width(140.dp),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
         )
     }

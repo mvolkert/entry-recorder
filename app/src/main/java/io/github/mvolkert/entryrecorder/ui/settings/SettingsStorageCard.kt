@@ -164,12 +164,8 @@ private fun StepperRow(
     hint: String? = null,
     onValueClick: (() -> Unit)? = null
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column {
+    SettingsItemRow(
+        leading = {
             Text(title, fontWeight = FontWeight.Medium)
             Text(
                 text = subtitle,
@@ -183,28 +179,28 @@ private fun StepperRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        },
+        trailing = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onDecrease) {
+                    Icon(Icons.Default.Remove, contentDescription = stringResource(R.string.settings_cd_decrease))
+                }
+                val valueModifier = if (onValueClick != null) {
+                    Modifier.clickable(onClickLabel = stringResource(R.string.settings_retention_period)) { onValueClick() }
+                } else {
+                    Modifier
+                }
+                Text(
+                    value,
+                    modifier = valueModifier,
+                    fontWeight = FontWeight.Bold
+                )
+                IconButton(onClick = onIncrease) {
+                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.settings_cd_increase))
+                }
+            }
         }
-        Row {
-            IconButton(onClick = onDecrease) {
-                Icon(Icons.Default.Remove, contentDescription = stringResource(R.string.settings_cd_decrease))
-            }
-            val valueModifier = if (onValueClick != null) {
-                Modifier
-                    .align(Alignment.CenterVertically)
-                    .clickable(onClickLabel = stringResource(R.string.settings_retention_period)) { onValueClick() }
-            } else {
-                Modifier.align(Alignment.CenterVertically)
-            }
-            Text(
-                value,
-                modifier = valueModifier,
-                fontWeight = FontWeight.Bold
-            )
-            IconButton(onClick = onIncrease) {
-                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.settings_cd_increase))
-            }
-        }
-    }
+    )
 }
 
 /** SAF tree-URI picker for the mirror/export folder, warning when the stored grant has gone stale. */

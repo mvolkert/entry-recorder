@@ -1,9 +1,7 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
 import androidx.annotation.StringRes
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -68,14 +66,11 @@ internal fun FormEmphasizedSwitchRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(title, fontWeight = FontWeight.Medium)
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
+    SettingsItemRow(
+        onClick = { onCheckedChange(!checked) },
+        leading = { Text(title, fontWeight = FontWeight.Medium) },
+        trailing = { Switch(checked = checked, onCheckedChange = onCheckedChange) }
+    )
 }
 
 /**

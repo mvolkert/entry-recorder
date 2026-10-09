@@ -185,6 +185,37 @@ internal fun SettingsNavRow(
     }
 }
 
+/**
+ * Shared shell for every "leading label + pinned trailing control" settings row. The leading column is
+ * `weight(1f, fill = false)`, so a long (or localized) title wraps instead of pushing the trailing
+ * Switch/stepper off the right edge on narrow screens, which keeps the control always visible and
+ * tappable. [onClick] makes the whole row a tap target when set.
+ */
+@Composable
+internal fun SettingsItemRow(
+    leading: @Composable ColumnScope.() -> Unit,
+    trailing: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    onClickLabel: String? = null,
+) {
+    val rowModifier = modifier
+        .fillMaxWidth()
+        .heightIn(min = 48.dp)
+        .then(
+            if (onClick != null) Modifier.clickable(onClickLabel = onClickLabel, onClick = onClick)
+            else Modifier
+        )
+    Row(
+        modifier = rowModifier,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f, fill = false), content = leading)
+        trailing()
+    }
+}
+
 /** Label on the left, switch on the right. */
 @Composable
 internal fun SettingsSwitchRow(
@@ -192,14 +223,11 @@ internal fun SettingsSwitchRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(title)
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
+    SettingsItemRow(
+        onClick = { onCheckedChange(!checked) },
+        leading = { Text(title) },
+        trailing = { Switch(checked = checked, onCheckedChange = onCheckedChange) }
+    )
 }
 
 /** Same row with a secondary hint line under the title. */
@@ -210,19 +238,16 @@ internal fun SettingsSwitchRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
+    SettingsItemRow(
+        onClick = { onCheckedChange(!checked) },
+        leading = {
             Text(title, fontWeight = FontWeight.Medium)
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
+        },
+        trailing = { Switch(checked = checked, onCheckedChange = onCheckedChange) }
+    )
 }
