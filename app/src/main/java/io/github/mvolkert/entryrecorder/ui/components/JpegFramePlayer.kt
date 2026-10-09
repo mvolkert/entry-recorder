@@ -104,12 +104,16 @@ fun JpegFramePlayer(
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         }
 
-        // Transport controls: timestamps row above an edge-to-edge timeline, flush to the bottom.
+        // Transport controls: timestamps row above an edge-to-edge timeline. The strip reaches the window
+        // edge but keeps its contents clear of the system bar, because the player is handed the whole
+        // window and the navigation bar would otherwise cover the timeline. background first, insets
+        // second: a background fills the region including padding added later in the chain.
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f))
+                .windowInsetsPadding(WindowInsets.navigationBars)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
