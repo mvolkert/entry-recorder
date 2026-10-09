@@ -35,8 +35,14 @@ data class AdaptiveNavItem(
 /**
  * Bar/rail container shared by every top-level destination. Compact renders a bottom [NavigationBar]
  * inside a [Scaffold]; Medium and Expanded render a leading [NavigationRail] with the content on the
- * remaining width. When [showChrome] is false (e.g. a fullscreen sibling route such as device edit)
- * neither container is drawn and the content fills the window.
+ * remaining width. When [showChrome] is false (e.g. a fullscreen sibling route such as device edit, or
+ * the gallery player covering the window) neither bar is drawn and the content fills the window.
+ *
+ * The window size class alone picks the layout and [content] is invoked from exactly one call site per
+ * class, with [showChrome] only deciding whether the bar composes. Moving the `content(...)` call into a
+ * separate branch would recompose the whole destination subtree from scratch — which the screens below
+ * cannot survive, because they hold their own playback state in `remember` (a player opened here flips
+ * the chrome, and a rebuilt screen would immediately drop it again).
  */
 @Composable
 fun AdaptiveScaffold(
@@ -47,39 +53,45 @@ fun AdaptiveScaffold(
     content: @Composable (Modifier) -> Unit,
 ) {
     val info = LocalWindowInfo.current
-    when {
-        !showChrome -> Box(Modifier.fillMaxSize()) { content(Modifier) }
-        info.useRail -> Row(Modifier.fillMaxSize()) {
-            NavigationRail {
-                items.forEach { item ->
-                    val selected = item.route == selectedRoute
-                    NavigationRailItem(
-                        selected = selected,
-                        onClick = { onNavigate(item) },
-                        icon = { AdaptiveIcon(item = item, selected = selected) },
-                        label = { Text(stringResource(item.labelRes)) },
-                        alwaysShowLabel = true,
-                    )
-                }
-            }
-            Box(Modifier.weight(1f).fillMaxSize()) { content(Modifier) }
-        }
-        else -> Scaffold(
-            contentWindowInsets = WindowInsets(0),
-            bottomBar = {
-                NavigationBar {
+    if (info.useRail) {
+        Row(Modifier.fillMaxSize()) {
+            if (showChrome) {
+                NavigationRail {
                     items.forEach { item ->
                         val selected = item.route == selectedRoute
-                        NavigationBarItem(
+                        NavigationRailItem(
                             selected = selected,
                             onClick = { onNavigate(item) },
                             icon = { AdaptiveIcon(item = item, selected = selected) },
                             label = { Text(stringResource(item.labelRes)) },
+                            alwaysShowLabel = true,
                         )
+                    }
+                }
+            }
+            Box(Modifier.weight(1f).fillMaxSize()) { content(Modifier) }
+        }
+    } else {
+        Scaffold(
+            contentWindowInsets = WindowInsets(0),
+            bottomBar = {
+                if (showChrome) {
+                    NavigationBar {
+                        items.forEach { item ->
+                            val selected = item.route == selectedRoute
+                            NavigationBarItem(
+                                selected = selected,
+                                onClick = { onNavigate(item) },
+                                icon = { AdaptiveIcon(item = item, selected = selected) },
+                                label = { Text(stringResource(item.labelRes)) },
+                            )
+                        }
                     }
                 }
             },
         ) { innerPadding ->
+            // An empty bottom bar measures 0, so hidden chrome leaves innerPadding empty and the content
+            // gets the whole window — identical to the pre-refactor branch that skipped the Scaffold.
             Box(Modifier.fillMaxSize()) {
                 content(Modifier.padding(innerPadding))
             }
