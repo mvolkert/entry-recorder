@@ -1,7 +1,6 @@
 package io.github.mvolkert.entryrecorder.ui.live
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,15 +22,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -44,6 +41,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -55,8 +55,11 @@ import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
+import io.github.mvolkert.entryrecorder.ui.components.ExpressiveIconBadge
 import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
 import io.github.mvolkert.entryrecorder.ui.components.MorphingIcon
+import io.github.mvolkert.entryrecorder.ui.components.RecordFab
+import io.github.mvolkert.entryrecorder.ui.components.StatusChip
 import io.github.mvolkert.entryrecorder.ui.theme.VideoScrim
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 import io.github.mvolkert.entryrecorder.ui.theme.monitorStatusColor
@@ -102,16 +105,18 @@ fun LiveCamerasScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.padding(24.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.VideocamOff,
+                        ExpressiveIconBadge(
+                            icon = Icons.Default.VideocamOff,
                             contentDescription = null,
-                            modifier = Modifier.size(64.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            size = 96.dp,
+                            iconSize = 44.dp,
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = stringResource(R.string.live_empty_title),
-                            style = MaterialTheme.typography.titleMedium
+                            style = MaterialTheme.typography.titleLarge
                         )
                         Text(
                             text = stringResource(R.string.live_empty_body),
@@ -184,8 +189,7 @@ fun LiveDeviceCard(
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        shape = MaterialTheme.shapes.extraLargeIncreased,
     ) {
         Column {
             // Header
@@ -209,7 +213,7 @@ fun LiveDeviceCard(
                         // Compact badge: total height stays below the device-name line height, so the
                         // header row (and the card/video layout) never grows or shrinks when it appears.
                         Surface(
-                            shape = MaterialTheme.shapes.extraSmall,
+                            shape = CircleShape,
                             color = recordingStatusColor
                         ) {
                             Row(
@@ -243,6 +247,7 @@ fun LiveDeviceCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(videoAspectRatio?.coerceIn(1.2f, 2.6f) ?: (16f / 9f))
+                    .clip(MaterialTheme.shapes.largeIncreased)
                     .background(VideoScrim)
             ) {
                 LiveStreamPlayer(
@@ -281,7 +286,13 @@ fun LiveDeviceCard(
 
                 // Right: the card's actions — monitor on/off, then manual record.
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onToggleMonitor) {
+                    val haptic = LocalHapticFeedback.current
+                    FilledTonalIconButton(
+                        onClick = {
+                            haptic.performHapticFeedback(if (isMonitored) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
+                            onToggleMonitor()
+                        },
+                    ) {
                         MorphingIcon(
                             imageVector = if (isMonitored) Icons.Default.Visibility else Icons.Default.VisibilityOff,
                             contentDescription = stringResource(
@@ -291,29 +302,11 @@ fun LiveDeviceCard(
                             else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    IconButton(onClick = onToggleRecord) {
-                        if (isRecording) {
-                            Icon(
-                                imageVector = Icons.Default.StopCircle,
-                                contentDescription = stringResource(R.string.live_cd_stop_recording),
-                                tint = recordingStatusColor
-                            )
-                        } else {
-                            // Classic record button: red dot centered in a ring
-                            Box(
-                                modifier = Modifier
-                                    .size(26.dp)
-                                    .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(12.dp)
-                                        .background(recordingStatusColor, CircleShape)
-                                )
-                            }
-                        }
-                    }
+                    Spacer(modifier = Modifier.width(Spacing.sm))
+                    RecordFab(
+                        isRecording = isRecording,
+                        onToggleRecord = onToggleRecord,
+                    )
                 }
             }
         }
@@ -334,27 +327,12 @@ private fun MonitorStatusPill(status: MonitorStatus) {
         MonitorStatus.DEGRADED -> R.string.live_status_degraded
         MonitorStatus.OFFLINE -> R.string.live_status_offline
     }
-    Surface(
-        shape = MaterialTheme.shapes.extraSmall,
-        color = MaterialTheme.colorScheme.surfaceVariant
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(7.dp)
-                    .background(monitorStatusColor(status), shape = CircleShape)
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = stringResource(labelRes),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
+    StatusChip(
+        label = stringResource(labelRes),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        leadingDotColor = monitorStatusColor(status),
+    )
 }
 
 /**
