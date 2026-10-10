@@ -167,6 +167,18 @@ Legend: `[x]` done · `[~]` partial / needs validation · `[ ]` open · 🔄 on-
       bump material3 + delete the seam, and move `AppTheme`'s root to `MaterialExpressiveTheme` in
       the same commit — the platform pool defaults to the tighter `standard()` scheme, so skipping
       the second step silently re-styles every animation.
+- 🔭 **Re-check the Media3 RTSP NPE on the next media3 upgrade.** `EntryRecorderApp.setupExoPlayerCrashProtection`
+      installs a narrow global `UncaughtExceptionHandler` that swallows only the `ExoPlayer:Playback`-thread
+      `NullPointerException` whose stack names `RtspClient` and forwards everything else — it exists because
+      that defect crashes the process rather than surfacing as a normal `PlaybackException`. On each media3
+      bump, play an RTSP stream on an affected device; once the NPE is fixed upstream, delete the whole
+      handler and its call site — leaving it is a silent process-lifespan guard over unrelated playback crashes.
+      File: `EntryRecorderApp.kt`
+- 🔭 **Return material3 to BOM control when 1.5.0 ships stable.** The expressive APIs the theme uses are not on
+      the stable 1.4.0 the Compose BOM selects, so `gradle/libs.versions.toml` carries an explicit
+      `material3Expressive = "1.5.0-beta01"` pin overriding the BOM for `androidx-compose-material3`. When
+      Material3 1.5.0 goes stable, delete the `material3Expressive` version entry and let the BOM pick the
+      artifact version, dropping the pre-release pin. Files: `gradle/libs.versions.toml`
 
 ## Feature
 - [] Notification to other Smartphone when Motion was detected

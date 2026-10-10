@@ -207,3 +207,31 @@ place, and each gets re-checked on every Material upgrade.
 3. Add the vivid color source and check contrast on every screen.
 4. Raise the Playful screens one at a time, within budget. Re-run the checklist after each step.
 5. For View-based screens, bring in expressive through `ComposeView`.
+
+## 9. Accepted deviations from the general Android standards
+
+These choices deliberately depart from the default guidance (separate domain models, modular
+structure, paged lists, DataStore for preferences, encrypted-at-rest credentials, network-scoped
+cleartext). Each was weighed in review and kept, not overlooked; the rationale is the reason it will
+not be "fixed" without a new driver.
+
+- **Room entities double as the UI and domain models — no mapping layer.** The app is a single-module
+  personal tool with one data source. A parallel domain model plus hand-written mappers would be
+  ceremony that hides nothing, so the entities flow straight into the Compose state. Revisit only if a
+  second data source or a shared library forces a stable domain contract.
+- **One Gradle module, not a `core` / `feature-*` split.** Package boundaries (`data`, `domain`, `ui`,
+  `util`) carry the layering. Module boundaries would add build configuration without an isolation or
+  compile-time benefit at this size.
+- **Cleartext HTTP stays permitted across the LAN in `network_security_config.xml`.** The cameras are
+  addressed by IP literal and NSC `domain-config` never matches an IP address, so scoping cleartext to
+  named domains would break every device on the network. Trust is narrowed where it can be: user-added
+  CA anchors are dropped, only system trust roots are accepted. This is a LAN-only exposure by design.
+- **Device credentials live unencrypted in app-private Room.** The data directory is OS-sandboxed to
+  this app and there is no second reader or backup path that consumes it. Encrypting the fields would
+  need a key that itself can only sit in the same private storage, so the added complexity guards
+  against a threat the storage boundary already covers.
+- **The recordings list is not paged.** The retention quota bounds how many rows can accumulate, so the
+  archive cannot grow without limit and Paging would add machinery for a list that stays small.
+- **Settings live in one Room row instead of DataStore.** They are relational alongside devices and
+  recordings and already surface through the same Room `Flow`s; a key-value store would become a second
+  source of truth to keep in sync with the database for no gain.
