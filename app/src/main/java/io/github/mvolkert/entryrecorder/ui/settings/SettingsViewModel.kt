@@ -1,36 +1,43 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
-import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import androidx.annotation.StringRes
 import androidx.core.net.toUri
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
-import io.github.mvolkert.entryrecorder.EntryRecorderApp
+import com.google.gson.Gson
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.backup.AppBackup
+import io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.normalizedForRestore
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
+import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
+import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
-import io.github.mvolkert.entryrecorder.service.MonitorStatusHolder
+import io.github.mvolkert.entryrecorder.di.IoDispatcher
+import io.github.mvolkert.entryrecorder.service.MonitorStatusRegistry
+import io.github.mvolkert.entryrecorder.sip.SipCallManager
 import io.github.mvolkert.entryrecorder.ui.theme.UiModePrefs
 import io.github.mvolkert.entryrecorder.util.ExportFolderAccess
-import io.github.mvolkert.entryrecorder.util.ExportHelper
+import io.github.mvolkert.entryrecorder.util.ExportGateway
 import io.github.mvolkert.entryrecorder.util.SafExportedFile
 import io.github.mvolkert.entryrecorder.util.StorageUsage
 import io.github.mvolkert.entryrecorder.util.thumbnailUsageBytes
 import io.github.mvolkert.entryrecorder.util.thumbnailsDirOf
 import io.github.mvolkert.entryrecorder.worker.RetentionCleanupWorker
+import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -62,14 +69,23 @@ data class SettingsUiState(
     val isLoading: Boolean = true
 )
 
-class SettingsViewModel(application: Application) : AndroidViewModel(application) {
+@HiltViewModel
+class SettingsViewModel @Inject constructor(
+    private val repository: IntercomRepository,
+    private val serverClient: ServerRecordingClient,
+    private val monitorStatusRegistry: MonitorStatusRegistry,
+    private val gson: Gson,
+    @ApplicationContext private val context: Context,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+    // Not private: the create/edit form and the storage screen still do their own probing and folder-name
+    // lookups with these. Phase 4 moves that work behind hoisted state in this ViewModel.
+    val exportGateway: ExportGateway,
+    val snapshotClient: HttpSnapshotClient,
+    val deviceFactory: IntercomDeviceFactory,
+    val sipCallManager: SipCallManager,
+) : ViewModel() {
 
-    private val app = application as EntryRecorderApp
-    private val repository = app.repository
-    private val serverClient = ServerRecordingClient()
     private val tag = "SettingsViewModel"
-
-    private val context: Context get() = getApplication()
 
     private val _events = Channel<SettingsUiEvent>(Channel.BUFFERED)
 
@@ -81,8 +97,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val uiState: StateFlow<SettingsUiState> = combine(
         repository.allDevices,
         repository.settingsFlow,
-        MonitorStatusHolder.eventQualities,
-        MonitorStatusHolder.snapshotQualities
+        monitorStatusRegistry.eventQualities,
+        monitorStatusRegistry.snapshotQualities
     ) { devices, settings, eventQualities, snapshotQualities ->
         SettingsUiState(
             devices = devices,
@@ -103,8 +119,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         probeTick
     ) { folderUri, tick -> folderUri to tick }
         .distinctUntilChanged()
-        .map { (folderUri, _) -> ExportHelper.probeExportFolderAccess(context, folderUri) }
-        .flowOn(Dispatchers.IO)
+        .map { (folderUri, _) -> exportGateway.probeExportFolderAccess(context, folderUri) }
+        .flowOn(ioDispatcher)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ExportFolderAccess.UNKNOWN)
 
     /**
@@ -123,7 +139,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 thumbnailBytes = thumbnailUsageBytes(thumbnailsDirOf(context))
             )
         }
-        .flowOn(Dispatchers.IO)
+        .flowOn(ioDispatcher)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), StorageUsage())
 
     /**
@@ -145,7 +161,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val access = probe.second
             if (folderUri.isBlank() || access != ExportFolderAccess.OK) null
             else runCatching {
-                ExportHelper.listSafExportedFiles(context, folderUri.toUri())
+                exportGateway.listSafExportedFiles(context, folderUri.toUri())
                     .filter(SafExportedFile::isAppCreated)
                     .sumOf { it.sizeBytes }
             }.onFailure {
@@ -153,7 +169,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 Log.w(tag, "Export folder listing for $folderUri failed", it)
             }.getOrNull()
         }
-        .flowOn(Dispatchers.IO)
+        .flowOn(ioDispatcher)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /**
@@ -202,7 +218,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun updateSettings(settings: AppSettingsEntity) {
         // Mirror the mode into the synchronous SharedPreferences store first: MainActivity reads it
         // in attachBaseContext, which runs before Room is even opened on the next cold start.
-        UiModePrefs.setThemeMode(getApplication(), settings.themeMode)
+        UiModePrefs.setThemeMode(context, settings.themeMode)
         viewModelScope.launch {
             repository.updateSettings(settings)
         }
@@ -291,8 +307,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     appSettings = repository.getSettings(),
                     devices = repository.getAllDevicesList()
                 )
-                val json = com.google.gson.Gson().toJson(backup)
-                withContext(Dispatchers.IO) {
+                val json = gson.toJson(backup)
+                withContext(ioDispatcher) {
                     context.contentResolver.openOutputStream(uri)
                         ?.use { it.write(json.toByteArray(Charsets.UTF_8)) }
                         ?: throw IllegalStateException(
@@ -319,20 +335,20 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun restoreBackup(uri: Uri) {
         viewModelScope.launch {
             try {
-                val json = withContext(Dispatchers.IO) {
+                val json = withContext(ioDispatcher) {
                     context.contentResolver.openInputStream(uri)?.use {
                         String(it.readBytes(), Charsets.UTF_8)
                     } ?: throw IllegalStateException(
                         context.getString(R.string.settings_backup_open_read_failed)
                     )
                 }
-                val backup = com.google.gson.Gson().fromJson(json, AppBackup::class.java)
+                val backup = gson.fromJson(json, AppBackup::class.java)
                     ?: throw IllegalStateException(
                         context.getString(R.string.settings_backup_invalid_file)
                     )
 
                 backup.appSettings?.let {
-                    UiModePrefs.setThemeMode(getApplication(), it.themeMode)
+                    UiModePrefs.setThemeMode(context, it.themeMode)
                     repository.updateSettings(it.normalizedForRestore().copy(id = 1))
                 }
                 // Reset serverDeviceId: a backup may have been taken against a different server, so the

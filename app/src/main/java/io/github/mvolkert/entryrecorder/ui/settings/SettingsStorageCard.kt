@@ -34,14 +34,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.ui.adaptive.LocalWindowInfo
 import io.github.mvolkert.entryrecorder.ui.adaptive.WindowInfo
 import io.github.mvolkert.entryrecorder.util.CleanupPolicy
 import io.github.mvolkert.entryrecorder.util.ExportFolderAccess
-import io.github.mvolkert.entryrecorder.util.ExportHelper
 import io.github.mvolkert.entryrecorder.util.StorageUsage
 
 /**
@@ -65,6 +63,7 @@ internal fun SettingsStorageCard(
     internalUsage: StorageUsage,
     externalUsageBytes: Long?,
     exportFolderAccess: ExportFolderAccess,
+    exportFolderName: String,
     onPickExportFolder: () -> Unit,
     onClearExportFolder: () -> Unit,
     onCleanupNow: () -> Unit,
@@ -185,6 +184,7 @@ internal fun SettingsStorageCard(
 
         ExportFolderRow(
             folderUri = settings.exportFolderUri,
+            folderName = exportFolderName,
             access = exportFolderAccess,
             onPick = onPickExportFolder,
             onClear = onClearExportFolder
@@ -390,6 +390,7 @@ private fun StepperControls(
 @Composable
 private fun ExportFolderRow(
     folderUri: String,
+    folderName: String,
     access: ExportFolderAccess,
     onPick: () -> Unit,
     onClear: () -> Unit
@@ -410,7 +411,7 @@ private fun ExportFolderRow(
             Text(
                 text = stringResource(
                     R.string.settings_export_folder_selected,
-                    ExportHelper.safFolderDisplayName(folderUri.toUri())
+                    folderName
                 ),
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.SemiBold,

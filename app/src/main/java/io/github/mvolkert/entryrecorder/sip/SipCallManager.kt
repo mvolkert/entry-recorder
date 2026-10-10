@@ -1,15 +1,17 @@
 package io.github.mvolkert.entryrecorder.sip
 
-import android.app.Application
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
 import android.util.Log
+import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.SipMode
 import java.util.concurrent.atomic.AtomicReference
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -71,9 +73,13 @@ sealed interface SipProbeResult {
     data class MissingFields(val field: SipMissingField) : SipProbeResult
 }
 
-// Holds Application (not an arbitrary Context) so the process-lifetime singleton in the
-// companion never retains an Activity/Service — this is what clears the StaticFieldLeak warning.
-class SipCallManager private constructor(private val app: Application) {
+// The Linphone core lives for the whole process, so it is a graph singleton. Hilt hands out the
+// application context here, which is what keeps this class from ever retaining an Activity or Service —
+// the same reason the hand-rolled companion singleton used to insist on Application.
+@Singleton
+class SipCallManager @Inject constructor(
+    @ApplicationContext private val app: Context,
+) {
 
     private val tag = "SipCallManager"
     private var core: Core? = null
@@ -492,14 +498,5 @@ class SipCallManager private constructor(private val app: Application) {
     companion object {
         /** Registrar port used when the device row carries none; the same default the form starts from. */
         private const val DEFAULT_SIP_PORT = 5060
-
-        @Volatile
-        private var INSTANCE: SipCallManager? = null
-
-        fun getInstance(context: Context): SipCallManager {
-            return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: SipCallManager(context.applicationContext as Application).also { INSTANCE = it }
-            }
-        }
     }
 }

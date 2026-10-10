@@ -15,6 +15,8 @@ import androidx.core.net.toUri
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeLabelRes
+import javax.inject.Inject
+import javax.inject.Singleton
 import java.io.File
 import java.io.FileInputStream
 
@@ -39,8 +41,19 @@ enum class ExportFolderAccess {
     MISSING,
 }
 
-object ExportHelper {
-    private const val TAG = "ExportHelper"
+/**
+ * Every way a finished clip can leave the app: the system share sheet, the public Movies folder, and the
+ * user's own SAF export folder.
+ *
+ * Stateless, so it is a graph singleton — but each function still takes the `Context` it acts as, because
+ * a share sheet has to be started from the Activity that asked for it (this one adds no NEW_TASK flag) and
+ * a persistable URI permission belongs to the process that was granted it, not to the application.
+ */
+@Singleton
+class ExportGateway @Inject constructor() {
+    private companion object {
+        private const val TAG = "ExportGateway"
+    }
 
     /**
      * Derives the share/storage MIME type from the actual file extension: MKV stays correctly
@@ -82,7 +95,7 @@ object ExportHelper {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             })
         } catch (e: Exception) {
-            Log.e("ExportHelper", "Failed to share files", e)
+            Log.e(TAG, "Failed to share files", e)
             onMessage(context.getString(R.string.export_share_failed))
         }
     }

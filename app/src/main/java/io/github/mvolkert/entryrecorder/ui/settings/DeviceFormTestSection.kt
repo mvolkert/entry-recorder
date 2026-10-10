@@ -44,7 +44,11 @@ import kotlinx.coroutines.launch
  * never reconfigures the registration the monitor service is holding.
  */
 @Composable
-internal fun DeviceFormTestSection(form: DeviceFormState, sipCallManager: SipCallManager) {
+internal fun DeviceFormTestSection(
+    form: DeviceFormState,
+    sipCallManager: SipCallManager,
+    deviceFactory: IntercomDeviceFactory,
+) {
     val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     var isTestingConnection by remember { mutableStateOf(false) }
@@ -61,7 +65,7 @@ internal fun DeviceFormTestSection(form: DeviceFormState, sipCallManager: SipCal
             isTestingConnection = true
             testResult = null
             scope.launch {
-                val testDev = IntercomDeviceFactory.createDevice(candidate)
+                val testDev = deviceFactory.createDevice(candidate)
                 val res = testDev.testConnection()
                 isTestingConnection = false
                 isTestSuccess = res.isSuccess

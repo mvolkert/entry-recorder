@@ -74,6 +74,8 @@ import kotlin.time.Duration.Companion.milliseconds
 @Composable
 fun LiveStreamPlayer(
     device: DeviceEntity,
+    mjpegReader: MjpegStreamReader,
+    snapshotClient: HttpSnapshotClient,
     modifier: Modifier = Modifier,
     useController: Boolean = false,
     autoPlay: Boolean = true,
@@ -158,7 +160,6 @@ fun LiveStreamPlayer(
         val serverUrl = serverLiveUrl
         if (serverUrl != null && !serverFailed) {
             exoPlayer.stop()
-            val mjpegReader = MjpegStreamReader()
             lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 try {
                     mjpegReader.streamBitmapsFromUrl(serverUrl, device.name, serverApiKey)
@@ -254,7 +255,6 @@ fun LiveStreamPlayer(
             StreamProtocol.MJPEG_STREAM -> {
                 // Ensure ExoPlayer is stopped when in MJPEG mode
                 exoPlayer.stop()
-                val mjpegReader = MjpegStreamReader()
                 // Same gate as the snapshot branch: a long-lived multipart response keeps the radio and
                 // the decoder busy after the screen is stopped, so cancelling on STOP ends the call and
                 // a returning user reconnects.
@@ -293,7 +293,7 @@ fun LiveStreamPlayer(
                         var nextFrameAt = System.currentTimeMillis()
                         while (isActive) {
                             nextFrameAt += frameIntervalMs
-                            val bmp = HttpSnapshotClient.fetchSnapshotBitmap(device)
+                            val bmp = snapshotClient.fetchSnapshotBitmap(device)
                             if (bmp != null) {
                                 latestBitmap = bmp
                                 reportRatio(bmp.width.toFloat() / bmp.height.toFloat())

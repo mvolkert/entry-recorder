@@ -25,12 +25,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.ui.LocalAppSnackbar
 import io.github.mvolkert.entryrecorder.ui.adaptive.appContentMaxWidth
@@ -55,7 +53,6 @@ fun DeviceEditScreen(
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
 ) {
-    val context = LocalContext.current
     val resources = LocalResources.current
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -68,9 +65,9 @@ fun DeviceEditScreen(
         DeviceFormState(initial, resources.getString(R.string.device_default_name))
     }
 
-    // The app-scoped SIP singleton, reached the same way the call screen does. Touching it here only
-    // resolves the lazy holder; no Linphone core is created until monitoring or a probe starts one.
-    val sipCallManager = (context.applicationContext as EntryRecorderApp).sipCallManager
+    // The app-scoped SIP manager, handed over by the ViewModel. Touching it here only resolves the
+    // holder; no Linphone core is created until monitoring or a probe starts one.
+    val sipCallManager = viewModel.sipCallManager
 
     val snackbarHost = LocalAppSnackbar.current
     val scope = rememberCoroutineScope()
@@ -136,7 +133,7 @@ fun DeviceEditScreen(
             ) {
                 SettingsCard { DeviceFormNetworkSection(form) }
 
-                SettingsCard { DeviceFormStreamSection(form) }
+                SettingsCard { DeviceFormStreamSection(form, viewModel.snapshotClient) }
 
                 SettingsCard { DeviceFormSipSection(form) }
 
@@ -146,7 +143,7 @@ fun DeviceEditScreen(
 
                 SettingsCard { DeviceFormDurationsSection(form) }
 
-                SettingsCard { DeviceFormTestSection(form, sipCallManager) }
+                SettingsCard { DeviceFormTestSection(form, sipCallManager, viewModel.deviceFactory) }
 
                 // Bottom breathing room so the last field clears the navigation gesture area.
                 Text(

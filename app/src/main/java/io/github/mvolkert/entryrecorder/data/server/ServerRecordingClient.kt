@@ -6,9 +6,14 @@ import com.google.gson.annotations.SerializedName
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
+import io.github.mvolkert.entryrecorder.di.ControlClient
+import io.github.mvolkert.entryrecorder.di.IoDispatcher
+import io.github.mvolkert.entryrecorder.di.StreamClient
 import io.github.mvolkert.entryrecorder.data.network.withCancellableResponse
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -16,7 +21,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 data class StartServerRecordingPayload(
     @SerializedName("device_id") val deviceId: Long,
@@ -119,13 +123,16 @@ data class ServerRecordingDto(
     @SerializedName("thumbnail_url") val thumbnailUrl: String?
 )
 
-class ServerRecordingClient(
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .writeTimeout(5, TimeUnit.SECONDS)
-        .build(),
-    private val gson: Gson = Gson()
+@Singleton
+class ServerRecordingClient @Inject constructor(
+    @ControlClient private val client: OkHttpClient,
+    /**
+     * Without the control-plane read timeout: a video download can legitimately stream for longer than
+     * any probe, so it must not be cut off by the 10 s budget the status calls use.
+     */
+    @StreamClient private val downloadClient: OkHttpClient,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+    private val gson: Gson,
 ) {
     private val tag = "ServerRecordingClient"
 
@@ -135,19 +142,11 @@ class ServerRecordingClient(
 
     private val emptyBody = ByteArray(0).toRequestBody(null)
 
-    /**
-     * A copy of [client] without the read timeout: a video download can legitimately stream for longer
-     * than any control-plane call, so it must not be cut off by the 10s probe/read budget.
-     */
-    private val downloadClient by lazy {
-        client.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build()
-    }
-
     /** Adds the API key header when one is configured; every endpoint requires it since auth became mandatory. */
     private fun Request.Builder.withApiKey(apiKey: String?): Request.Builder =
         if (!apiKey.isNullOrBlank()) addHeader("X-API-Key", apiKey) else this
 
-    suspend fun testConnection(serverUrl: String, apiKey: String? = null): Result<Boolean> = withContext(Dispatchers.IO) {
+    suspend fun testConnection(serverUrl: String, apiKey: String? = null): Result<Boolean> = withContext(ioDispatcher) {
         try {
             val base = normalizeUrl(serverUrl)
             val requestBuilder = Request.Builder()
@@ -187,7 +186,7 @@ class ServerRecordingClient(
         deviceName: String,
         eventType: EventType,
         durationSeconds: Int
-    ): Result<ServerStartResponse> = withContext(Dispatchers.IO) {
+    ): Result<ServerStartResponse> = withContext(ioDispatcher) {
         try {
             val base = normalizeUrl(serverUrl)
             val payload = StartServerRecordingPayload(
@@ -262,7 +261,7 @@ class ServerRecordingClient(
         serverUrl: String,
         apiKey: String?,
         device: DeviceEntity
-    ): Result<Long> = withContext(Dispatchers.IO) {
+    ): Result<Long> = withContext(ioDispatcher) {
         try {
             val base = normalizeUrl(serverUrl)
             val body = gson.toJson(serverDevicePayload(device)).toRequestBody("application/json".toMediaType())
@@ -294,7 +293,7 @@ class ServerRecordingClient(
         apiKey: String?,
         serverDeviceId: Long,
         device: DeviceEntity
-    ): Result<Unit> = withContext(Dispatchers.IO) {
+    ): Result<Unit> = withContext(ioDispatcher) {
         try {
             val base = normalizeUrl(serverUrl)
             val body = gson.toJson(serverDevicePayload(device)).toRequestBody("application/json".toMediaType())
@@ -327,7 +326,7 @@ class ServerRecordingClient(
         serverUrl: String,
         apiKey: String?,
         serverDeviceId: Long
-    ): Result<Unit> = withContext(Dispatchers.IO) {
+    ): Result<Unit> = withContext(ioDispatcher) {
         try {
             val base = normalizeUrl(serverUrl)
             val request = Request.Builder()
@@ -356,7 +355,7 @@ class ServerRecordingClient(
         serverUrl: String,
         apiKey: String?,
         deviceId: Long
-    ): Result<ServerActiveRecording?> = withContext(Dispatchers.IO) {
+    ): Result<ServerActiveRecording?> = withContext(ioDispatcher) {
         try {
             val base = normalizeUrl(serverUrl)
             val request = Request.Builder()
@@ -385,7 +384,7 @@ class ServerRecordingClient(
         serverUrl: String,
         apiKey: String?,
         deviceId: Long
-    ): Result<ServerStopResponse> = withContext(Dispatchers.IO) {
+    ): Result<ServerStopResponse> = withContext(ioDispatcher) {
         try {
             val base = normalizeUrl(serverUrl)
             val json = "{\"device_id\":$deviceId}"
@@ -423,7 +422,7 @@ class ServerRecordingClient(
         apiKey: String?,
         deviceId: Long? = null,
         limit: Int = 100
-    ): Result<List<ServerRecordingDto>> = withContext(Dispatchers.IO) {
+    ): Result<List<ServerRecordingDto>> = withContext(ioDispatcher) {
         try {
             val base = normalizeUrl(serverUrl)
             val url = buildString {
@@ -461,7 +460,7 @@ class ServerRecordingClient(
         apiKey: String?,
         recordingId: Long,
         isProtected: Boolean
-    ): Result<Unit> = withContext(Dispatchers.IO) {
+    ): Result<Unit> = withContext(ioDispatcher) {
         try {
             val base = normalizeUrl(serverUrl)
             val request = Request.Builder()
@@ -490,7 +489,7 @@ class ServerRecordingClient(
         serverUrl: String,
         apiKey: String?,
         recordingId: Long
-    ): Result<Unit> = withContext(Dispatchers.IO) {
+    ): Result<Unit> = withContext(ioDispatcher) {
         try {
             val base = normalizeUrl(serverUrl)
             val request = Request.Builder()
@@ -526,7 +525,7 @@ class ServerRecordingClient(
         targetDir: File,
         baseName: String,
         onProgress: (percent: Int) -> Unit = {}
-    ): Result<File> = withContext(Dispatchers.IO) {
+    ): Result<File> = withContext(ioDispatcher) {
         try {
             val request = Request.Builder().url(absoluteUrl).get().build()
             downloadClient.withCancellableResponse(request) { response ->

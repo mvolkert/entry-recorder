@@ -50,14 +50,16 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
+import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
+import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
 import io.github.mvolkert.entryrecorder.ui.components.CelebrationCheck
 import io.github.mvolkert.entryrecorder.ui.components.ExpressiveIconBadge
 import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
@@ -77,7 +79,7 @@ import io.github.mvolkert.entryrecorder.ui.theme.statusWarnColor
 @Composable
 fun LiveCamerasScreen(
     modifier: Modifier = Modifier,
-    viewModel: LiveViewModel = viewModel(),
+    viewModel: LiveViewModel = hiltViewModel(),
     /**
      * False when this screen is composed but off-screen in the tab pager: the cards then hold their
      * last frame instead of keeping RTSP/MJPEG/snapshot traffic alive for a tab nobody is watching.
@@ -152,6 +154,8 @@ fun LiveCamerasScreen(
                         LiveDeviceCard(
                             modifier = Modifier.animateItem(),
                             device = device,
+                            mjpegReader = viewModel.mjpegReader,
+                            snapshotClient = viewModel.snapshotClient,
                             active = active,
                             isRecording = isRecording,
                             isMonitored = device.isEnabled,
@@ -178,6 +182,8 @@ fun LiveCamerasScreen(
 @Composable
 fun LiveDeviceCard(
     device: DeviceEntity,
+    mjpegReader: MjpegStreamReader,
+    snapshotClient: HttpSnapshotClient,
     active: Boolean,
     isRecording: Boolean,
     isMonitored: Boolean,
@@ -270,6 +276,8 @@ fun LiveDeviceCard(
             ) {
                 LiveStreamPlayer(
                     device = device,
+                    mjpegReader = mjpegReader,
+                    snapshotClient = snapshotClient,
                     modifier = Modifier.fillMaxSize(),
                     useController = false,
                     autoPlay = active,

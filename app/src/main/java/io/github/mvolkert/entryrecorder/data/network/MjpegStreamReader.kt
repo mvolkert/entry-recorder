@@ -4,6 +4,10 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.di.ControlClient
+import io.github.mvolkert.entryrecorder.di.IoDispatcher
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -17,13 +21,11 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 
-class MjpegStreamReader(
-    private val httpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .build()
+@Singleton
+class MjpegStreamReader @Inject constructor(
+    @ControlClient private val httpClient: OkHttpClient,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) {
     private val tag = "MjpegStreamReader"
 
@@ -101,7 +103,7 @@ class MjpegStreamReader(
             // the only trace of a stream that died on the socket instead of ending at the camera's pace.
             response?.let { closeQuietly(it, request) }
         }
-    }.flowOn(Dispatchers.IO)
+    }.flowOn(ioDispatcher)
 
     /**
      * Reads continuous MJPEG stream and yields raw JPEG byte chunks (ideal for direct disk muxing).
@@ -135,7 +137,7 @@ class MjpegStreamReader(
         } finally {
             response?.let { closeQuietly(it, request) }
         }
-    }.flowOn(Dispatchers.IO)
+    }.flowOn(ioDispatcher)
 
     /**
      * Reads a continuous MJPEG multipart stream served at an arbitrary [url] (the Python server's
@@ -187,7 +189,7 @@ class MjpegStreamReader(
         } finally {
             response?.let { closeQuietly(it, request) }
         }
-    }.flowOn(Dispatchers.IO)
+    }.flowOn(ioDispatcher)
 
     /**
      * Fails when the response is not an MJPEG multipart/image stream.
@@ -226,7 +228,7 @@ class MjpegStreamReader(
             // Checked before every read: the read itself cannot be interrupted from this coroutine, but a
             // cancelled collector must at least stop asking for the next chunk.
             currentCoroutineContext().ensureActive()
-            val read = withContext(Dispatchers.IO) {
+            val read = withContext(ioDispatcher) {
                 inputStream.read(chunk)
             }
             if (read == -1) break

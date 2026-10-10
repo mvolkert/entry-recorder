@@ -1,38 +1,51 @@
 package io.github.mvolkert.entryrecorder
 
 import android.app.Application
-import androidx.work.*
-import io.github.mvolkert.entryrecorder.data.local.AppDatabase
+import android.util.Log
+import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.Constraints
+import androidx.work.Configuration
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import dagger.hilt.android.HiltAndroidApp
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
+import io.github.mvolkert.entryrecorder.di.ApplicationScope
 import io.github.mvolkert.entryrecorder.notification.NotificationHelper
 import io.github.mvolkert.entryrecorder.service.IntercomMonitorService
-import io.github.mvolkert.entryrecorder.sip.SipCallManager
-import io.github.mvolkert.entryrecorder.video.RtspStreamRecorder
 import io.github.mvolkert.entryrecorder.worker.RetentionCleanupWorker
-import android.util.Log
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
+import javax.inject.Inject
 
-class EntryRecorderApp : Application() {
+/**
+ * Application entry point. Everything the app used to hand-construct here — the database, the repository,
+ * the recorder, the SIP manager — now comes from the Hilt graph in `di/AppModule.kt`; what is left is the
+ * work only an Application can do: process-wide setup and the observer that keeps the monitor service
+ * aligned with the enabled-camera set.
+ */
+@HiltAndroidApp
+class EntryRecorderApp : Application(), Configuration.Provider {
 
-    val database by lazy { AppDatabase.getDatabase(this) }
-    val repository by lazy {
-        IntercomRepository(
-            deviceDao = database.deviceDao(),
-            recordingDao = database.recordingDao(),
-            appSettingsDao = database.appSettingsDao(),
-            activeServerRecordingDao = database.activeServerRecordingDao()
-        )
-    }
-    val recorder by lazy { RtspStreamRecorder(this, repository) }
-    val sipCallManager by lazy { SipCallManager.getInstance(this) }
+    @Inject
+    lateinit var workerFactory: HiltWorkerFactory
+
+    @Inject
+    lateinit var repository: IntercomRepository
 
     // Lives for the whole process; used only to react to the enabled-camera set and start/stop the
     // monitoring service. Cancelling it would stop the service, so it is deliberately never cancelled.
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Inject
+    @ApplicationScope
+    lateinit var appScope: CoroutineScope
+
+    /**
+     * WorkManager is initialised on demand (its own startup initializer is removed in the manifest), so
+     * this is what gives it a factory able to construct the `@HiltWorker` classes.
+     */
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
 
     override fun onCreate() {
         super.onCreate()

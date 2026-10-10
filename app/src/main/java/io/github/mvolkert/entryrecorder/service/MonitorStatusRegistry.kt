@@ -2,6 +2,8 @@ package io.github.mvolkert.entryrecorder.service
 
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,7 +21,8 @@ import kotlinx.coroutines.flow.update
  * device's own event stream (doorbell / camera motion / noise) versus the snapshot path (live view,
  * recording, in-app motion analysis).
  */
-object MonitorStatusHolder {
+@Singleton
+class MonitorStatusRegistry @Inject constructor() {
 
     private val _statuses = MutableStateFlow<Map<Long, MonitorStatus>>(emptyMap())
     val statuses: StateFlow<Map<Long, MonitorStatus>> = _statuses.asStateFlow()

@@ -7,7 +7,7 @@ import io.github.mvolkert.entryrecorder.domain.device.IntercomDevice
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
@@ -18,12 +18,13 @@ import java.net.Socket
  * Allows extending EntryRecorder to any standard IP camera or video doorbell.
  */
 class GenericRtspDevice(
-    override val deviceEntity: DeviceEntity
+    override val deviceEntity: DeviceEntity,
+    private val ioDispatcher: CoroutineDispatcher,
 ) : IntercomDevice {
 
     private val tag = "GenericRtsp_${deviceEntity.id}"
 
-    override suspend fun testConnection(): Result<Boolean> = withContext(Dispatchers.IO) {
+    override suspend fun testConnection(): Result<Boolean> = withContext(ioDispatcher) {
         try {
             // Test RTSP socket connectivity. A plain socket connect cannot be interrupted from another
             // thread, so the only way to honour a cancelled test is to refuse to start one.

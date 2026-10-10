@@ -26,10 +26,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.mvolkert.entryrecorder.EntryRecorderApp
+import dagger.hilt.android.AndroidEntryPoint
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
+import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
+import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
+import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.sip.CallUiState
+import io.github.mvolkert.entryrecorder.sip.SipCallManager
 import io.github.mvolkert.entryrecorder.sip.SipCallTiming
 import io.github.mvolkert.entryrecorder.sip.SipSessionState
 import io.github.mvolkert.entryrecorder.ui.components.LiveStreamPlayer
@@ -40,16 +44,22 @@ import io.github.mvolkert.entryrecorder.ui.theme.AppTheme
 import io.github.mvolkert.entryrecorder.ui.theme.ThemeMode
 import io.github.mvolkert.entryrecorder.ui.theme.VideoScrim
 import io.github.mvolkert.entryrecorder.ui.theme.onScrimColor
+import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlin.time.Duration.Companion.milliseconds
 
+@AndroidEntryPoint
 class IncomingCallActivity : ComponentActivity() {
 
-    private val app by lazy { application as EntryRecorderApp }
-    private val repository by lazy { app.repository }
-    private val sipManager by lazy { app.sipCallManager }
+    @Inject lateinit var repository: IntercomRepository
+    @Inject lateinit var sipManager: SipCallManager
+
+    // The feed on this screen is the same stream the Live cards use, so it goes through the shared
+    // clients instead of a second set of sockets with their own timeouts.
+    @Inject lateinit var mjpegReader: MjpegStreamReader
+    @Inject lateinit var snapshotClient: HttpSnapshotClient
 
     /**
      * What this screen is currently showing. The manifest declares `launchMode="singleTask"`, so a second
@@ -133,6 +143,8 @@ class IncomingCallActivity : ComponentActivity() {
                     eventType = screen.eventType,
                     caller = screen.caller,
                     sipState = sipState,
+                    mjpegReader = mjpegReader,
+                    snapshotClient = snapshotClient,
                     onAcceptCall = {
                         sipManager.acceptCall()
                     },
@@ -191,6 +203,8 @@ fun IncomingCallContent(
     eventType: EventType,
     caller: String?,
     sipState: SipSessionState,
+    mjpegReader: MjpegStreamReader,
+    snapshotClient: HttpSnapshotClient,
     onAcceptCall: () -> Unit,
     onDeclineCall: () -> Unit,
     onToggleMute: () -> Unit,
@@ -206,6 +220,8 @@ fun IncomingCallContent(
         if (device != null) {
             LiveStreamPlayer(
                 device = device,
+                mjpegReader = mjpegReader,
+                snapshotClient = snapshotClient,
                 modifier = mod,
                 useController = false,
             )

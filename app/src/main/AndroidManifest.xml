@@ -114,6 +114,20 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- WorkManager is started by Hilt instead of its own initializer: @HiltWorker needs the
+             Configuration.Provider that EntryRecorderApp supplies, and the default initializer would
+             instantiate workers through reflection before that factory existed, crashing on first use. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
     </application>
 
 </manifest>

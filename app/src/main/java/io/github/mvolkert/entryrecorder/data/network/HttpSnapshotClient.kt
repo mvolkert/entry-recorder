@@ -5,8 +5,12 @@ import android.graphics.BitmapFactory
 import android.util.Log
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
+import io.github.mvolkert.entryrecorder.di.IoDispatcher
+import io.github.mvolkert.entryrecorder.di.SnapshotClient
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.Authenticator
@@ -16,7 +20,6 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.Route
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -27,26 +30,33 @@ import kotlin.time.Duration.Companion.milliseconds
  * [snapshotQuality] turn "the endpoint is not answering" into data a caller can act on, instead of
  * the old single log line per failed poll that nobody watched.
  */
-object HttpSnapshotClient {
-    private const val TAG = "HttpSnapshotClient"
+@Singleton
+class HttpSnapshotClient @Inject constructor(
+    /** The tight-timeout profile from [io.github.mvolkert.entryrecorder.di.AppModule]; this class only adds auth. */
+    @SnapshotClient snapshotClient: OkHttpClient,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+) {
+    private companion object {
+        private const val TAG = "HttpSnapshotClient"
+
+        /** Polls that have to fail back-to-back before the path is worth calling degraded. */
+        private const val DEGRADED_AFTER_POLLS = 3
+
+        /** Back-to-back failed polls after which the endpoint counts as offline rather than flaky. */
+        private const val OFFLINE_AFTER_POLLS = 10
+
+        /** A rate estimate older than this is reported as "not measured", not as the last good number. */
+        private const val RATE_STALE_MS = 5_000L
+
+        /** How long the device form's "Get FPS" probe runs, to let the encoder reach and hold its ceiling. */
+        private const val PROBE_DURATION_MS = 8_000L
+
+        /** Dead-endpoint guard: this many back-to-back failures abort the probe instead of hammering. */
+        private const val PROBE_MAX_FAILURES = 3
+    }
 
     // Only the error document shapes are rejected, so cameras serving octet-stream keep working.
     private val ERROR_BODY_SUBTYPES = setOf("json", "xml", "html", "plain")
-
-    /** Polls that have to fail back-to-back before the path is worth calling degraded. */
-    private const val DEGRADED_AFTER_POLLS = 3
-
-    /** Back-to-back failed polls after which the endpoint counts as offline rather than flaky. */
-    private const val OFFLINE_AFTER_POLLS = 10
-
-    /** A rate estimate older than this is reported as "not measured", not as the last good number. */
-    private const val RATE_STALE_MS = 5_000L
-
-    /** How long the device form's "Get FPS" probe runs, to let the encoder reach and hold its ceiling. */
-    private const val PROBE_DURATION_MS = 8_000L
-
-    /** Dead-endpoint guard: this many back-to-back failures abort the probe instead of hammering. */
-    private const val PROBE_MAX_FAILURES = 3
 
     /** Carries the per-device credentials so the shared [httpClient] can answer a Digest challenge. */
     private class SnapshotAuth(val deviceId: Long, val username: String, val password: String)
@@ -72,13 +82,7 @@ object HttpSnapshotClient {
     // through the Authenticator, which stores the fresh challenge for the next poll).
     private val digestChallenges = ConcurrentHashMap<Long, String>()
 
-    private val httpClient = OkHttpClient.Builder()
-        // A single lost request or ACK costs one TCP RTO (~0.44 s measured on this LAN); three in a row
-        // exceed the old 4 s window and silently drop a frame slot. The tight call timeout plus one
-        // quick retry in fetchSnapshotBytes keeps a short RTO chain from eating the whole slot.
-        .connectTimeout(2, TimeUnit.SECONDS)
-        .readTimeout(2, TimeUnit.SECONDS)
-        .callTimeout(3, TimeUnit.SECONDS)
+    private val httpClient = snapshotClient.newBuilder()
         // The preemptive Basic header covers Basic-only endpoints without a round trip; a Digest
         // endpoint answers that with a 401 challenge, which this authenticator resolves per device.
         .authenticator(object : Authenticator {
@@ -187,7 +191,7 @@ object HttpSnapshotClient {
      * answer a wrong or under-parameterised path with HTTP 200 plus a JSON error document, which would
      * otherwise be muxed into the recording (or silently starve motion analysis) as a "frame".
      */
-    suspend fun fetchSnapshotBytes(device: DeviceEntity): ByteArray? = withContext(Dispatchers.IO) {
+    suspend fun fetchSnapshotBytes(device: DeviceEntity): ByteArray? = withContext(ioDispatcher) {
         var outcome = attemptFetch(device, attempt = 1)
         if (outcome is FetchOutcome.Retryable) {
             delay(150.milliseconds)
@@ -212,7 +216,7 @@ object HttpSnapshotClient {
     }
 
     private suspend fun attemptFetch(device: DeviceEntity, attempt: Int): FetchOutcome =
-        withContext(Dispatchers.IO) {
+        withContext(ioDispatcher) {
             val snapshotUrl = device.snapshotUrl
             try {
                 val baseRequest = Request.Builder().url(snapshotUrl)
@@ -282,7 +286,7 @@ object HttpSnapshotClient {
     /**
      * Fetches snapshot and decodes it directly into a Bitmap.
      */
-    suspend fun fetchSnapshotBitmap(device: DeviceEntity): Bitmap? = withContext(Dispatchers.IO) {
+    suspend fun fetchSnapshotBitmap(device: DeviceEntity): Bitmap? = withContext(ioDispatcher) {
         val bytes = fetchSnapshotBytes(device) ?: return@withContext null
         try {
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size)

@@ -25,6 +25,8 @@ import kotlin.time.Duration.Companion.milliseconds
 class OnDeviceMotionAnalyzer(
     val deviceEntity: DeviceEntity,
     private val listener: IntercomEventListener,
+    private val snapshotClient: HttpSnapshotClient,
+    private val ioDispatcher: CoroutineDispatcher,
     // While a *local* recording is active the recorder's capture loop on this phone polls the same
     // snapshot endpoint, so the analyzer backs off to a coarse interval instead of competing for a
     // serial device. Server-side recordings must NOT report true here: the phone is not the poller
@@ -33,7 +35,7 @@ class OnDeviceMotionAnalyzer(
     private val isRecording: () -> Boolean = { false }
 ) {
     private val tag = "OnDeviceMotionAnalyzer"
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val scope = CoroutineScope(ioDispatcher + SupervisorJob())
     private var job: Job? = null
 
     private var previousFrame: IntArray? = null
@@ -72,7 +74,7 @@ class OnDeviceMotionAnalyzer(
     fun start() {
         if (job?.isActive == true) return
         resetState()
-        reportedQuality = HttpSnapshotClient.snapshotQuality(deviceEntity.id)
+        reportedQuality = snapshotClient.snapshotQuality(deviceEntity.id)
         lastReportAtMs = System.currentTimeMillis()
         Log.i(tag, "Analyzing ${deviceEntity.name} at ${deviceEntity.snapshotUrl}")
         job = scope.launch { runLoop() }
@@ -132,10 +134,10 @@ class OnDeviceMotionAnalyzer(
      * that stopped serving frames visible in the UI instead of only in logcat.
      */
     private fun reportConnectionEdge() {
-        val quality = HttpSnapshotClient.snapshotQuality(deviceEntity.id)
+        val quality = snapshotClient.snapshotQuality(deviceEntity.id)
         if (quality == reportedQuality) return
         reportedQuality = quality
-        val failures = HttpSnapshotClient.consecutiveFailures(deviceEntity.id)
+        val failures = snapshotClient.consecutiveFailures(deviceEntity.id)
         val message = if (quality == ConnectionQuality.ONLINE)
             "Snapshot frames recovered after $failures missed polls"
         else "Snapshot endpoint delivered no frame for $failures polls in a row"
@@ -153,7 +155,7 @@ class OnDeviceMotionAnalyzer(
 
         // Measured versus configured rate: the endpoint's serial ceiling means the configured value is
         // a wish, not a guarantee, and "no continuous observation" has to stop being a silent lie.
-        val achievedFps = HttpSnapshotClient.achievedFps(deviceEntity.id)
+        val achievedFps = snapshotClient.achievedFps(deviceEntity.id)
 
         if (pollsSinceReport > 0 && framesSinceReport == 0) {
             Log.w(
@@ -215,7 +217,7 @@ class OnDeviceMotionAnalyzer(
     }
 
     private suspend fun fetchGrayscaleFrame(): IntArray? {
-        val bytes = HttpSnapshotClient.fetchSnapshotBytes(deviceEntity) ?: return null
+        val bytes = snapshotClient.fetchSnapshotBytes(deviceEntity) ?: return null
         val decoded = decodeDownscaled(bytes) ?: return null
         // The ring exists to prepend the approach frames of a *new* trigger. While a local recording is
         // running those frames are already going to disk, so holding six more full-res JPEGs per poll only

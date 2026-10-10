@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
+import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.mvolkert.entryrecorder.data.local.entity.ActiveServerRecordingEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
@@ -17,12 +18,15 @@ import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
+import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
-import io.github.mvolkert.entryrecorder.util.ExportHelper
+import io.github.mvolkert.entryrecorder.util.ExportGateway
 import io.github.mvolkert.entryrecorder.util.recordingsDirOf
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
@@ -71,13 +75,18 @@ sealed interface RecorderEvent {
 }
 
 @OptIn(UnstableApi::class)
-class RtspStreamRecorder(
-    private val context: Context,
+@Singleton
+class RtspStreamRecorder @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val repository: IntercomRepository,
-    private val serverClient: ServerRecordingClient = ServerRecordingClient()
+    private val serverClient: ServerRecordingClient,
+    private val snapshotClient: HttpSnapshotClient,
+    private val mjpegReader: MjpegStreamReader,
+    private val exportGateway: ExportGateway,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) {
     private val tag = "RtspStreamRecorder"
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val scope = CoroutineScope(ioDispatcher + SupervisorJob())
     private val activeRecordings = ConcurrentHashMap<Long, ActiveRecordingJob>()
     // Server-side recordings remember their trigger type too, so a delayed post-record stop from one
     // event type cannot terminate the recording another event type started (see stopRecording).
@@ -536,7 +545,7 @@ class RtspStreamRecorder(
         firstFrameRef: AtomicReference<ByteArray?>,
         baselineMs: Long,
         preRoll: List<PreRollFrame>
-    ) = withContext(Dispatchers.IO) {
+    ) = withContext(ioDispatcher) {
         val fps = device.effectiveSnapshotFps
 
         MkvStreamMuxer(outputFile).use { muxer ->
@@ -556,7 +565,6 @@ class RtspStreamRecorder(
             }
 
             if (device.streamProtocol == StreamProtocol.MJPEG_STREAM) {
-                val mjpegReader = MjpegStreamReader()
                 try {
                     mjpegReader.streamRawJpeg(device).collect { jpegBytes ->
                         if (!isActive || System.currentTimeMillis() >= deadlineMs.get()) return@collect
@@ -577,19 +585,19 @@ class RtspStreamRecorder(
             var nextFrameAt = System.currentTimeMillis()
             // Edge-triggered health: one announcement per state change instead of one per dropped frame,
             // so a recording that never gets a frame is not confused with a short quiet one.
-            var reportedQuality = HttpSnapshotClient.snapshotQuality(device.id)
+            var reportedQuality = snapshotClient.snapshotQuality(device.id)
             var framesWritten = 0
             while (isActive && System.currentTimeMillis() < deadlineMs.get()) {
                 nextFrameAt += frameIntervalMs
-                val frameBytes = HttpSnapshotClient.fetchSnapshotBytes(device)
+                val frameBytes = snapshotClient.fetchSnapshotBytes(device)
                 if (frameBytes != null && frameBytes.isNotEmpty()) {
                     handleLiveFrame(frameBytes, System.currentTimeMillis())
                     framesWritten++
                 }
-                val quality = HttpSnapshotClient.snapshotQuality(device.id)
+                val quality = snapshotClient.snapshotQuality(device.id)
                 if (quality != reportedQuality) {
                     reportedQuality = quality
-                    val failures = HttpSnapshotClient.consecutiveFailures(device.id)
+                    val failures = snapshotClient.consecutiveFailures(device.id)
                     Log.w(tag, "Snapshot endpoint for ${device.name} is $quality ($failures polls in a row without a frame)")
                     _events.trySend(
                         RecorderEvent.Connection(
@@ -659,7 +667,7 @@ class RtspStreamRecorder(
             val settings = repository.getSettings()
             if (settings.autoExportOnFinalize && settings.exportFolderUri.isNotBlank()) {
                 val mirrored = try {
-                    ExportHelper.saveFileToSafFolder(
+                    exportGateway.saveFileToSafFolder(
                         context, settings.exportFolderUri.toUri(), outputFile, outputFile.name
                     )
                 } catch (e: Exception) {

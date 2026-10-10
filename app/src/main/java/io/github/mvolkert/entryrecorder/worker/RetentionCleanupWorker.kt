@@ -3,15 +3,18 @@ package io.github.mvolkert.entryrecorder.worker
 import android.content.Context
 import android.util.Log
 import androidx.core.net.toUri
+import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import io.github.mvolkert.entryrecorder.EntryRecorderApp
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedInject
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.data.repository.RecordingDeleteResult
+import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.util.CleanupPlan
 import io.github.mvolkert.entryrecorder.util.ExportFolderAccess
-import io.github.mvolkert.entryrecorder.util.ExportHelper
+import io.github.mvolkert.entryrecorder.util.ExportGateway
 import io.github.mvolkert.entryrecorder.util.InternalCandidate
 import io.github.mvolkert.entryrecorder.util.SafExportedFile
 import io.github.mvolkert.entryrecorder.util.StorageUsage
@@ -19,7 +22,7 @@ import io.github.mvolkert.entryrecorder.util.recordingsDirOf
 import io.github.mvolkert.entryrecorder.util.thumbnailUsageBytes
 import io.github.mvolkert.entryrecorder.util.thumbnailsDirOf
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -29,17 +32,18 @@ import java.io.File
  * can no longer reach never stops the phone's own storage from being cleaned — and never makes the daily
  * schedule retry over it. What that guard is willing to delete is decided by [CleanupPlan], not here.
  */
-class RetentionCleanupWorker(
-    appContext: Context,
-    params: WorkerParameters
+@HiltWorker
+class RetentionCleanupWorker @AssistedInject constructor(
+    @Assisted appContext: Context,
+    @Assisted params: WorkerParameters,
+    private val repository: IntercomRepository,
+    private val exportGateway: ExportGateway,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : CoroutineWorker(appContext, params) {
 
     private val tag = "RetentionCleanupWorker"
 
-    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        val app = applicationContext as EntryRecorderApp
-        val repository = app.repository
-
+    override suspend fun doWork(): Result = withContext(ioDispatcher) {
         val settings = try {
             repository.getSettings()
         } catch (e: CancellationException) {
@@ -62,16 +66,16 @@ class RetentionCleanupWorker(
         )
 
         var criticalFailures = 0
-        if (!runGuarded("retention") { purgeExpired(repository, settings) }) criticalFailures++
-        if (!runGuarded("internal quota") { purgeInternal(repository, settings) }) criticalFailures++
+        if (!runGuarded("retention") { purgeExpired(settings) }) criticalFailures++
+        if (!runGuarded("internal quota") { purgeInternal(settings) }) criticalFailures++
         // The external pass is the one the user has to opt into, and it talks to a network provider whose
         // folder may be offline for reasons nobody can fix by retrying. Its failures are therefore reported
         // but not counted: making them retry would re-run the two passes above once per backoff for a folder
         // that is deliberately somebody else's storage.
-        runGuarded("external quota") { purgeExternal(repository, settings) }
+        runGuarded("external quota") { purgeExternal(settings) }
         // Last, so a pass that just deleted rows cannot have its freshly leaked file swept before it is
         // even counted: the sweep only ever removes files older than one cleanup interval anyway.
-        runGuarded("orphan sweep") { purgeOrphans(repository) }
+        runGuarded("orphan sweep") { purgeOrphans() }
 
         if (criticalFailures > 0) {
             Log.w(tag, "Cleanup finished with $criticalFailures failed pass(es); retrying later")
@@ -100,7 +104,7 @@ class RetentionCleanupWorker(
      * Age is day-exact and part of cleaning the phone's own storage, so the internal switch covers it —
      * turning "Auto-Clean Phone Storage" off means nothing on the phone is deleted, quota or not.
      */
-    private suspend fun purgeExpired(repository: IntercomRepository, settings: AppSettingsEntity) {
+    private suspend fun purgeExpired(settings: AppSettingsEntity) {
         if (!settings.internalCleanupEnabled) return
         if (settings.retentionDays <= 0) return
         val expired = repository.getExpiredRecordings(settings.retentionDays)
@@ -114,7 +118,7 @@ class RetentionCleanupWorker(
      * that are deleted together with them — so protected footage and leftover thumbnails can never be paid
      * for with recordings the user did not lock away.
      */
-    private suspend fun purgeInternal(repository: IntercomRepository, settings: AppSettingsEntity) {
+    private suspend fun purgeInternal(settings: AppSettingsEntity) {
         if (!settings.internalCleanupEnabled) {
             Log.i(tag, "Internal cleanup disabled, skipping the quota pass")
             return
@@ -163,16 +167,16 @@ class RetentionCleanupWorker(
      * flag lives on the server, which this pass does not call. The ordering, bound and exclusion all live in
      * [CleanupPlan.external], which is the tested half of this decision.
      */
-    private suspend fun purgeExternal(repository: IntercomRepository, settings: AppSettingsEntity) {
+    private suspend fun purgeExternal(settings: AppSettingsEntity) {
         if (!settings.externalCleanupEnabled) return
         val folderUri = settings.exportFolderUri
         if (folderUri.isBlank()) return
-        if (ExportHelper.probeExportFolderAccess(applicationContext, folderUri) != ExportFolderAccess.OK) {
+        if (exportGateway.probeExportFolderAccess(applicationContext, folderUri) != ExportFolderAccess.OK) {
             Log.i(tag, "Export folder is not usable right now, skipping the external pass")
             return
         }
 
-        val documents = ExportHelper.listSafExportedFiles(applicationContext, folderUri.toUri())
+        val documents = exportGateway.listSafExportedFiles(applicationContext, folderUri.toUri())
         val protectedNames = CleanupPlan.protectedExportNames(repository.getProtectedFilePaths())
         val plan = CleanupPlan.external(
             entries = documents.map(SafExportedFile::toCleanupEntry),
@@ -197,7 +201,7 @@ class RetentionCleanupWorker(
         var refused = 0
         for (target in plan.deletions) {
             val documentUri = uriByName[target.displayName] ?: continue
-            if (ExportHelper.deleteSafDocument(applicationContext, documentUri)) {
+            if (exportGateway.deleteSafDocument(applicationContext, documentUri)) {
                 freed += target.sizeBytes
                 deleted++
             } else {
@@ -233,7 +237,7 @@ class RetentionCleanupWorker(
      * Best-effort by construction — it can only ever remove unreferenced files, so a failure here is reported
      * by the guard around it and never turns into a retry that re-runs the two quota passes above.
      */
-    private suspend fun purgeOrphans(repository: IntercomRepository) {
+    private suspend fun purgeOrphans() {
         val knownPaths = repository.getAllReferencedFilePaths().toSet()
         var removed = 0
         var reclaimedBytes = 0L

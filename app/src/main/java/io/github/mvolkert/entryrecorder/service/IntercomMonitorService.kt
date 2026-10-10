@@ -8,7 +8,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
-import io.github.mvolkert.entryrecorder.EntryRecorderApp
+import dagger.hilt.android.AndroidEntryPoint
 import io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.ConnectionCapability
@@ -16,23 +16,32 @@ import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
+import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
+import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.domain.device.IntercomDevice
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
 import io.github.mvolkert.entryrecorder.domain.device.logIdentity
 import io.github.mvolkert.entryrecorder.notification.NotificationHelper
+import io.github.mvolkert.entryrecorder.sip.SipCallManager
 import io.github.mvolkert.entryrecorder.ui.incoming.IncomingCallActivity
 import io.github.mvolkert.entryrecorder.video.OnDeviceMotionAnalyzer
 import io.github.mvolkert.entryrecorder.video.PreRollFrame
 import io.github.mvolkert.entryrecorder.video.RecorderEvent
+import io.github.mvolkert.entryrecorder.video.RtspStreamRecorder
+import javax.inject.Inject
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration.Companion.milliseconds
 
+@AndroidEntryPoint
 class IntercomMonitorService : Service(), IntercomEventListener {
 
     private val tag = "IntercomMonitorService"
-    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    // Built lazily because Hilt injects the fields after the constructor returns: reading ioDispatcher
+    // from a property initialiser would hit an uninitialised lateinit.
+    private val serviceScope: CoroutineScope by lazy { CoroutineScope(ioDispatcher + SupervisorJob()) }
 
     private val activeDevices = ConcurrentHashMap<Long, IntercomDevice>()
     private val activeMotionAnalyzers = ConcurrentHashMap<Long, OnDeviceMotionAnalyzer>()
@@ -44,10 +53,13 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
 
-    private val app by lazy { application as EntryRecorderApp }
-    private val repository by lazy { app.repository }
-    private val recorder by lazy { app.recorder }
-    private val sipManager by lazy { app.sipCallManager }
+    @Inject lateinit var repository: IntercomRepository
+    @Inject lateinit var recorder: RtspStreamRecorder
+    @Inject lateinit var sipManager: SipCallManager
+    @Inject lateinit var deviceFactory: IntercomDeviceFactory
+    @Inject lateinit var snapshotClient: HttpSnapshotClient
+    @Inject lateinit var monitorStatusRegistry: MonitorStatusRegistry
+    @Inject @IoDispatcher lateinit var ioDispatcher: CoroutineDispatcher
 
     override fun onCreate() {
         super.onCreate()
@@ -107,7 +119,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         return START_STICKY
     }
 
-    private suspend fun updateMonitoredDevices(enabledDevices: List<DeviceEntity>) = withContext(Dispatchers.IO) {
+    private suspend fun updateMonitoredDevices(enabledDevices: List<DeviceEntity>) = withContext(ioDispatcher) {
         val currentIds = activeDevices.keys.toSet()
         val newIds = enabledDevices.map { it.id }.toSet()
 
@@ -115,13 +127,13 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         for (id in currentIds - newIds) {
             val device = activeDevices.remove(id)
             device?.stopMonitoring()
-            MonitorStatusHolder.remove(id)
+            monitorStatusRegistry.remove(id)
             // Per-device bookkeeping of the two maps below has to go with the device, otherwise a pending
             // post-record stop could still fire for it and a re-added id would inherit the old ring stamp.
             pendingPostRecordStops.remove(id)?.cancel()
             lastRingHandledAt.remove(id)
             // Snapshot health is per device id too: a re-added id must not inherit the old failure streak.
-            HttpSnapshotClient.forgetDevice(id)
+            snapshotClient.forgetDevice(id)
         }
 
         // Add or update active devices
@@ -129,10 +141,10 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             val existing = activeDevices[entity.id]
             if (existing == null || existing.deviceEntity != entity) {
                 existing?.stopMonitoring()
-                val newDevice = IntercomDeviceFactory.createDevice(entity)
+                val newDevice = deviceFactory.createDevice(entity)
                 activeDevices[entity.id] = newDevice
                 newDevice.startMonitoring(this@IntercomMonitorService)
-                MonitorStatusHolder.update(entity.id, MonitorStatus.MONITORING)
+                monitorStatusRegistry.update(entity.id, MonitorStatus.MONITORING)
 
                 // Configure SIP for device
                 sipManager.configureDeviceSip(entity)
@@ -145,7 +157,12 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             if (entity.recordOnMotionOnDevice) {
                 if (existingAnalyzer == null || existingAnalyzer.deviceEntity != entity) {
                     existingAnalyzer?.stop()
-                    val analyzer = OnDeviceMotionAnalyzer(entity, this@IntercomMonitorService) {
+                    val analyzer = OnDeviceMotionAnalyzer(
+                        entity,
+                        this@IntercomMonitorService,
+                        snapshotClient,
+                        ioDispatcher
+                    ) {
                         // Back off only for the phone's own capture loop: in PYTHON_SERVER mode the
                         // server polls the endpoint, so a server recording must not slow detection here.
                         recorder.isLocallyRecording(entity.id)
@@ -280,9 +297,9 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     // otherwise-working camera offline. Camera-event health is shown on the trigger glyphs.
                     when (event.capability) {
                         ConnectionCapability.DEVICE_EVENTS ->
-                            MonitorStatusHolder.updateEventQuality(event.device.id, event.quality)
+                            monitorStatusRegistry.updateEventQuality(event.device.id, event.quality)
                         ConnectionCapability.SNAPSHOT -> {
-                            MonitorStatusHolder.updateSnapshotQuality(event.device.id, event.quality)
+                            monitorStatusRegistry.updateSnapshotQuality(event.device.id, event.quality)
                             applyConnectionQuality(event.device.id, event.quality)
                         }
                     }
@@ -306,11 +323,11 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     private fun applyConnectionQuality(deviceId: Long, quality: ConnectionQuality) {
         val target = when (quality) {
             ConnectionQuality.ONLINE ->
-                if (MonitorStatusHolder.statusFor(deviceId) == MonitorStatus.MOTION) null else MonitorStatus.MONITORING
+                if (monitorStatusRegistry.statusFor(deviceId) == MonitorStatus.MOTION) null else MonitorStatus.MONITORING
             ConnectionQuality.DEGRADED -> MonitorStatus.DEGRADED
             ConnectionQuality.OFFLINE -> MonitorStatus.OFFLINE
         } ?: return
-        MonitorStatusHolder.update(deviceId, target)
+        monitorStatusRegistry.update(deviceId, target)
     }
 
     /**
@@ -325,7 +342,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         preRollFrames: () -> List<PreRollFrame> = { emptyList() }
     ) {
         // Motion is the trigger the live card shows as an active event; noise keeps the resting status.
-        if (eventType == EventType.MOTION) MonitorStatusHolder.update(device.id, MonitorStatus.MOTION)
+        if (eventType == EventType.MOTION) monitorStatusRegistry.update(device.id, MonitorStatus.MOTION)
 
         cancelPostRecordStop(device.id)
         if (record) {
@@ -356,7 +373,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     /** Routes a "trigger ended" event: only the post-record buffer length and the log wording differ. */
     private fun handleTriggerEnded(device: DeviceEntity, label: String, eventType: EventType) {
         Log.i(tag, "$label ended on ${device.name}")
-        if (eventType == EventType.MOTION) MonitorStatusHolder.update(device.id, MonitorStatus.MONITORING)
+        if (eventType == EventType.MOTION) monitorStatusRegistry.update(device.id, MonitorStatus.MONITORING)
         // Allow post-record time buffer then stop
         schedulePostRecordStop(device, eventType, postRecordSecondsFor(device, eventType))
     }
@@ -457,7 +474,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             withTimeoutOrNull(2_000.milliseconds) {
                 coroutineScope {
                     activeDevices.values.forEach { device ->
-                        launch(Dispatchers.IO) { device.stopMonitoring() }
+                        launch(ioDispatcher) { device.stopMonitoring() }
                     }
                 }
             }
@@ -468,7 +485,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             analyzer.stop()
         }
         activeMotionAnalyzers.clear()
-        MonitorStatusHolder.clear()
+        monitorStatusRegistry.clear()
 
         try {
             wakeLock?.let { if (it.isHeld) it.release() }

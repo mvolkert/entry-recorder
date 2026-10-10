@@ -38,8 +38,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
@@ -52,7 +52,6 @@ import io.github.mvolkert.entryrecorder.ui.components.PlaybackTarget
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeColor
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeOnColor
-import io.github.mvolkert.entryrecorder.util.ExportHelper
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -62,12 +61,14 @@ fun RecordingsScreen(
     active: Boolean = true,
     /** Hands a clip to the window-level player layer, which the app root draws over the navigation scaffold. */
     onRequestPlayback: (PlaybackTarget) -> Unit = {},
-    viewModel: RecordingsViewModel = viewModel()
+    viewModel: RecordingsViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHost = LocalAppSnackbar.current
     val scope = rememberCoroutineScope()
+    // Same instance the ViewModel exports with; only the screen can launch the sheet (Activity context).
+    val exportGateway = viewModel.exportGateway
     val exportProgress by viewModel.exportProgress.collectAsStateWithLifecycle()
     val batchProgress by viewModel.batchProgress.collectAsStateWithLifecycle()
     val serverDownload by viewModel.serverDownload.collectAsStateWithLifecycle()
@@ -104,7 +105,7 @@ fun RecordingsScreen(
     BackHandler(enabled = selectionMode) { exitSelection() }
 
     // Export runs in the ViewModel; its results arrive as one-shot events. The share sheet is launched
-    // here because ExportHelper.shareFile needs an Activity context (it adds no NEW_TASK flag).
+    // here because exportGateway.shareFile needs an Activity context (it adds no NEW_TASK flag).
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             when (event) {
@@ -115,15 +116,15 @@ fun RecordingsScreen(
                 is RecordingsUiEvent.Share -> {
                     val recording = event.recording
                     val file = event.files.firstOrNull()
-                    // ExportHelper builds its outcome text on this thread and has no coroutine to post
+                    // ExportGateway builds its outcome text on this thread and has no coroutine to post
                     // from, so the screen hands it the hop into the snack bar.
                     val post: (String) -> Unit = { text -> scope.launch { snackbarHost.showMessage(text) } }
                     when {
                         recording != null && file != null ->
-                            ExportHelper.shareFile(context, file, recording, onMessage = post)
+                            exportGateway.shareFile(context, file, recording, onMessage = post)
                         event.deviceName != null && file != null ->
-                            ExportHelper.shareFile(context, file, event.deviceName, event.eventTypeLabel ?: "", onMessage = post)
-                        else -> ExportHelper.shareFiles(context, event.files, onMessage = post)
+                            exportGateway.shareFile(context, file, event.deviceName, event.eventTypeLabel ?: "", onMessage = post)
+                        else -> exportGateway.shareFiles(context, event.files, onMessage = post)
                     }
                 }
 

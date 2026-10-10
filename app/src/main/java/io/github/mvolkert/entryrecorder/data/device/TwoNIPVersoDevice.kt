@@ -12,8 +12,8 @@ import io.github.mvolkert.entryrecorder.domain.device.IntercomDevice
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -33,22 +33,40 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration.Companion.milliseconds
 
+/**
+ * The 2N IP Verso's own HTTP surface: an SSE event stream with a status-polling fallback.
+ *
+ * Constructed per device by [IntercomDeviceFactory] rather than by Hilt, because a device instance belongs
+ * to one `DeviceEntity`. The two OkHttp profiles and the IO dispatcher come from the graph, so every
+ * watched camera shares one connection pool instead of each opening its own.
+ */
 class TwoNIPVersoDevice(
-    override val deviceEntity: DeviceEntity
+    override val deviceEntity: DeviceEntity,
+    eventStreamClient: OkHttpClient,
+    snapshotPollClient: OkHttpClient,
+    private val ioDispatcher: CoroutineDispatcher,
+    parentScope: CoroutineScope,
 ) : IntercomDevice {
 
     private val tag = "2N_Verso_${deviceEntity.id}"
 
+    // The device's work is a child of the application scope, so a process teardown cannot leave the
+    // reconnect loop running, while stopMonitoring can still cancel this device on its own.
+    private val parentJob: Job = parentScope.coroutineContext[Job] ?: SupervisorJob()
+
     // Owns the reconnect delays and the status poll loop. It is a var because tearing a device down
     // cancels it for good, and a device that gets watched again has to be given a live one.
-    private var scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var scope = newScope()
     private val isMonitoring = AtomicBoolean(false)
     private var eventSource: EventSource? = null
     private var pollingJob: Job? = null
 
-    // OkHttpClient with Digest / Basic authentication support
+    private fun newScope() = CoroutineScope(ioDispatcher + SupervisorJob(parentJob))
+
+    // Digest / Basic authentication support, bound to this device's credentials. Derived from the shared
+    // stream profile so the connection pool is common but the timeouts stay this device's own.
     private val client: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        eventStreamClient.newBuilder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS) // Indefinite for SSE stream
             .writeTimeout(10, TimeUnit.SECONDS)
@@ -60,10 +78,8 @@ class TwoNIPVersoDevice(
     // The status polls share the authenticated transport but must never inherit the SSE stream's
     // indefinite read timeout: one silent endpoint would otherwise park the whole fallback loop.
     private val pollClient: OkHttpClient by lazy {
-        client.newBuilder()
-            .connectTimeout(2, TimeUnit.SECONDS)
-            .readTimeout(2, TimeUnit.SECONDS)
-            .callTimeout(3, TimeUnit.SECONDS)
+        snapshotPollClient.newBuilder()
+            .authenticator(DigestAuthenticator(deviceEntity.username, deviceEntity.password))
             .build()
     }
 
@@ -87,7 +103,7 @@ class TwoNIPVersoDevice(
         if (noiseEventRequested) add("NoiseDetected")
     }
 
-    override suspend fun testConnection(): Result<Boolean> = withContext(Dispatchers.IO) {
+    override suspend fun testConnection(): Result<Boolean> = withContext(ioDispatcher) {
         try {
             val url = "${deviceEntity.httpBaseUrl}/api/system/info"
             val request = Request.Builder().url(url).get().build()
@@ -112,12 +128,12 @@ class TwoNIPVersoDevice(
         }
     }
 
-    override suspend fun startMonitoring(listener: IntercomEventListener) = withContext(Dispatchers.IO) {
+    override suspend fun startMonitoring(listener: IntercomEventListener) = withContext(ioDispatcher) {
         if (isMonitoring.getAndSet(true)) return@withContext
 
         // A previous stopMonitoring cancelled the scope, so a device that is watched a second time
         // would otherwise reconnect and poll into a dead job forever.
-        if (!scope.isActive) scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        if (!scope.isActive) scope = newScope()
 
         Log.i(tag, "Starting 2N IP Verso monitoring on ${deviceEntity.ipAddress} (FW 2.50+)")
         listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, ConnectionQuality.ONLINE, "Connecting to 2N IP Verso..."))

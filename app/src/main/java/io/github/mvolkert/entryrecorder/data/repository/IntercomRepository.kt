@@ -9,16 +9,22 @@ import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
-import kotlinx.coroutines.Dispatchers
+import io.github.mvolkert.entryrecorder.di.IoDispatcher
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.io.File
 
-class IntercomRepository(
+/** The single source of truth for devices, recordings and settings; every row read or written goes through it. */
+@Singleton
+class IntercomRepository @Inject constructor(
     private val deviceDao: DeviceDao,
     private val recordingDao: RecordingDao,
     private val appSettingsDao: AppSettingsDao,
-    private val activeServerRecordingDao: ActiveServerRecordingDao
+    private val activeServerRecordingDao: ActiveServerRecordingDao,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) {
     // Devices
     val allDevices: Flow<List<DeviceEntity>> = deviceDao.getAllDevicesFlow()
@@ -105,7 +111,7 @@ class IntercomRepository(
      * for a moment after a clip stops playing, and a second attempt covers that without pretending the bytes
      * are gone. Null means nothing is left at [path], the path itself means it is now an orphan.
      */
-    private suspend fun deleteFile(path: String): String? = withContext(Dispatchers.IO) {
+    private suspend fun deleteFile(path: String): String? = withContext(ioDispatcher) {
         val file = File(path)
         if (!file.exists()) return@withContext null
         if (file.delete() || !file.exists()) return@withContext null

@@ -1,15 +1,19 @@
 package io.github.mvolkert.entryrecorder.ui.live
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import io.github.mvolkert.entryrecorder.EntryRecorderApp
+import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
-import io.github.mvolkert.entryrecorder.service.MonitorStatusHolder
+import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
+import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
+import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
+import io.github.mvolkert.entryrecorder.service.MonitorStatusRegistry
+import io.github.mvolkert.entryrecorder.video.RtspStreamRecorder
+import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -29,19 +33,25 @@ data class LiveUiState(
     val isLoading: Boolean = true
 )
 
-class LiveViewModel(application: Application) : AndroidViewModel(application) {
-
-    private val app = application as EntryRecorderApp
-    private val repository = app.repository
+@HiltViewModel
+class LiveViewModel @Inject constructor(
+    private val repository: IntercomRepository,
+    private val recorder: RtspStreamRecorder,
+    private val monitorStatusRegistry: MonitorStatusRegistry,
+    // Exposed for the Live cards: the player must use the same shared snapshot/MJPEG clients as the
+    // recorder, otherwise one camera gets polled through two connection pools with different timeouts.
+    val mjpegReader: MjpegStreamReader,
+    val snapshotClient: HttpSnapshotClient,
+) : ViewModel() {
 
     // All inputs are observable: the Room devices flow, the recorder's active-device StateFlow
     // (REC badge) and the monitor service's status map (monitoring dot), so the Live screen
     // re-renders immediately when devices change, a recording starts/stops or motion is detected.
     val uiState: StateFlow<LiveUiState> = combine(
         repository.allDevices,
-        app.recorder.activeDeviceIds,
-        MonitorStatusHolder.statuses,
-        MonitorStatusHolder.eventQualities,
+        recorder.activeDeviceIds,
+        monitorStatusRegistry.statuses,
+        monitorStatusRegistry.eventQualities,
         repository.settingsFlow
     ) { devices, recordingIds, monitorStatuses, eventQualities, settings ->
         LiveUiState(
@@ -55,11 +65,11 @@ class LiveViewModel(application: Application) : AndroidViewModel(application) {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), LiveUiState())
 
     fun startManualRecording(device: DeviceEntity) {
-        app.recorder.startRecording(device, EventType.MANUAL, 120)
+        recorder.startRecording(device, EventType.MANUAL, 120)
     }
 
     fun stopManualRecording(device: DeviceEntity) {
-        app.recorder.stopRecording(device.id)
+        recorder.stopRecording(device.id)
     }
 
     /**

@@ -4,14 +4,18 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import androidx.core.net.toUri
+import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.WorkerParameters
-import io.github.mvolkert.entryrecorder.EntryRecorderApp
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedInject
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
-import io.github.mvolkert.entryrecorder.util.ExportHelper
+import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
+import io.github.mvolkert.entryrecorder.di.IoDispatcher
+import io.github.mvolkert.entryrecorder.util.ExportGateway
 import io.github.mvolkert.entryrecorder.video.ExportTranscoder
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -24,17 +28,18 @@ import java.io.File
  * Scope is passed as input data: "latest" exports the single most recent recording, "all" exports
  * every finalized recording. Honors the transcodeOnExport setting exactly like in-app export.
  */
-class ExportTriggerWorker(
-    appContext: Context,
-    params: WorkerParameters
+@HiltWorker
+class ExportTriggerWorker @AssistedInject constructor(
+    @Assisted appContext: Context,
+    @Assisted params: WorkerParameters,
+    private val repository: IntercomRepository,
+    private val exportGateway: ExportGateway,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : CoroutineWorker(appContext, params) {
 
     private val tag = "ExportTriggerWorker"
 
-    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        val app = applicationContext as EntryRecorderApp
-        val repository = app.repository
-
+    override suspend fun doWork(): Result = withContext(ioDispatcher) {
         try {
             val settings = repository.getSettings()
             val folder = settings.exportFolderUri
@@ -73,7 +78,7 @@ class ExportTriggerWorker(
                     source
                 }
 
-                if (ExportHelper.saveFileToSafFolder(applicationContext, treeUri, payload, payload.name)) {
+                if (exportGateway.saveFileToSafFolder(applicationContext, treeUri, payload, payload.name)) {
                     exported++
                 } else {
                     Log.w(tag, "SAF write failed for ${payload.name}")

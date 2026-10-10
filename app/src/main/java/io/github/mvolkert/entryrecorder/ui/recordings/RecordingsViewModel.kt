@@ -1,13 +1,13 @@
 package io.github.mvolkert.entryrecorder.ui.recordings
 
-import android.app.Application
 import android.content.Context
 import androidx.annotation.PluralsRes
 import androidx.annotation.StringRes
 import androidx.core.net.toUri
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import io.github.mvolkert.entryrecorder.EntryRecorderApp
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
@@ -15,14 +15,17 @@ import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.triggerTypes
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
+import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.data.repository.RecordingDeleteResult
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingDto
+import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeLabelRes
-import io.github.mvolkert.entryrecorder.util.ExportHelper
+import io.github.mvolkert.entryrecorder.util.ExportGateway
 import io.github.mvolkert.entryrecorder.video.ExportTranscoder
+import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
@@ -84,10 +87,18 @@ sealed interface RecordingsUiEvent {
     data object ExportCompleted : RecordingsUiEvent
 }
 
-class RecordingsViewModel(application: Application) : AndroidViewModel(application) {
-
-    private val app = application as EntryRecorderApp
-    private val repository = app.repository
+@HiltViewModel
+class RecordingsViewModel @Inject constructor(
+    private val repository: IntercomRepository,
+    private val serverClient: ServerRecordingClient,
+    // Not private: the share sheet has to be launched from an Activity context, which only the screen
+    // has, so RecordingsScreen performs that one call itself with the same gateway instance.
+    val exportGateway: ExportGateway,
+    // Share sheets and MediaStore writes need a Context; the application context is safe here because
+    // nothing UI-scoped is held from it.
+    @ApplicationContext private val context: Context,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+) : ViewModel() {
 
     private val _selectedDeviceId = MutableStateFlow<Long?>(null)
     private val _selectedEventType = MutableStateFlow<EventType?>(null)
@@ -157,10 +168,6 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
 
     /** Export results the screen turns into a snack-bar message or a share sheet. */
     val events: Flow<RecordingsUiEvent> = _events.receiveAsFlow()
-
-    private val context: Context get() = getApplication()
-
-    private val serverClient = ServerRecordingClient()
 
     /** Server rows are a lazy one-shot fetch, kept out of the Room flow so an offline server can't stall it. */
     private data class ServerListState(
@@ -501,11 +508,11 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
             // RAW_FOLDER never reaches a server row (no local original), it just keeps the when exhaustive.
             RecordingExportKind.FOLDER, RecordingExportKind.RAW_FOLDER -> {
                 val treeUri = exportFolderUri.toUri()
-                val ok = withContext(Dispatchers.IO) {
-                    ExportHelper.saveFileToSafFolder(context, treeUri, file, file.name)
+                val ok = withContext(ioDispatcher) {
+                    exportGateway.saveFileToSafFolder(context, treeUri, file, file.name)
                 }
                 if (ok) {
-                    message(R.string.recordings_toast_exported_to, ExportHelper.safFolderDisplayName(treeUri))
+                    message(R.string.recordings_toast_exported_to, exportGateway.safFolderDisplayName(treeUri))
                     celebrate()
                 } else {
                     message(R.string.recordings_toast_export_folder_failed)
@@ -620,15 +627,15 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
                     when (kind) {
                         RecordingExportKind.SHARE -> toShare.add(out)
                         RecordingExportKind.GALLERY ->
-                            withContext(Dispatchers.IO) {
-                                if (ExportHelper.saveFileToGallery(context, out, rec, onMessage = ::emitMessage)) saved++
+                            withContext(ioDispatcher) {
+                                if (exportGateway.saveFileToGallery(context, out, rec, onMessage = ::emitMessage)) saved++
                             }
 
                         RecordingExportKind.FOLDER, RecordingExportKind.RAW_FOLDER -> {
                             // One file per recording (H.264 when produced, else original) — as single-item.
                             val treeUri = settings.exportFolderUri.toUri()
-                            withContext(Dispatchers.IO) {
-                                if (ExportHelper.saveFileToSafFolder(context, treeUri, out, out.name)) saved++
+                            withContext(ioDispatcher) {
+                                if (exportGateway.saveFileToSafFolder(context, treeUri, out, out.name)) saved++
                             }
                         }
                     }
@@ -681,13 +688,13 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
 
             RecordingExportKind.FOLDER, RecordingExportKind.RAW_FOLDER -> {
                 val treeUri = exportFolderUri.toUri()
-                val ok = withContext(Dispatchers.IO) {
-                    ExportHelper.saveFileToSafFolder(context, treeUri, file, file.name) { percent ->
+                val ok = withContext(ioDispatcher) {
+                    exportGateway.saveFileToSafFolder(context, treeUri, file, file.name) { percent ->
                         _exportProgress.value = ExportRunProgress(percent, R.string.recordings_copy_progress_body)
                     }
                 }
                 if (ok) {
-                    message(R.string.recordings_toast_exported_to, ExportHelper.safFolderDisplayName(treeUri))
+                    message(R.string.recordings_toast_exported_to, exportGateway.safFolderDisplayName(treeUri))
                     celebrate()
                 } else {
                     message(R.string.recordings_toast_export_folder_failed)
@@ -702,7 +709,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     /**
-     * Saves one finished file into the public gallery. [ExportHelper]'s own success line is swallowed and
+     * Saves one finished file into the public gallery. [ExportGateway]'s own success line is swallowed and
      * said here instead, exactly once and next to the celebration check: with the system's animation scale
      * at zero the check returns immediately, and a save that only flickered would leave no record that it
      * happened. Every other outcome - a vanished source, a rejected MediaStore insert, the pre-Q write
@@ -711,8 +718,8 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     private suspend fun saveSingleToGallery(source: File, deviceName: String): Boolean {
         val successLine = context.getString(R.string.export_saved_gallery)
         var reportedSomething = false
-        val saved = withContext(Dispatchers.IO) {
-            ExportHelper.saveFileToGallery(context, source, deviceName, onMessage = { text ->
+        val saved = withContext(ioDispatcher) {
+            exportGateway.saveFileToGallery(context, source, deviceName, onMessage = { text ->
                 if (text != successLine) {
                     reportedSomething = true
                     emitMessage(text)
@@ -732,7 +739,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     /**
-     * The one way a message reaches the screen. Also the sink [ExportHelper] hands its already-built
+     * The one way a message reaches the screen. Also the sink [ExportGateway] hands its already-built
      * strings to, so a gallery save reports through the same snack bar as everything else.
      */
     private fun emitMessage(text: String, short: Boolean = false) {

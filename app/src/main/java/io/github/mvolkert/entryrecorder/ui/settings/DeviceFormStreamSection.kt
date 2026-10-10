@@ -44,7 +44,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * actually use them, and AUTO shows both because it may fall back between them.
  */
 @Composable
-internal fun DeviceFormStreamSection(form: DeviceFormState) {
+internal fun DeviceFormStreamSection(form: DeviceFormState, snapshotClient: HttpSnapshotClient) {
     val protocols = listOf(
         StreamProtocol.AUTO,
         StreamProtocol.RTSP,
@@ -136,7 +136,7 @@ internal fun DeviceFormStreamSection(form: DeviceFormState) {
                         scope.launch {
                             probing = true
                             probeResult = -1f
-                            val fps = HttpSnapshotClient.probeSnapshotFps(form.buildTestCandidate())
+                            val fps = snapshotClient.probeSnapshotFps(form.buildTestCandidate())
                             if (fps > 0f) {
                                 form.snapshotFps = fps.roundToInt().coerceIn(1, form.maxSnapshotFps).toString()
                             }
@@ -167,7 +167,7 @@ internal fun DeviceFormStreamSection(form: DeviceFormState) {
             }
             // The rate the endpoint really delivered lately, measured by the shared snapshot client
             // while the live view or a recording polls it. Without this the configured number is guesswork.
-            val measuredFps = rememberMeasuredSnapshotFps(form.deviceId)
+            val measuredFps = rememberMeasuredSnapshotFps(form.deviceId, snapshotClient)
             if (measuredFps > 0f) {
                 Text(
                     text = stringResource(R.string.device_snapshot_fps_measured, measuredFps),
@@ -185,11 +185,11 @@ internal fun DeviceFormStreamSection(form: DeviceFormState) {
  * rate — a new or never-polled device has nothing to show.
  */
 @Composable
-private fun rememberMeasuredSnapshotFps(deviceId: Long): Float {
-    var measured by remember(deviceId) { mutableFloatStateOf(HttpSnapshotClient.achievedFps(deviceId)) }
+private fun rememberMeasuredSnapshotFps(deviceId: Long, snapshotClient: HttpSnapshotClient): Float {
+    var measured by remember(deviceId) { mutableFloatStateOf(snapshotClient.achievedFps(deviceId)) }
     LaunchedEffect(deviceId) {
         while (true) {
-            measured = HttpSnapshotClient.achievedFps(deviceId)
+            measured = snapshotClient.achievedFps(deviceId)
             delay(2000.milliseconds)
         }
     }
