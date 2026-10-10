@@ -41,14 +41,14 @@ data class AdaptiveNavItem(
 /**
  * Bar/rail container shared by every top-level destination. Compact renders a bottom [NavigationBar]
  * inside a [Scaffold]; Medium and Expanded render a leading [NavigationRail] with the content on the
- * remaining width. When [showChrome] is false (e.g. a fullscreen sibling route such as device edit, or
- * the gallery player covering the window) neither bar is drawn and the content fills the window.
+ * remaining width. When [showChrome] is false (e.g. a fullscreen sibling route such as device edit or any
+ * settings submenu) neither bar is drawn and the content fills the window.
  *
  * The window size class alone picks the layout and [content] is invoked from exactly one call site per
  * class, with [showChrome] only deciding whether the bar composes. Moving the `content(...)` call into a
  * separate branch would recompose the whole destination subtree from scratch — which the screens below
- * cannot survive, because they hold their own playback state in `remember` (a player opened here flips
- * the chrome, and a rebuilt screen would immediately drop it again).
+ * cannot survive, because they hold their own state in `remember` (pushing a settings submenu flips the
+ * chrome, and a rebuilt destination would lose whatever that screen was mid-way through).
  *
  * [snackbarHost] is drawn here and nowhere else, so it is the one host every screen under the graph
  * posts to (see [io.github.mvolkert.entryrecorder.ui.LocalAppSnackbar]). The compact layout hands it to

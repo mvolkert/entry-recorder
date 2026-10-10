@@ -27,7 +27,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,7 +49,6 @@ import io.github.mvolkert.entryrecorder.ui.components.CelebrationCheck
 import io.github.mvolkert.entryrecorder.ui.components.ExpressiveIconBadge
 import io.github.mvolkert.entryrecorder.ui.components.LoadingSpot
 import io.github.mvolkert.entryrecorder.ui.components.PlaybackTarget
-import io.github.mvolkert.entryrecorder.ui.components.VideoPlayerModal
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeColor
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeOnColor
@@ -62,7 +60,8 @@ import kotlinx.coroutines.launch
 fun RecordingsScreen(
     modifier: Modifier = Modifier,
     active: Boolean = true,
-    onFullscreenPlayback: (Boolean) -> Unit = {},
+    /** Hands a clip to the window-level player layer, which the app root draws over the navigation scaffold. */
+    onRequestPlayback: (PlaybackTarget) -> Unit = {},
     viewModel: RecordingsViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -72,29 +71,15 @@ fun RecordingsScreen(
     val exportProgress by viewModel.exportProgress.collectAsStateWithLifecycle()
     val batchProgress by viewModel.batchProgress.collectAsStateWithLifecycle()
     val serverDownload by viewModel.serverDownload.collectAsStateWithLifecycle()
-    var activePlayback by remember { mutableStateOf<PlaybackTarget?>(null) }
     var recordingToDelete by remember { mutableStateOf<RecordingEntity?>(null) }
     var serverItemToDelete by remember { mutableStateOf<GalleryItem.Remote?>(null) }
     // Set by the ViewModel when an export wrote its files; the check floats over the list and clears itself.
     var showSavedCheck by remember { mutableStateOf(false) }
 
-    // The player fills the window instead of sitting above the navigation bar, and leaves composition
-    // without a dismiss callback (tab swiped away, process restore), so the chrome is restored there too.
-    // The tap and the close button write the flag themselves, in the same snapshot as activePlayback: this
-    // screen's own layout is what the bar is padding, so a late flip here would resize the overlay one
-    // frame into its entrance and the whole player visibly jumps. Flipping only after the fade would be
-    // worse still - the video itself would jump by the bar height while it is fully opaque.
-    LaunchedEffect(activePlayback) { onFullscreenPlayback(activePlayback != null) }
-    DisposableEffect(Unit) { onDispose { onFullscreenPlayback(false) } }
-
-    // All pager pages stay composed, so a player left open while swiping to another tab would keep the
-    // window fullscreen and the navigation bar hidden behind a page nobody is looking at. Playback is
-    // this screen's own state, so leaving the page ends it.
+    // The clip itself lives above this scaffold in the app root, which ends it when the pager moves; all
+    // that is owned here is the celebration check, which must not wait behind an inactive page.
     LaunchedEffect(active) {
-        if (!active) {
-            activePlayback = null
-            showSavedCheck = false
-        }
+        if (!active) showSavedCheck = false
     }
 
     // Server recordings are a lazy one-shot fetch, refreshed when the screen is entered (a no-op outside
@@ -266,13 +251,12 @@ fun RecordingsScreen(
                                 }
                             },
                             onPlay = {
-                                // Hide the chrome in the same event that opens the player, so the overlay's
-                                // first composed frame is already the full window (see the flag's effect above).
-                                onFullscreenPlayback(true)
-                                activePlayback = when (item) {
-                                    is GalleryItem.Local -> PlaybackTarget.LocalFile(item.entity.filePath)
-                                    is GalleryItem.Remote -> PlaybackTarget.RemoteUrl(item.videoAbsoluteUrl)
-                                }
+                                onRequestPlayback(
+                                    when (item) {
+                                        is GalleryItem.Local -> PlaybackTarget.LocalFile(item.entity.filePath)
+                                        is GalleryItem.Remote -> PlaybackTarget.RemoteUrl(item.videoAbsoluteUrl)
+                                    }
+                                )
                             },
                             onDelete = {
                                 when (item) {
@@ -370,18 +354,6 @@ fun RecordingsScreen(
                 iconSize = 16.dp,
             )
         }
-    }
-
-    activePlayback?.let { target ->
-        VideoPlayerModal(
-            playback = target,
-            // Both writes share one frame: the bar comes back exactly when the overlay leaves composition,
-            // never while its exit spring is still running.
-            onDismiss = {
-                activePlayback = null
-                onFullscreenPlayback(false)
-            }
-        )
     }
 
     recordingToDelete?.let { rec ->

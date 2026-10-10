@@ -65,11 +65,11 @@ sealed interface PlaybackTarget {
 }
 
 /**
- * Full-screen playback host. Rendered as an overlay inside the caller's own layout rather than a
- * separate window ([androidx.compose.ui.window.Dialog]), so it inherits the activity's edge-to-edge
- * insets and theme instead of re-establishing them, and its system-back handling stays local to the
- * composable that owns the playback state. It enters with the motion scheme's spring scale-and-fade,
- * or a plain crossfade when system animations are off.
+ * Full-screen playback host. Rendered as a window-level layer above the app's navigation chrome rather
+ * than a separate window ([androidx.compose.ui.window.Dialog]): it *covers* the bar/rail instead of
+ * displacing it, so neither entering nor leaving a clip re-layouts anything behind it, and it inherits
+ * the activity's edge-to-edge insets and theme instead of re-establishing them. The system back gesture
+ * is routed here by hand because the layer is in the activity's window.
  */
 @OptIn(UnstableApi::class)
 @Composable
@@ -86,7 +86,9 @@ fun VideoPlayerModal(
 
     // The overlay content animates in and out through the motion scheme; the exit is not observable
     // from here (AnimatedVisibility exposes no completion hook), so dismissal is deferred by
-    // EXIT_FALLBACK_MS to let the spring play out before the caller drops the composable.
+    // EXIT_FALLBACK_MS to let the spring play out before the caller drops the composable. Nothing else
+    // changes underneath when the caller is told, so the ceiling only decides when a fully transparent
+    // layer leaves composition - it no longer has to line up with a layout shift.
     var visible by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val motionEnabled = rememberExpressiveMotionEnabled()
