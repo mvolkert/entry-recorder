@@ -71,9 +71,21 @@ class MjpegStreamReader(
 
             val body = response.body
             val inputStream = BufferedInputStream(body.byteStream())
+            var droppedFrames = 0
             readMjpegStream(inputStream) { jpegBytes ->
                 val bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
-                if (bitmap != null) {
+                if (bitmap == null) {
+                    // Reported once per streak: an undecodable stream would otherwise write a log line at
+                    // the frame rate, and the frame rate is what broke.
+                    droppedFrames++
+                    if (droppedFrames == 1) {
+                        Log.w(tag, "MJPEG frames from ${device.name} are not decodable")
+                    }
+                } else {
+                    if (droppedFrames > 0) {
+                        Log.i(tag, "${device.name} is decodable again after $droppedFrames dropped frames")
+                        droppedFrames = 0
+                    }
                     emit(bitmap)
                 }
             }
@@ -152,9 +164,18 @@ class MjpegStreamReader(
             }
 
             val inputStream = BufferedInputStream(response.body.byteStream())
+            var droppedFrames = 0
             readMjpegStream(inputStream) { jpegBytes ->
                 val bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
-                if (bitmap != null) {
+                if (bitmap == null) {
+                    // Same once-per-streak rule as [streamBitmaps]: one line for a run of bad frames.
+                    droppedFrames++
+                    if (droppedFrames == 1) Log.w(tag, "Server live frames for $label are not decodable")
+                } else {
+                    if (droppedFrames > 0) {
+                        Log.i(tag, "$label is decodable again after $droppedFrames dropped frames")
+                        droppedFrames = 0
+                    }
                     emit(bitmap)
                 }
             }

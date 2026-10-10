@@ -473,7 +473,11 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         try {
             wakeLock?.let { if (it.isHeld) it.release() }
             wifiLock?.let { if (it.isHeld) it.release() }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            // A lock left held after onDestroy keeps the CPU or radio awake with no service to release it,
+            // so this has to be visible even though there is nobody left to handle it.
+            Log.w(tag, "Failed to release the wake/WiFi locks", e)
+        }
 
         pendingPostRecordStops.clear()
         lastRingHandledAt.clear()

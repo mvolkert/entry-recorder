@@ -24,6 +24,7 @@ class MkvStreamMuxer(
 ) : AutoCloseable {
 
     private val tag = "MkvStreamMuxer"
+    private val outputName: String = outputFile.name
     private var fos: FileOutputStream? = null
     private var isHeaderWritten = false
     private var clusterTimecodeMs: Long = 0L
@@ -294,7 +295,11 @@ class MkvStreamMuxer(
             flushCurrentCluster()
             fos?.flush()
             fos?.close()
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            // The file stays playable up to the last flushed cluster, but everything still buffered is lost
+            // here, so a truncated recording has to leave a trace naming the clip it happened to.
+            Log.w(tag, "Failed to finish writing $outputName: ${e.message}")
+        }
         fos = null
     }
 

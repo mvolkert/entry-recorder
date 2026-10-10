@@ -132,7 +132,11 @@ fun LiveStreamPlayer(
             try {
                 exoPlayer.stop()
                 exoPlayer.release()
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                // A player that survives its composition leaks a decoder and keeps the RTSP socket open,
+                // which is exactly the sort of failure a second camera card cannot recover from.
+                Log.w("LiveStreamPlayer", "Failed to release the RTSP player for ${device.name}: ${e.message}")
+            }
         }
     }
 

@@ -67,7 +67,11 @@ object ThumbnailUtil {
         } finally {
             try {
                 retriever.release()
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                // Usually the benign "already released by the finalizer" race, but it can also be a real
+                // failure to hand the native codec back, so name the clip instead of dropping it silently.
+                Log.w(TAG, "Failed to release the retriever for $videoPath: ${e.message}")
+            }
         }
     }
 }
