@@ -74,11 +74,11 @@
         <item quantity="one">Kept %1$d protected recording</item>
         <item quantity="other">Kept %1$d protected recordings</item>
     </plurals>
-    <string name="recordings_export_progress_title">Preparing export…</string>
     <string name="recordings_export_progress_body">Converting to H.264 for universal playback…  %1$d%%</string>
     <string name="recordings_copy_progress_body">Copying to the export folder…  %1$d%%</string>
-    <string name="recordings_batch_progress_title">Exporting…</string>
     <string name="recordings_batch_progress_body">Processing %1$d of %2$d recording(s)…</string>
+    <string name="recordings_run_cancelled">Export cancelled</string>
+    <string name="recordings_run_busy">Another export is still running</string>
     <string name="recordings_export_folder_menu">Export to folder</string>
     <string name="recordings_export_folder_batch">Export to Folder</string>
     <string name="recordings_export_raw_folder_menu">Export raw MKV to folder</string>
@@ -117,7 +117,6 @@
     <string name="recordings_toast_server_action_failed">Server request failed: %1$s</string>
     <string name="recordings_toast_server_deleted">Recording deleted on the server</string>
     <string name="recordings_toast_download_failed">Download failed: %1$s</string>
-    <string name="recordings_download_progress_title">Downloading recording…</string>
     <string name="recordings_download_progress_body">Saving a copy from the server…  %1$d%%</string>
 
     <!-- Settings screen -->

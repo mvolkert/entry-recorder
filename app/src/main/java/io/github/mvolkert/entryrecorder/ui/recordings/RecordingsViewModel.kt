@@ -22,6 +22,7 @@ import io.github.mvolkert.entryrecorder.util.ExportHelper
 import io.github.mvolkert.entryrecorder.video.ExportTranscoder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -108,6 +109,44 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     /** Percent (0..100) of a running server-video download, null while idle. */
     private val _serverDownload = MutableStateFlow<Int?>(null)
     val serverDownload: StateFlow<Int?> = _serverDownload.asStateFlow()
+
+    /**
+     * The one export or download run that owns the progress strip. Three flows feed it because the runs are
+     * mutually exclusive: that was automatic while their dialogs covered the screen, and with a strip the
+     * list stays usable, so [runBusy] answers a second request instead of starting a rival run over the
+     * same flows — two at once would show only one of them and clear the strip when the older one ends.
+     */
+    private var activeRun: Job? = null
+
+    /**
+     * Stops the running export or download. [ExportTranscoder] checks cancellation per frame, so this
+     * lands within one frame; the strip and the unfinished file are dropped by the cancelled run's own
+     * `finally`, which is where it learns which output to delete.
+     */
+    fun cancelActiveRun() {
+        activeRun?.cancel()
+        message(R.string.recordings_run_cancelled)
+    }
+
+    /** True (and said out loud) when a request arrives while a run still owns the progress strip. */
+    private fun runBusy(): Boolean {
+        if (activeRun?.isActive != true) return false
+        message(R.string.recordings_run_busy)
+        return true
+    }
+
+    /** Ends the run: drops the strip by clearing every progress flow and releases [activeRun]. */
+    private fun finishRun() {
+        activeRun = null
+        _exportProgress.value = null
+        _batchProgress.value = null
+        _serverDownload.value = null
+    }
+
+    /** Drops the half-written H.264 a cancelled transcode leaves in the cache export folder. */
+    private fun deletePartialTranscode(source: File) {
+        File(File(context.cacheDir, "export"), "${source.nameWithoutExtension}_h264.mp4").delete()
+    }
 
     private val _events = Channel<RecordingsUiEvent>(Channel.BUFFERED)
 
@@ -366,33 +405,32 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     /**
      * Downloads one server recording into the app cache, then delivers it like a local export. The server
      * file is already H.264, so there is no transcode step; SHARE/GALLERY/FOLDER just move the downloaded
-     * copy; the download runs with a progress dialog because it crosses the network.
+     * copy; the download crosses the network, so it runs under the progress strip and can be cancelled.
      */
     fun exportServerRecording(item: GalleryItem.Remote, kind: RecordingExportKind) {
+        if (runBusy()) return
         if (item.videoAbsoluteUrl.isBlank()) {
             message(R.string.recordings_toast_download_failed, "no video url")
             return
         }
-        viewModelScope.launch {
-            val settings = repository.getSettings()
-            if (kind == RecordingExportKind.FOLDER && settings.exportFolderUri.isBlank()) {
-                message(R.string.recordings_toast_set_folder_first)
-                return@launch
-            }
-            _serverDownload.value = 0
+        activeRun = viewModelScope.launch {
             try {
+                val settings = repository.getSettings()
+                if (kind == RecordingExportKind.FOLDER && settings.exportFolderUri.isBlank()) {
+                    message(R.string.recordings_toast_set_folder_first)
+                    return@launch
+                }
+                _serverDownload.value = 0
                 val result = serverClient.downloadVideo(
                     absoluteUrl = item.videoAbsoluteUrl,
                     targetDir = File(context.cacheDir, "export"),
                     baseName = "server_rec_${item.dto.id}"
                 ) { percent -> _serverDownload.value = percent }
-                _serverDownload.value = null
                 result
                     .onSuccess { file -> deliverRemote(item, file, kind, settings.exportFolderUri) }
                     .onFailure { error -> message(R.string.recordings_toast_download_failed, error.message ?: "") }
-            } catch (e: CancellationException) {
-                _serverDownload.value = null
-                throw e
+            } finally {
+                finishRun()
             }
         }
     }
@@ -432,11 +470,12 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
      * explicit user action, never during capture. SHARE opens the system sheet and persists nothing;
      * FOLDER writes one file per recording (the re-encode when it exists, otherwise the original), so
      * the lossless original stays in-app and the folder isn't cluttered with near-duplicates.
-     * RAW_FOLDER always ships the original. The blocking deliver work runs on IO with the progress
-     * dialog driven by percent callbacks, so the UI stays responsive and shows what is happening.
+     * RAW_FOLDER always ships the original. The blocking deliver work runs on IO with the progress strip
+     * driven by percent callbacks, so the list stays readable and the run can still be cancelled.
      */
     fun exportRecording(recording: RecordingEntity, kind: RecordingExportKind) {
-        viewModelScope.launch {
+        if (runBusy()) return
+        activeRun = viewModelScope.launch {
             // Read the settings when the action runs: which folder was picked and whether to re-encode
             // must not depend on whether anything happens to be subscribed to them.
             val settings = repository.getSettings()
@@ -444,35 +483,36 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
             val goesToFolder = kind == RecordingExportKind.FOLDER || kind == RecordingExportKind.RAW_FOLDER
             val willTranscode = settings.transcodeOnExport && kind != RecordingExportKind.RAW_FOLDER &&
                     src.extension.equals("mkv", ignoreCase = true)
-
-            if (goesToFolder) {
-                if (settings.exportFolderUri.isBlank()) {
-                    message(R.string.recordings_toast_set_folder_first)
-                    return@launch
-                }
-                if (!src.exists()) {
-                    message(R.string.recordings_toast_file_not_found, short = true)
-                    return@launch
-                }
-            }
-            // Raw file straight to Share/Gallery: no progress dialog, the deliver itself is on IO.
-            if (!willTranscode && !goesToFolder) {
-                deliver(recording, src, kind, settings.exportFolderUri)
-                return@launch
-            }
-
             try {
+                if (goesToFolder) {
+                    if (settings.exportFolderUri.isBlank()) {
+                        message(R.string.recordings_toast_set_folder_first)
+                        return@launch
+                    }
+                    if (!src.exists()) {
+                        message(R.string.recordings_toast_file_not_found, short = true)
+                        return@launch
+                    }
+                }
+                // Raw file straight to Share/Gallery: no progress strip, the deliver itself is on IO.
+                if (!willTranscode && !goesToFolder) {
+                    deliver(recording, src, kind, settings.exportFolderUri)
+                    return@launch
+                }
                 if (willTranscode) {
                     _exportProgress.value = ExportRunProgress(0, R.string.recordings_export_progress_body)
                 }
                 val out = if (willTranscode) transcodeWithProgress(recording) else src
                 deliver(recording, out, kind, settings.exportFolderUri)
             } catch (e: CancellationException) {
+                // The interrupted encode is this run's discard, not a file: the next export of the same
+                // recording would otherwise hand out a truncated video that plays up to the cut.
+                if (willTranscode) deletePartialTranscode(src)
                 throw e
             } catch (e: Exception) {
                 message(R.string.recordings_toast_export_failed, e.message ?: "")
             } finally {
-                _exportProgress.value = null
+                finishRun()
             }
         }
     }
@@ -484,12 +524,13 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
      * and Folder report a final saved count.
      */
     fun exportSelected(kind: RecordingExportKind) {
+        if (runBusy()) return
         val targets = uiState.value.localRecordings.filter { it.id in _selectedIds.value }
         if (targets.isEmpty()) {
             message(R.string.recordings_toast_nothing_selected)
             return
         }
-        viewModelScope.launch {
+        activeRun = viewModelScope.launch {
             val settings = repository.getSettings()
             if ((kind == RecordingExportKind.FOLDER || kind == RecordingExportKind.RAW_FOLDER) &&
                 settings.exportFolderUri.isBlank()
@@ -510,6 +551,11 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
                     val out = if (willTranscode) {
                         try {
                             ExportTranscoder.transcodeToH264(context, rec)
+                        } catch (e: CancellationException) {
+                            // Cancellation is not a failed encode: the fallback below would hand the batch
+                            // a truncated file and keep going. Drop the unfinished output and unwind.
+                            deletePartialTranscode(src)
+                            throw e
                         } catch (_: Exception) {
                             src
                         }
@@ -556,9 +602,9 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
             } catch (e: Exception) {
                 message(R.string.recordings_toast_export_failed, e.message ?: "")
             } finally {
-                _batchProgress.value = null
                 clearSelection()
                 _events.trySend(RecordingsUiEvent.SelectionCleared)
+                finishRun()
             }
         }
     }

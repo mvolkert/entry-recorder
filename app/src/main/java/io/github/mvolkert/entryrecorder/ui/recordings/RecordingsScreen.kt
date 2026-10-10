@@ -288,6 +288,32 @@ fun RecordingsScreen(
                 }
             }
 
+            // One strip for whichever run is going — the transcode/copy percent, the k-of-n batch count or
+            // the server download — floating over the top of the list exactly like the celebration check, so
+            // starting or ending a run never shifts a row and the list stays readable while it works.
+            val activeRun = exportProgress?.let { run ->
+                RunDisplay(percent = run.percent, label = stringResource(run.bodyRes, run.percent))
+            } ?: batchProgress?.let { (done, total) ->
+                // The batch has no single percent: its label already reads "k of n".
+                RunDisplay(
+                    percent = null,
+                    label = stringResource(R.string.recordings_batch_progress_body, done, total),
+                )
+            } ?: serverDownload?.let { percent ->
+                RunDisplay(
+                    percent = percent,
+                    label = stringResource(R.string.recordings_download_progress_body, percent),
+                )
+            }
+            RunProgressStrip(
+                run = activeRun,
+                onCancel = { viewModel.cancelActiveRun() },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(horizontal = Spacing.lg)
+                    .padding(top = Spacing.sm),
+            )
+
             // A finished export celebrates over the top of the list instead of joining it, so the check
             // appearing and leaving never shifts a row. Both export origins (the card menus and the bulk
             // bar) sit above this area, and the manual green is the contrast-checked pair the record-stop
@@ -352,17 +378,5 @@ fun RecordingsScreen(
                 selectionMode = false
             }
         )
-    }
-
-    exportProgress?.let { progress ->
-        ExportProgressDialog(progressPercent = progress.percent, bodyRes = progress.bodyRes)
-    }
-
-    batchProgress?.let { (done, total) ->
-        BatchProgressDialog(done = done, total = total)
-    }
-
-    serverDownload?.let { pct ->
-        DownloadProgressDialog(progressPercent = pct)
     }
 }
