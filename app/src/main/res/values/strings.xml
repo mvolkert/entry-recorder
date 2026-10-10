@@ -359,13 +359,14 @@
     <string name="player_error_snapshot">Snapshot fetch failed. Check network or credentials.</string>
     <string name="player_no_frames">No playable frames.</string>
     <string name="player_file_not_found">Recording file not found.</string>
+    <string name="player_error_decode">This recording could not be read. The file may be damaged.</string>
+    <string name="player_retry">Retry</string>
     <string name="player_cd_frame">Recording frame</string>
     <string name="player_cd_pause">Pause</string>
     <string name="player_cd_play">Play</string>
-    <plurals name="player_time_frames">
-        <item quantity="one">%1$d s / %2$d s  •  %3$d of %4$d frame</item>
-        <item quantity="other">%1$d s / %2$d s  •  %3$d of %4$d frames</item>
-    </plurals>
+    <string name="player_cd_seek">Seek position</string>
+    <!-- Position / duration, then the frame counter; the clock is what a drag is aimed at, so it leads. -->
+    <string name="player_time_clock">%1$s / %2$s  •  %3$d/%4$d</string>
     <string name="player_cd_close">Close</string>
 
     <!-- Notifications -->

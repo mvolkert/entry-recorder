@@ -14,6 +14,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
@@ -37,6 +38,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -145,12 +149,14 @@ fun VideoPlayerModal(
                 )
             }
 
-            // Close button top right, kept clear of the status bar now that it is not in its own window.
+            // Close button top right, kept clear of the status bar now that it is not in its own window, and
+            // of a landscape cutout on top of that - stacked calls, since no insets union is needed here.
             IconButton(
                 onClick = requestDismiss,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .windowInsetsPadding(WindowInsets.statusBars)
+                    .windowInsetsPadding(WindowInsets.displayCutout)
                     .padding(Spacing.lg)
                     .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f), shape = CircleShape)
             ) {
@@ -174,6 +180,7 @@ private fun ExoPlayerView(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val exoPlayer = remember(uri) {
         ExoPlayer.Builder(context).build().apply {
             val mediaItem = MediaItem.fromUri(uri)
@@ -183,8 +190,25 @@ private fun ExoPlayerView(
         }
     }
 
-    DisposableEffect(exoPlayer) {
+    // A stopped screen must not keep playing: the audio and the decoder would run behind another app.
+    // What the user had it set to is recorded on the way out, so a clip they paused themselves comes back
+    // paused instead of rolling again.
+    var playBeforeStop by remember(exoPlayer) { mutableStateOf(true) }
+    DisposableEffect(exoPlayer, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> {
+                    playBeforeStop = exoPlayer.playWhenReady
+                    exoPlayer.playWhenReady = false
+                }
+
+                Lifecycle.Event.ON_START -> exoPlayer.playWhenReady = playBeforeStop
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
             exoPlayer.stop()
             exoPlayer.release()
         }
