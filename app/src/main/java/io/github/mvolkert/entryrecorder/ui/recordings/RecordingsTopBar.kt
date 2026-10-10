@@ -34,12 +34,16 @@ import io.github.mvolkert.entryrecorder.R
 /**
  * Recordings title band. A real [TopAppBar] so its height, titleLarge typography and status-bar
  * inset match the Live and Settings tabs; multi-select actions sit in its action row.
+ *
+ * In selection mode the title is the batch: [selectedCount] rows, plus a note when [hiddenSelectedCount]
+ * of them are checked but filtered away, so the number never claims fewer rows than the operation covers.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun RecordingsTopBar(
     selectionMode: Boolean,
     selectedCount: Int,
+    hiddenSelectedCount: Int = 0,
     onSelectAll: () -> Unit,
     onExportSelected: (RecordingExportKind) -> Unit,
     onBulkDelete: () -> Unit,
@@ -53,9 +57,13 @@ internal fun RecordingsTopBar(
         modifier = modifier,
         title = {
             Text(
-                text = if (selectionMode)
-                    stringResource(R.string.recordings_selected_count, selectedCount)
-                else stringResource(R.string.recordings_title)
+                text = when {
+                    !selectionMode -> stringResource(R.string.recordings_title)
+                    hiddenSelectedCount == 0 -> stringResource(R.string.recordings_selected_count, selectedCount)
+                    else -> stringResource(R.string.recordings_selected_count, selectedCount) +
+                        // One line, so the two facts are joined by the app's usual middot separator.
+                        " · " + stringResource(R.string.recordings_selected_hidden, hiddenSelectedCount)
+                }
             )
         },
         actions = {

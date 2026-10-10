@@ -7,6 +7,7 @@ import org.junit.Test
  * The "mark first, mark last" range is pure index arithmetic over the on-screen row order, so the whole
  * gesture contract is provable without Compose: both ends included, direction-independent, and a missing
  * anchor (nothing picked yet, or the anchor row filtered/deleted away) collapses to the pressed row alone.
+ * The hidden-selection count that the title shows beside it is arithmetic over the same two inputs.
  */
 class SelectionRangeTest {
 
@@ -41,5 +42,22 @@ class SelectionRangeTest {
     @Test
     fun `a target that is not visible degrades to the target alone`() {
         assertEquals(setOf(99L), rangeSelection(visible, anchorId = 10L, targetId = 99L))
+    }
+
+    @Test
+    fun `a selection wholly on screen hides nothing`() {
+        assertEquals(0, hiddenSelectedCount(setOf(10L, 9L, 8L), visible))
+    }
+
+    @Test
+    fun `checked rows the filter dropped are counted`() {
+        // Only two rows survive the filter; the other two checked ids are still selected, just off screen.
+        assertEquals(2, hiddenSelectedCount(setOf(1L, 2L, 10L, 9L), listOf(10L, 9L)))
+    }
+
+    @Test
+    fun `an empty selection or an empty list of rows`() {
+        assertEquals(0, hiddenSelectedCount(emptySet(), visible))
+        assertEquals(2, hiddenSelectedCount(setOf(1L, 2L), emptyList()))
     }
 }

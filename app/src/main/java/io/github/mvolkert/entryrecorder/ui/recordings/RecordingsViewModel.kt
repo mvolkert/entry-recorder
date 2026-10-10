@@ -45,7 +45,11 @@ data class RecordingsUiState(
     val searchQuery: String = "",
     val totalStorageBytes: Long = 0,
     val isLoading: Boolean = true,
-    val isServerLoading: Boolean = false
+    val isServerLoading: Boolean = false,
+    /** True when at least one of the three filters is narrowing the list, which changes the empty state. */
+    val filtersActive: Boolean = false,
+    /** Server mode: the only state in which the list can be refreshed from the network by gesture. */
+    val serverModeEnabled: Boolean = false
 ) {
     /** Only local recordings are selectable / exportable / deletable; server rows are read-only for now. */
     val localRecordings: List<RecordingEntity>
@@ -95,7 +99,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     /** Row the range gesture (long-press) measures from; null until something has been picked. */
     private var selectionAnchorId: Long? = null
 
-    /** Stage of the running single-item export, null while idle; [bodyRes] labels the dialog's percent line. */
+    /** Stage of the running single-item export, null while idle; [bodyRes] labels the strip's percent line. */
     data class ExportRunProgress(val percent: Int, @StringRes val bodyRes: Int)
 
     /** Progress of the running single-item export (transcode or folder copy), null while idle. */
@@ -234,7 +238,9 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
             searchQuery = filters.query,
             totalStorageBytes = source.recordings.sumOf { it.fileSizeBytes },
             isServerLoading = source.server.isLoading,
-            isLoading = false
+            isLoading = false,
+            filtersActive = filters.deviceId != null || filters.eventType != null || filters.query.isNotBlank(),
+            serverModeEnabled = settings?.recordingMode == RecordingMode.PYTHON_SERVER
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RecordingsUiState())
 
@@ -285,6 +291,18 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
         _searchQuery.value = query
     }
 
+    /**
+     * Drops all three filters at once, the one action the filtered empty state offers. It also leaves
+     * multi-select: a selection counted against the filtered view no longer means the same rows.
+     */
+    fun clearFilters() {
+        _selectedDeviceId.value = null
+        _selectedEventType.value = null
+        _searchQuery.value = ""
+        clearSelection()
+        _events.trySend(RecordingsUiEvent.SelectionCleared)
+    }
+
     fun deleteRecording(recording: RecordingEntity) {
         // Drop the row from the selection where it still sits, so the header count never names a clip
         // that is already gone and a deleted anchor cannot stretch a range across the list.
@@ -318,14 +336,28 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
         selectionAnchorId = null
     }
 
-    /** What the selection bar and the bulk-delete dialog read: live counts over the rows that still exist. */
-    data class SelectionInfo(val selectedCount: Int, val protectedCount: Int)
+    /**
+     * What the selection title and the bulk-delete dialog read. The counts run over the whole archive
+     * rather than the filtered view, because that is what a bulk operation acts on:
+     * [hiddenSelectedCount] says how many checked rows the filters currently hide, so the number on screen
+     * never promises a different batch than the one that gets deleted or exported.
+     */
+    data class SelectionInfo(
+        val selectedCount: Int,
+        val protectedCount: Int,
+        val hiddenSelectedCount: Int = 0,
+    )
 
-    val selectionInfo: StateFlow<SelectionInfo> = combine(uiState, _selectedIds) { state, ids ->
-        val selected = state.localRecordings.filter { it.id in ids }
+    val selectionInfo: StateFlow<SelectionInfo> = combine(
+        repository.allRecordings,
+        uiState,
+        _selectedIds
+    ) { recordings, state, ids ->
+        val selected = recordings.filter { it.id in ids }
         SelectionInfo(
             selectedCount = selected.size,
-            protectedCount = selected.count { it.isProtected }
+            protectedCount = selected.count { it.isProtected },
+            hiddenSelectedCount = hiddenSelectedCount(ids, state.localRecordings.map { it.id })
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SelectionInfo(0, 0))
 
@@ -334,23 +366,28 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
         _selectedIds.value = uiState.value.localRecordings.map { it.id }.toSet()
     }
 
+    /**
+     * Every local recording, filters ignored — what a bulk operation resolves its checked ids against.
+     * Reading the screen state instead would let a filter quietly shrink the batch the user confirmed.
+     */
+    private suspend fun allLocalRecordings(): List<RecordingEntity> = repository.allRecordings.first()
+
     /** Deletes the unprotected selected recordings (and their files), then clears the selection. */
     fun deleteSelected() {
         val ids = _selectedIds.value
-        val targets = uiState.value.localRecordings.filter { it.id in ids }
-        if (targets.isEmpty()) return
-        // A protected clip survives a bulk delete just like it survives retention cleanup; the user did
-        // ask for it, so the skip is reported instead of being dropped silently.
-        val (deletable, kept) = targets.partition { !it.isProtected }
-        if (kept.isNotEmpty()) {
-            messagePlural(R.plurals.recordings_toast_bulk_delete_skipped_protected, kept.size, kept.size)
-        }
-        if (deletable.isEmpty()) {
-            clearSelection()
-            return
-        }
         viewModelScope.launch {
-            repository.deleteRecordings(deletable)
+            val targets = allLocalRecordings().filter { it.id in ids }
+            if (targets.isEmpty()) {
+                message(R.string.recordings_toast_nothing_selected)
+                return@launch
+            }
+            // A protected clip survives a bulk delete just like it survives retention cleanup; the user did
+            // ask for it, so the skip is reported instead of being dropped silently.
+            val (deletable, kept) = targets.partition { !it.isProtected }
+            if (kept.isNotEmpty()) {
+                messagePlural(R.plurals.recordings_toast_bulk_delete_skipped_protected, kept.size, kept.size)
+            }
+            if (deletable.isNotEmpty()) repository.deleteRecordings(deletable)
             clearSelection()
         }
     }
@@ -518,19 +555,23 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     /**
-     * Exports every visible recording checked in multi-select, with the same lazy-transcode policy as
-     * [exportRecording] and a k-of-n progress. A per-file transcode failure falls back to that file's
-     * original instead of aborting the batch; Share collects all files into one system sheet, Gallery
-     * and Folder report a final saved count.
+     * Exports every checked recording, whether or not a filter currently hides it, with the same
+     * lazy-transcode policy as [exportRecording] and a k-of-n progress. A per-file transcode failure falls
+     * back to that file's original instead of aborting the batch; Share collects all files into one system
+     * sheet, Gallery and Folder report a final saved count.
      */
     fun exportSelected(kind: RecordingExportKind) {
         if (runBusy()) return
-        val targets = uiState.value.localRecordings.filter { it.id in _selectedIds.value }
-        if (targets.isEmpty()) {
+        if (_selectedIds.value.isEmpty()) {
             message(R.string.recordings_toast_nothing_selected)
             return
         }
         activeRun = viewModelScope.launch {
+            val targets = allLocalRecordings().filter { it.id in _selectedIds.value }
+            if (targets.isEmpty()) {
+                message(R.string.recordings_toast_nothing_selected)
+                return@launch
+            }
             val settings = repository.getSettings()
             if ((kind == RecordingExportKind.FOLDER || kind == RecordingExportKind.RAW_FOLDER) &&
                 settings.exportFolderUri.isBlank()

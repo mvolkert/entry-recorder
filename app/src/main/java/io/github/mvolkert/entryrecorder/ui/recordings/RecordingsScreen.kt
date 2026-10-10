@@ -1,5 +1,6 @@
 package io.github.mvolkert.entryrecorder.ui.recordings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,13 +13,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -104,6 +110,14 @@ fun RecordingsScreen(
     val selection by viewModel.selectionInfo.collectAsStateWithLifecycle()
     var showBulkDeleteConfirm by remember { mutableStateOf(false) }
 
+    // One exit for both ways out of multi-select: the bar's X and the system back gesture. Back has to be
+    // taken over or it leaves the tab armed behind the pager, check marks and all.
+    val exitSelection = {
+        selectionMode = false
+        viewModel.clearSelection()
+    }
+    BackHandler(enabled = selectionMode) { exitSelection() }
+
     // Export runs in the ViewModel; its results arrive as one-shot events. The share sheet is launched
     // here because ExportHelper.shareFile needs an Activity context (it adds no NEW_TASK flag).
     LaunchedEffect(Unit) {
@@ -135,6 +149,11 @@ fun RecordingsScreen(
         }
     }
 
+    // The scroll position belongs to the list, not to whatever container wraps it: the gallery renders
+    // inside a pull-to-refresh box only in server mode, and hoisting the state keeps the position across
+    // that flip - and keeps the rows themselves out of the branch below.
+    val listState = rememberLazyListState()
+
     Scaffold(
         // Top inset is consumed by the TopAppBar itself, exactly like the Live and Settings tabs;
         // bottom system inset comes from the host NavigationBar in MainActivity. Nested Scaffold
@@ -150,13 +169,11 @@ fun RecordingsScreen(
                 RecordingsTopBar(
                     selectionMode = selectionMode,
                     selectedCount = selection.selectedCount,
+                    hiddenSelectedCount = selection.hiddenSelectedCount,
                     onSelectAll = { viewModel.selectAllVisible() },
                     onExportSelected = { kind -> viewModel.exportSelected(kind) },
                     onBulkDelete = { showBulkDeleteConfirm = true },
-                    onExitSelection = {
-                        selectionMode = false
-                        viewModel.clearSelection()
-                    },
+                    onExitSelection = exitSelection,
                     onEnterSelection = { selectionMode = true }
                 )
 
@@ -177,9 +194,7 @@ fun RecordingsScreen(
             }
         }
     ) { paddingValues ->
-        PullToRefreshBox(
-            isRefreshing = state.isServerLoading,
-            onRefresh = { viewModel.refreshServerRecordings() },
+        Box(
             modifier = modifier
                 .fillMaxSize()
                 .padding(paddingValues)
@@ -192,34 +207,44 @@ fun RecordingsScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        // Nothing found under a filter is a different fact from an empty archive, and it
+                        // needs a different action: the filters are cleared, not the recording workflow.
                         ExpressiveIconBadge(
-                            icon = Icons.Default.VideoLibrary,
+                            icon = if (state.filtersActive) Icons.Default.FilterList else Icons.Default.VideoLibrary,
                             contentDescription = null,
                             containerColor = MaterialTheme.colorScheme.secondaryContainer,
                             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                         )
                         Spacer(modifier = Modifier.height(Spacing.md))
                         Text(
-                            text = stringResource(R.string.recordings_empty),
+                            text = stringResource(
+                                if (state.filtersActive) R.string.recordings_filtered_empty
+                                else R.string.recordings_empty
+                            ),
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(Spacing.xs))
                         Text(
-                            text = stringResource(R.string.recordings_empty_hint),
+                            text = stringResource(
+                                if (state.filtersActive) R.string.recordings_filtered_empty_hint
+                                else R.string.recordings_empty_hint
+                            ),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        if (state.filtersActive) {
+                            Spacer(modifier = Modifier.height(Spacing.sm))
+                            TextButton(onClick = { viewModel.clearFilters() }) {
+                                Text(stringResource(R.string.recordings_clear_filters))
+                            }
+                        }
                     }
                 }
             } else {
                 // Every clip is one row of the same list: no hero above the newest item, so the gallery
                 // reads as a uniform archive and each row keeps the same tap, long-press and menu targets.
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(Spacing.lg),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.md)
-                ) {
+                val rows: LazyListScope.() -> Unit = {
                     items(state.items, key = { it.stableKey }) { item ->
                         val localId = (item as? GalleryItem.Local)?.entity?.id
                         RecordingCardItem(
@@ -285,6 +310,20 @@ fun RecordingsScreen(
                             } else null
                         )
                     }
+                }
+                // Pull-to-refresh re-fetches the server list, so the gesture is only offered where there is
+                // something to fetch. The material3 box has no enable flag, so the container itself is chosen
+                // and both branches hand the same [rows] to the same hoisted [listState].
+                if (state.serverModeEnabled) {
+                    PullToRefreshBox(
+                        isRefreshing = state.isServerLoading,
+                        onRefresh = { viewModel.refreshServerRecordings() },
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        GalleryList(listState = listState, content = rows)
+                    }
+                } else {
+                    GalleryList(listState = listState, content = rows)
                 }
             }
 
@@ -379,4 +418,24 @@ fun RecordingsScreen(
             }
         )
     }
+}
+
+/**
+ * The gallery list itself, so the pull-to-refresh branch above wraps the very same composable rather than
+ * a copy of its measurements. [listState] comes from the caller, which is what keeps the scroll position
+ * when the mode flips.
+ */
+@Composable
+private fun GalleryList(
+    listState: LazyListState,
+    content: LazyListScope.() -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        state = listState,
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(Spacing.lg),
+        verticalArrangement = Arrangement.spacedBy(Spacing.md),
+        content = content
+    )
 }
