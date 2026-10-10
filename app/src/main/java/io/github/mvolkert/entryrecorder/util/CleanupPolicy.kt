@@ -14,9 +14,20 @@ object CleanupPolicy {
 
     private const val BYTES_PER_MB = 1024L * 1024L
 
-    /** [quotaMb] moved by [deltaSteps] stepper taps, clamped into the selectable range. */
-    fun nextQuotaMb(quotaMb: Long, deltaSteps: Int): Long =
-        (quotaMb + deltaSteps * STEP_MB).coerceIn(MIN_QUOTA_MB, MAX_QUOTA_MB)
+    /**
+     * [quotaMb] moved by [deltaSteps] stepper taps, clamped into the selectable range.
+     *
+     * A stored value that is not in range — a `0` backfilled from a legacy limit that was itself `0`, or one
+     * above the cap from the days when the stepper had no maximum — does not step from where it sits.
+     * Clamping such a base into the range would land it on the smallest limit in either direction, and the
+     * smallest limit is the most destructive quota there is: one tap on "Increase" would empty the archive.
+     * A tap therefore starts from [unusableFallbackMb], the default for that scope, while the row says out
+     * loud that the stored value was doing nothing.
+     */
+    fun nextQuotaMb(quotaMb: Long, deltaSteps: Int, unusableFallbackMb: Long): Long {
+        val base = if (inRange(quotaMb)) quotaMb else unusableFallbackMb
+        return (base + deltaSteps * STEP_MB).coerceIn(MIN_QUOTA_MB, MAX_QUOTA_MB)
+    }
 
     fun inRange(quotaMb: Long): Boolean = quotaMb in MIN_QUOTA_MB..MAX_QUOTA_MB
 

@@ -194,21 +194,23 @@ abstract class AppDatabase : RoomDatabase() {
         // the external half defaults to a roomier archive and stays off.
         //
         // The backfill copies the legacy limit verbatim rather than clamping it into the new range, even
-        // though the old stepper had no upper bound and the old restore path wrote whatever the backup
-        // JSON held (Gson's 0 for a field that did not exist yet). Clamping would turn such a value into
-        // a limit the user never chose — and a limit below the current usage is a deletion request. Left
-        // alone, `CleanupPolicy.bytesToFree` sees a quota outside its range and frees nothing, which makes
-        // a bad stored value inert instead of destructive; the row still shows it so the user can correct it.
+        // though the old stepper had no upper bound and the old restore path stored whatever the backup JSON
+        // held for the legacy limit — a 0 among them. Clamping would turn such a value into a limit the user
+        // never chose — and a limit below the current usage is a deletion request. Left alone,
+        // `CleanupPolicy.bytesToFree` sees a quota outside its range and frees nothing, which makes a bad
+        // stored value inert instead of destructive; the row still shows it so the user can correct it.
         private val MIGRATION_16_17 = object : Migration(16, 17) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
-                    "ALTER TABLE app_settings ADD COLUMN internalQuotaMb INTEGER NOT NULL DEFAULT 10240"
+                    "ALTER TABLE app_settings ADD COLUMN internalQuotaMb INTEGER NOT NULL DEFAULT " +
+                        AppSettingsEntity.DEFAULT_INTERNAL_QUOTA_MB
                 )
                 db.execSQL(
                     "ALTER TABLE app_settings ADD COLUMN internalCleanupEnabled INTEGER NOT NULL DEFAULT 1"
                 )
                 db.execSQL(
-                    "ALTER TABLE app_settings ADD COLUMN externalQuotaMb INTEGER NOT NULL DEFAULT 20480"
+                    "ALTER TABLE app_settings ADD COLUMN externalQuotaMb INTEGER NOT NULL DEFAULT " +
+                        AppSettingsEntity.DEFAULT_EXTERNAL_QUOTA_MB
                 )
                 db.execSQL(
                     "ALTER TABLE app_settings ADD COLUMN externalCleanupEnabled INTEGER NOT NULL DEFAULT 0"

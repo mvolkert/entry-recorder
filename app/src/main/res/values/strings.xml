@@ -180,10 +180,11 @@
     <string name="settings_folder_grant_again">Grant folder again</string>
     <string name="settings_folder_remove">Remove</string>
     <string name="settings_section_external_storage">Export Folder Archive</string>
-    <string name="settings_external_usage_hint">Counts only the files this app wrote into the folder itself; your own files and its subfolders are never measured, cleaned or deleted.</string>
+    <string name="settings_external_usage_hint">Counts the files this app wrote into the folder itself, downloads from the server included; your own files and its subfolders are never measured. Only exported recordings are ever cleaned or deleted, never a download.</string>
     <string name="settings_external_usage">Current export usage: %1$s</string>
     <string name="settings_external_usage_unavailable">Export usage unavailable — folder not reachable</string>
     <string name="settings_external_usage_measuring">Measuring export folder…</string>
+    <string name="settings_quota_unusable">Stored limit outside the usable range, so nothing is purged — a tap starts from the default instead</string>
     <string name="settings_external_quota">Export Folder Quota</string>
     <string name="settings_quota_purge_mirror">Purge exported app files above %1$s</string>
     <string name="settings_external_cleanup">Auto-Clean Export Folder</string>

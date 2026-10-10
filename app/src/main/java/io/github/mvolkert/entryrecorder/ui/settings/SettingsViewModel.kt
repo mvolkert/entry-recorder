@@ -128,8 +128,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     /**
      * Bytes the export folder holds, or null when there is nothing to measure — no folder chosen, a grant
-     * the user revoked, or a probe that has not answered yet. Listing a tree is a provider round trip per
-     * document, so this only runs on the same ticks that re-probe the grant.
+     * the user revoked, a listing the provider refused, or a probe that has not answered yet. Listing a tree
+     * is a provider round trip per document, so this only runs on the same ticks that re-probe the grant.
+     *
+     * The query is a third-party `ContentProvider`, so it fails as readily as it succeeds, and this flow
+     * sits in a `stateIn(viewModelScope…)`: an exception escaping here is uncaught and kills the screen
+     * while it is being opened. A folder that cannot be read is reported as no number, never as a crash.
      */
     val externalUsageBytes: StateFlow<Long?> = combine(
         repository.settingsFlow.map { it?.exportFolderUri.orEmpty() },
@@ -140,9 +144,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         .map { (folderUri, probe) ->
             val access = probe.second
             if (folderUri.isBlank() || access != ExportFolderAccess.OK) null
-            else ExportHelper.listSafExportedFiles(context, folderUri.toUri())
-                .filter(SafExportedFile::isAppCreated)
-                .sumOf { it.sizeBytes }
+            else runCatching {
+                ExportHelper.listSafExportedFiles(context, folderUri.toUri())
+                    .filter(SafExportedFile::isAppCreated)
+                    .sumOf { it.sizeBytes }
+            }.onFailure {
+                if (it is CancellationException) throw it
+                Log.w(tag, "Export folder listing for $folderUri failed", it)
+            }.getOrNull()
         }
         .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)

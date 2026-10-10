@@ -41,14 +41,14 @@ data class AppSettingsEntity(
     // Cap on the app's private storage (recordings plus thumbnails), stepped in 100 MB units. The daily
     // purge deletes oldest-unprotected recordings down to one step below this, so it is a working set
     // limit rather than a hard wall.
-    val internalQuotaMb: Long = 10240,
+    val internalQuotaMb: Long = DEFAULT_INTERNAL_QUOTA_MB,
     // Whether the daily pass may reclaim the internal quota at all. Independent of the external flag so
     // an archive mirror on a NAS can keep its history while the phone stays small.
     val internalCleanupEnabled: Boolean = true,
     // Cap on the SAF export folder, measured over the direct children the app wrote there. Off by
     // default: that folder is the long-term archive sync tools read, so reclaiming space in it is
     // something the user has to ask for.
-    val externalQuotaMb: Long = 20480,
+    val externalQuotaMb: Long = DEFAULT_EXTERNAL_QUOTA_MB,
     val externalCleanupEnabled: Boolean = false,
     // Legacy v8 field: the single index that used to drive all three accent roles. Superseded by
     // themePrimaryIndex/Secondary/Tertiary below (MIGRATION_8_9 copies its value into all three).
@@ -69,14 +69,24 @@ data class AppSettingsEntity(
     // accent presets; the three theme*Index columns still persist so flipping back restores the
     // exact previous look. Older API levels silently fall through to the presets.
     val themeUseDynamicColor: Boolean = false
-)
+) {
+    companion object {
+        /**
+         * What "no quota chosen yet" means in every place that has to say it: the fresh-install default, the
+         * v17 column default in the migration SQL, and where a stepper tap goes when the stored limit is
+         * unusable. One definition, so the three cannot disagree about the number that starts a purge.
+         */
+        const val DEFAULT_INTERNAL_QUOTA_MB = 10_240L
+        const val DEFAULT_EXTERNAL_QUOTA_MB = 20_480L
+    }
+}
 
 /**
- * Settings restored from a backup file, with a quota the file could not have carried brought back to the
- * current default. Gson allocates an instance without running the constructor, so a field that did not
- * exist when the backup was written reads as `0` / `false` rather than the declared default. Harmless for
- * a theme index; a quota is not a value the cleanup arithmetic or the entry dialog can do anything with,
- * and a cleanup switch that restores as absent stays *off*, which is the direction that never deletes.
+ * Settings restored from a backup file, with a quota too small to be a limit brought back to the current
+ * default. Gson writes only the fields the file mentions, so an older, edited or corrupt file can name `0`
+ * where a quota belongs — and a quota of 0 reads to the cleanup arithmetic as "the archive may hold
+ * nothing". A value above the selectable cap is deliberately left alone: it is inert in the arithmetic, and
+ * the settings row says it is unusable instead of rewriting a limit the user had set.
  */
 fun AppSettingsEntity.normalizedForRestore(): AppSettingsEntity {
     val defaults = AppSettingsEntity()

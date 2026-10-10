@@ -16,6 +16,9 @@ class CleanupPolicyTest {
 
     private val mb = 1024L * 1024L
 
+    /** The value a tap falls back to when the stored quota is unusable; the rows pass their scope default. */
+    private val fallback = 1000L
+
     @Test
     fun `a step is 100 MB and the range spans 100 MB to 100 GB`() {
         assertEquals(100L, CleanupPolicy.STEP_MB)
@@ -27,10 +30,22 @@ class CleanupPolicyTest {
 
     @Test
     fun `steppers move one step and stop at both ends`() {
-        assertEquals(1100L, CleanupPolicy.nextQuotaMb(1000L, 1))
-        assertEquals(900L, CleanupPolicy.nextQuotaMb(1000L, -1))
-        assertEquals(CleanupPolicy.MAX_QUOTA_MB, CleanupPolicy.nextQuotaMb(CleanupPolicy.MAX_QUOTA_MB, 1))
-        assertEquals(CleanupPolicy.MIN_QUOTA_MB, CleanupPolicy.nextQuotaMb(CleanupPolicy.MIN_QUOTA_MB, -1))
+        assertEquals(1100L, CleanupPolicy.nextQuotaMb(1000L, 1, fallback))
+        assertEquals(900L, CleanupPolicy.nextQuotaMb(1000L, -1, fallback))
+        assertEquals(CleanupPolicy.MAX_QUOTA_MB, CleanupPolicy.nextQuotaMb(CleanupPolicy.MAX_QUOTA_MB, 1, fallback))
+        assertEquals(CleanupPolicy.MIN_QUOTA_MB, CleanupPolicy.nextQuotaMb(CleanupPolicy.MIN_QUOTA_MB, -1, fallback))
+    }
+
+    @Test
+    fun `an unusable stored quota steps from the default, not from the floor`() {
+        // Clamping a stored 0 into the range would land it on 100 MB in either direction, and 100 MB is the
+        // most destructive limit there is: one tap on "Increase" would have emptied the archive at the
+        // smallest usable quota instead of moving away from a value that was never a limit at all.
+        assertEquals(1100L, CleanupPolicy.nextQuotaMb(0L, 1, fallback))
+        assertEquals(900L, CleanupPolicy.nextQuotaMb(0L, -1, fallback))
+        assertEquals(1100L, CleanupPolicy.nextQuotaMb(CleanupPolicy.MAX_QUOTA_MB + 1024L, 1, fallback))
+        // And the fallback itself is only a starting point, never a licence to skip the range.
+        assertEquals(CleanupPolicy.MIN_QUOTA_MB, CleanupPolicy.nextQuotaMb(0L, -100, fallback))
     }
 
     @Test

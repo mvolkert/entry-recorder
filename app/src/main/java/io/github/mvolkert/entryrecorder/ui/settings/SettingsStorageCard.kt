@@ -127,6 +127,7 @@ internal fun SettingsStorageCard(
                 quotaLabel(settings.internalQuotaMb)
             ),
             quotaMb = settings.internalQuotaMb,
+            unusableFallbackMb = AppSettingsEntity.DEFAULT_INTERNAL_QUOTA_MB,
             onValueClick = { editingQuota = QuotaScope.Internal },
             onQuotaChange = { onSettingsChange(settings.copy(internalQuotaMb = it)) }
         )
@@ -170,6 +171,7 @@ internal fun SettingsStorageCard(
                 quotaLabel(settings.externalQuotaMb)
             ),
             quotaMb = settings.externalQuotaMb,
+            unusableFallbackMb = AppSettingsEntity.DEFAULT_EXTERNAL_QUOTA_MB,
             onValueClick = { editingQuota = QuotaScope.External },
             onQuotaChange = { onSettingsChange(settings.copy(externalQuotaMb = it)) }
         )
@@ -253,32 +255,42 @@ private fun externalUsageLabel(
     context: Context,
     access: ExportFolderAccess,
     usageBytes: Long?,
-): String = when {
-    access != ExportFolderAccess.OK -> stringResource(R.string.settings_external_usage_unavailable)
-    usageBytes == null -> stringResource(R.string.settings_external_usage_measuring)
-    else -> stringResource(R.string.settings_external_usage, Formatter.formatFileSize(context, usageBytes))
+): String {
+    // The probe has not answered yet: say "measuring", exactly as the hub row does, not "not reachable".
+    if (access == ExportFolderAccess.UNKNOWN) return stringResource(R.string.settings_external_usage_measuring)
+    val bytes = usageBytes
+    return if (access != ExportFolderAccess.OK || bytes == null) {
+        // A missing number behind a live grant is a listing the provider refused; anything else is no grant.
+        stringResource(R.string.settings_external_usage_unavailable)
+    } else {
+        stringResource(R.string.settings_external_usage, Formatter.formatFileSize(context, bytes))
+    }
 }
 
 /**
  * A quota row: the stepper moves one 100 MB step per tap, the value opens exact entry. Both are clamped by
- * [CleanupPolicy], so the number on screen is always one the purge will honour.
+ * [CleanupPolicy], so the number on screen is always one the purge will honour — except when the stored
+ * value is not in range at all, which the row states instead of pretending to be a limit.
  */
 @Composable
 private fun QuotaStepperRow(
     title: String,
     subtitle: String,
     quotaMb: Long,
+    unusableFallbackMb: Long,
     onValueClick: () -> Unit,
     onQuotaChange: (Long) -> Unit,
 ) {
+    val usable = CleanupPolicy.inRange(quotaMb)
     StepperRow(
         title = title,
         subtitle = subtitle,
+        hint = if (usable) null else stringResource(R.string.settings_quota_unusable),
         value = quotaLabel(quotaMb),
         onValueClick = onValueClick,
         valueClickLabel = title,
-        onDecrease = { onQuotaChange(CleanupPolicy.nextQuotaMb(quotaMb, -1)) },
-        onIncrease = { onQuotaChange(CleanupPolicy.nextQuotaMb(quotaMb, 1)) }
+        onDecrease = { onQuotaChange(CleanupPolicy.nextQuotaMb(quotaMb, -1, unusableFallbackMb)) },
+        onIncrease = { onQuotaChange(CleanupPolicy.nextQuotaMb(quotaMb, 1, unusableFallbackMb)) }
     )
 }
 

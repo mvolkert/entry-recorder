@@ -336,6 +336,11 @@ object ExportHelper {
      * talk about a quota for it. Only direct children of the chosen tree are listed — the same level
      * [saveFileToSafFolder] writes to — and every entry is reported, foreign files included, so the caller
      * decides what counts. Blocking provider query: call it on an IO dispatcher.
+     *
+     * Size and modification time are read as optional columns: the document provider contract does not
+     * guarantee either, and a provider that omits one is reporting an unknown amount rather than asking
+     * the caller to crash over it. The document id, name and mime type carry the listing itself, so those
+     * stay required.
      */
     fun listSafExportedFiles(context: Context, treeUri: Uri): List<SafExportedFile> {
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
@@ -353,8 +358,8 @@ object ExportHelper {
             val idIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
             val nameIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
             val mimeIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
-            val sizeIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
-            val modifiedIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+            val sizeIdx = c.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+            val modifiedIdx = c.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
             while (c.moveToNext()) {
                 val name = c.getString(nameIdx) ?: continue
                 // Subfolders are the user's own organisation; this app only ever writes flat.
@@ -362,8 +367,8 @@ object ExportHelper {
                 files += SafExportedFile(
                     uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, c.getString(idIdx)),
                     displayName = name,
-                    sizeBytes = c.getLong(sizeIdx),
-                    lastModifiedMillis = c.getLong(modifiedIdx),
+                    sizeBytes = if (sizeIdx >= 0) c.getLong(sizeIdx) else 0L,
+                    lastModifiedMillis = if (modifiedIdx >= 0) c.getLong(modifiedIdx) else 0L,
                 )
             }
         }
