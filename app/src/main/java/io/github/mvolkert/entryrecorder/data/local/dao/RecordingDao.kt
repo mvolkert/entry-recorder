@@ -45,6 +45,14 @@ interface RecordingDao {
     @Query("SELECT SUM(fileSizeBytes) FROM recordings")
     suspend fun getTotalStorageUsageBytes(): Long?
 
+    /**
+     * File paths of the clips the user protected. The external cleanup needs the names, not the rows: the
+     * mirror in the export folder is matched by file name, and a protected clip whose row still exists must
+     * never lose its exported copy.
+     */
+    @Query("SELECT filePath FROM recordings WHERE isProtected = 1")
+    suspend fun getProtectedFilePaths(): List<String>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRecording(recording: RecordingEntity): Long
 

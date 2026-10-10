@@ -3,6 +3,7 @@ package io.github.mvolkert.entryrecorder.data.local.entity
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
+import io.github.mvolkert.entryrecorder.util.CleanupPolicy
 
 @Entity(tableName = "app_settings")
 data class AppSettingsEntity(
@@ -12,7 +13,13 @@ data class AppSettingsEntity(
     val serverBaseUrl: String = "http://192.168.1.100:8000",
     val serverApiKey: String = "",
     val retentionDays: Int = 14,             // Auto-delete recordings older than N days (0 = disabled)
-    val maxStorageUsageMb: Long = 10240,     // 10 GB limit before purging oldest unprotected recordings
+    // The whole-archive byte limit that used to drive the only purge. Superseded by internalQuotaMb /
+    // externalQuotaMb below, which MIGRATION_16_17 backfills from it. Kept declared (like
+    // themeAccentIndex) so Room need not rebuild app_settings; nothing reads it anymore.
+    val maxStorageUsageMb: Long = 10240,
+    // The old master switch for the daily pass. Superseded by the two per-scope switches below;
+    // MIGRATION_16_17 seeds internalCleanupEnabled from it so an install that had cleanup turned off does
+    // not start deleting. Kept declared for the same reason; nothing reads it anymore.
     val autoCleanupEnabled: Boolean = true,
     // Legacy: alert & lockscreen behavior is now configured per device (see DeviceEntity). These
     // columns are kept declared (like themeAccentIndex below) so Room need not rebuild app_settings;
@@ -31,6 +38,18 @@ data class AppSettingsEntity(
     // Opt-in archive mirror: copies the original (lossless) MJPEG MKV into exportFolderUri right
     // after a local recording is finalized, so sync tools always see complete, up-to-date files.
     val autoExportOnFinalize: Boolean = false,
+    // Cap on the app's private storage (recordings plus thumbnails), stepped in 100 MB units. The daily
+    // purge deletes oldest-unprotected recordings down to one step below this, so it is a working set
+    // limit rather than a hard wall.
+    val internalQuotaMb: Long = 10240,
+    // Whether the daily pass may reclaim the internal quota at all. Independent of the external flag so
+    // an archive mirror on a NAS can keep its history while the phone stays small.
+    val internalCleanupEnabled: Boolean = true,
+    // Cap on the SAF export folder, measured over the direct children the app wrote there. Off by
+    // default: that folder is the long-term archive sync tools read, so reclaiming space in it is
+    // something the user has to ask for.
+    val externalQuotaMb: Long = 20480,
+    val externalCleanupEnabled: Boolean = false,
     // Legacy v8 field: the single index that used to drive all three accent roles. Superseded by
     // themePrimaryIndex/Secondary/Tertiary below (MIGRATION_8_9 copies its value into all three).
     // Nothing reads it; it stays declared because Room validates app_settings against this entity,
@@ -51,3 +70,20 @@ data class AppSettingsEntity(
     // exact previous look. Older API levels silently fall through to the presets.
     val themeUseDynamicColor: Boolean = false
 )
+
+/**
+ * Settings restored from a backup file, with a quota the file could not have carried brought back to the
+ * current default. Gson allocates an instance without running the constructor, so a field that did not
+ * exist when the backup was written reads as `0` / `false` rather than the declared default. Harmless for
+ * a theme index; a quota is not a value the cleanup arithmetic or the entry dialog can do anything with,
+ * and a cleanup switch that restores as absent stays *off*, which is the direction that never deletes.
+ */
+fun AppSettingsEntity.normalizedForRestore(): AppSettingsEntity {
+    val defaults = AppSettingsEntity()
+    return copy(
+        internalQuotaMb = if (internalQuotaMb >= CleanupPolicy.MIN_QUOTA_MB) internalQuotaMb
+        else defaults.internalQuotaMb,
+        externalQuotaMb = if (externalQuotaMb >= CleanupPolicy.MIN_QUOTA_MB) externalQuotaMb
+        else defaults.externalQuotaMb,
+    )
+}

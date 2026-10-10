@@ -330,4 +330,74 @@ object ExportHelper {
             treeUri.toString()
         }
     }
+
+    /**
+     * The documents the app itself put in the export folder, measured so the UI and the cleanup pass can
+     * talk about a quota for it. Only direct children of the chosen tree are listed — the same level
+     * [saveFileToSafFolder] writes to — and every entry is reported, foreign files included, so the caller
+     * decides what counts. Blocking provider query: call it on an IO dispatcher.
+     */
+    fun listSafExportedFiles(context: Context, treeUri: Uri): List<SafExportedFile> {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+            treeUri, DocumentsContract.getTreeDocumentId(treeUri)
+        )
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        )
+        val files = mutableListOf<SafExportedFile>()
+        context.contentResolver.query(childrenUri, projection, null, null, null)?.use { c ->
+            val idIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val nameIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            val mimeIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            val sizeIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
+            val modifiedIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+            while (c.moveToNext()) {
+                val name = c.getString(nameIdx) ?: continue
+                // Subfolders are the user's own organisation; this app only ever writes flat.
+                if (c.getString(mimeIdx) == DocumentsContract.Document.MIME_TYPE_DIR) continue
+                files += SafExportedFile(
+                    uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, c.getString(idIdx)),
+                    displayName = name,
+                    sizeBytes = c.getLong(sizeIdx),
+                    lastModifiedMillis = c.getLong(modifiedIdx),
+                )
+            }
+        }
+        return files
+    }
+
+    /**
+     * Removes one document from the export folder. Providers are free to refuse deletion (read-only
+     * mounts, documents they no longer serve), so the answer is a flag the caller logs rather than an
+     * exception it would only swallow.
+     */
+    fun deleteSafDocument(context: Context, documentUri: Uri): Boolean = try {
+        DocumentsContract.deleteDocument(context.contentResolver, documentUri)
+    } catch (e: Exception) {
+        Log.e(TAG, "Failed to delete $documentUri from the export folder", e)
+        false
+    }
 }
+
+/**
+ * One document in the SAF export folder: what it is called, how big it is and when the provider last
+ * touched it, together with the tree URI a deletion has to be addressed by. Whether the file belongs to
+ * this app at all is [isAppCreated]'s question, and [CleanupPlan] decides what may be removed.
+ */
+data class SafExportedFile(
+    val uri: Uri,
+    val displayName: String,
+    val sizeBytes: Long,
+    val lastModifiedMillis: Long,
+) {
+    /** Name-grammar proof that this app wrote the file; see [SafExportName.isAppCreated]. */
+    val isAppCreated: Boolean get() = SafExportName.isAppCreated(displayName)
+
+    /** The same document as the cleanup planner wants it, without the Android [uri]. */
+    fun toCleanupEntry(): ExportEntry = ExportEntry(displayName, sizeBytes, lastModifiedMillis)
+}
+

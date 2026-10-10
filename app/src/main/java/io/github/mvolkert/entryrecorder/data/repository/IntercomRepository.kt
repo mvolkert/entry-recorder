@@ -108,6 +108,9 @@ class IntercomRepository(
         return recordingDao.getTotalStorageUsageBytes() ?: 0L
     }
 
+    /** File paths of protected clips, used to keep their exported copies out of an external cleanup pass. */
+    suspend fun getProtectedFilePaths(): List<String> = recordingDao.getProtectedFilePaths()
+
     // Settings
     val settingsFlow: Flow<AppSettingsEntity?> = appSettingsDao.getSettingsFlow()
 
