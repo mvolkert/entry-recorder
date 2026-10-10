@@ -64,7 +64,7 @@
     <string name="recordings_celebration_saved">Saved</string>
     <string name="recordings_duration_size">%1$s s • %2$s</string>
     <string name="recordings_delete_title">Delete Recording?</string>
-    <string name="recordings_delete_body">Are you sure you want to delete this recording from %1$s?</string>
+    <string name="recordings_delete_body">This permanently deletes the %1$s recording and its file from this device. This cannot be undone.</string>
     <plurals name="recordings_bulk_delete_title">
         <item quantity="one">Delete %1$d recording?</item>
         <item quantity="other">Delete %1$d recordings?</item>
@@ -86,7 +86,7 @@
     <string name="recordings_export_folder_menu">Export to folder</string>
     <string name="recordings_export_folder_batch">Export to Folder</string>
     <string name="recordings_export_raw_folder_menu">Export raw MKV to folder</string>
-    <string name="recordings_export_raw_folder_batch">Raw MKVs to folder</string>
+    <string name="recordings_export_raw_folder_batch">Export original (unconverted) to folder</string>
     <string name="recordings_share_menu">Share</string>
     <string name="recordings_share_batch">Share…</string>
     <string name="recordings_save_gallery_menu">Save to Gallery</string>
@@ -98,6 +98,7 @@
     <string name="recordings_toast_exported_to">Exported to %1$s</string>
     <string name="recordings_toast_export_folder_failed">Export to folder failed</string>
     <string name="recordings_toast_nothing_selected">Nothing selected</string>
+    <string name="recordings_toast_deleted">Deleted</string>
     <plurals name="recordings_toast_saved_gallery">
         <item quantity="one">Saved %1$d of %2$d recording to Gallery</item>
         <item quantity="other">Saved %1$d of %2$d recordings to Gallery</item>

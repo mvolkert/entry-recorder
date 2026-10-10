@@ -310,6 +310,9 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
         if (selectionAnchorId == recording.id) selectionAnchorId = null
         viewModelScope.launch {
             repository.deleteRecording(recording)
+            // A row that quietly vanishes is inferred, not confirmed - and this one took a file with it.
+            // Short, because it is a receipt rather than news.
+            message(R.string.recordings_toast_deleted, short = true)
         }
     }
 
@@ -479,9 +482,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
             RecordingExportKind.SHARE ->
                 _events.trySend(RecordingsUiEvent.Share(listOf(file), recording = null, deviceName = deviceName, eventTypeLabel = label))
 
-            RecordingExportKind.GALLERY -> withContext(Dispatchers.IO) {
-                if (ExportHelper.saveFileToGallery(context, file, deviceName, onMessage = ::emitMessage)) celebrate()
-            }
+            RecordingExportKind.GALLERY -> if (saveSingleToGallery(file, deviceName)) celebrate()
 
             // RAW_FOLDER never reaches a server row (no local original), it just keeps the when exhaustive.
             RecordingExportKind.FOLDER, RecordingExportKind.RAW_FOLDER -> {
@@ -662,9 +663,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
         when (kind) {
             RecordingExportKind.SHARE -> _events.trySend(RecordingsUiEvent.Share(listOf(file), recording))
 
-            RecordingExportKind.GALLERY -> withContext(Dispatchers.IO) {
-                if (ExportHelper.saveFileToGallery(context, file, recording, onMessage = ::emitMessage)) celebrate()
-            }
+            RecordingExportKind.GALLERY -> if (saveSingleToGallery(file, recording.deviceName)) celebrate()
 
             RecordingExportKind.FOLDER, RecordingExportKind.RAW_FOLDER -> {
                 val treeUri = exportFolderUri.toUri()
@@ -686,6 +685,28 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     /** Marks a flow as completed for the screen's celebration moment (see [RecordingsUiEvent.ExportCompleted]). */
     private fun celebrate() {
         _events.trySend(RecordingsUiEvent.ExportCompleted)
+    }
+
+    /**
+     * Saves one finished file into the public gallery. [ExportHelper]'s own success line is swallowed and
+     * said here instead, exactly once and next to the celebration check: with the system's animation scale
+     * at zero the check returns immediately, and a save that only flickered would leave no record that it
+     * happened. Every other outcome - a vanished source, a rejected MediaStore insert, the pre-Q write
+     * that reports the path it chose - still reaches the snack bar as it comes.
+     */
+    private suspend fun saveSingleToGallery(source: File, deviceName: String): Boolean {
+        val successLine = context.getString(R.string.export_saved_gallery)
+        var reportedSomething = false
+        val saved = withContext(Dispatchers.IO) {
+            ExportHelper.saveFileToGallery(context, source, deviceName, onMessage = { text ->
+                if (text != successLine) {
+                    reportedSomething = true
+                    emitMessage(text)
+                }
+            })
+        }
+        if (saved && !reportedSomething) emitMessage(successLine)
+        return saved
     }
 
     private fun message(@StringRes id: Int, vararg args: Any, short: Boolean = false) {

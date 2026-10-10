@@ -387,6 +387,7 @@ fun RecordingsScreen(
     recordingToDelete?.let { rec ->
         DeleteRecordingDialog(
             deviceName = rec.deviceName,
+            timestamp = rec.timestamp,
             onDismiss = { recordingToDelete = null },
             onConfirm = {
                 viewModel.deleteRecording(rec)
@@ -398,6 +399,7 @@ fun RecordingsScreen(
     serverItemToDelete?.let { item ->
         DeleteRecordingDialog(
             deviceName = item.deviceName,
+            timestamp = item.timestamp,
             onDismiss = { serverItemToDelete = null },
             onConfirm = {
                 viewModel.deleteServerRecording(item)

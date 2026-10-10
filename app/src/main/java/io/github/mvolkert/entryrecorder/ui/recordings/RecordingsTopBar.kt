@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
@@ -37,6 +38,8 @@ import io.github.mvolkert.entryrecorder.R
  *
  * In selection mode the title is the batch: [selectedCount] rows, plus a note when [hiddenSelectedCount]
  * of them are checked but filtered away, so the number never claims fewer rows than the operation covers.
+ * The two batch actions only appear once a row is picked - a greyed export and a greyed delete say
+ * "nothing to do here" louder than their absence, and entering this mode means "start picking rows".
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,44 +74,42 @@ internal fun RecordingsTopBar(
                 IconButton(onClick = onSelectAll) {
                     Icon(Icons.Default.SelectAll, contentDescription = stringResource(R.string.recordings_cd_select_all))
                 }
-                Box {
-                    IconButton(
-                        onClick = { showExportMenu = true },
-                        enabled = selectedCount > 0
-                    ) {
-                        Icon(Icons.Default.Upload, contentDescription = stringResource(R.string.recordings_cd_export_selected))
+                if (selectedCount > 0) {
+                    Box {
+                        IconButton(onClick = { showExportMenu = true }) {
+                            Icon(Icons.Default.Upload, contentDescription = stringResource(R.string.recordings_cd_export_selected))
+                        }
+                        DropdownMenu(
+                            expanded = showExportMenu,
+                            onDismissRequest = { showExportMenu = false }
+                        ) {
+                            BatchExportOption(R.string.recordings_share_batch, Icons.Default.Share) {
+                                showExportMenu = false
+                                onExportSelected(RecordingExportKind.SHARE)
+                            }
+                            BatchExportOption(R.string.recordings_save_gallery_menu, Icons.Default.Download) {
+                                showExportMenu = false
+                                onExportSelected(RecordingExportKind.GALLERY)
+                            }
+                            BatchExportOption(R.string.recordings_export_folder_batch, Icons.Default.SaveAlt) {
+                                showExportMenu = false
+                                onExportSelected(RecordingExportKind.FOLDER)
+                            }
+                            // The unconverted copy is the one entry that does not produce a playable file, so
+                            // it gets the open-folder icon instead of a fourth save-shaped one.
+                            BatchExportOption(R.string.recordings_export_raw_folder_batch, Icons.Default.FolderOpen) {
+                                showExportMenu = false
+                                onExportSelected(RecordingExportKind.RAW_FOLDER)
+                            }
+                        }
                     }
-                    DropdownMenu(
-                        expanded = showExportMenu,
-                        onDismissRequest = { showExportMenu = false }
-                    ) {
-                        BatchExportOption(R.string.recordings_share_batch, Icons.Default.Share) {
-                            showExportMenu = false
-                            onExportSelected(RecordingExportKind.SHARE)
-                        }
-                        BatchExportOption(R.string.recordings_save_gallery_menu, Icons.Default.Download) {
-                            showExportMenu = false
-                            onExportSelected(RecordingExportKind.GALLERY)
-                        }
-                        BatchExportOption(R.string.recordings_export_folder_batch, Icons.Default.SaveAlt) {
-                            showExportMenu = false
-                            onExportSelected(RecordingExportKind.FOLDER)
-                        }
-                        BatchExportOption(R.string.recordings_export_raw_folder_batch, Icons.Default.SaveAlt) {
-                            showExportMenu = false
-                            onExportSelected(RecordingExportKind.RAW_FOLDER)
-                        }
+                    IconButton(onClick = onBulkDelete) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = stringResource(R.string.recordings_cd_delete_selected),
+                            tint = MaterialTheme.colorScheme.error
+                        )
                     }
-                }
-                IconButton(
-                    onClick = onBulkDelete,
-                    enabled = selectedCount > 0
-                ) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = stringResource(R.string.recordings_cd_delete_selected),
-                        tint = MaterialTheme.colorScheme.error
-                    )
                 }
                 IconButton(onClick = onExitSelection) {
                     Icon(Icons.Default.Close, contentDescription = stringResource(R.string.recordings_cd_exit_selection))

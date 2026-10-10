@@ -35,17 +35,33 @@ import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 // so it is a dialog; a running export needs no answer, so it is the strip at the bottom of this file and
 // never covers the list.
 
-/** Confirmation shown before a single recording (local or server) is removed. */
+/**
+ * Confirmation shown before a single recording (local or server) is removed. [timestamp] names the exact
+ * clip, because two recordings from the same device differ only by when they happened - and the row that
+ * vanishes after the answer has to be the row that was asked about.
+ */
 @Composable
 internal fun DeleteRecordingDialog(
     deviceName: String,
+    timestamp: Long,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
+    val dateStr = galleryDateStr(timestamp)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.recordings_delete_title)) },
-        text = { Text(stringResource(R.string.recordings_delete_body, deviceName)) },
+        text = {
+            Column {
+                Text(stringResource(R.string.recordings_delete_body, deviceName))
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = dateStr,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error)

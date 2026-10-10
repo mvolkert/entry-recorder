@@ -109,7 +109,7 @@ fun LiveCamerasScreen(
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(24.dp)
+                        modifier = Modifier.padding(Spacing.xl)
                     ) {
                         ExpressiveIconBadge(
                             icon = Icons.Default.VideocamOff,
@@ -119,7 +119,7 @@ fun LiveCamerasScreen(
                             size = 96.dp,
                             iconSize = 44.dp,
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(Spacing.lg))
                         Text(
                             text = stringResource(R.string.live_empty_title),
                             style = MaterialTheme.typography.titleLarge

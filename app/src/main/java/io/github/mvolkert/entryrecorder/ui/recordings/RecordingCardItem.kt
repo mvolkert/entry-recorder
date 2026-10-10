@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreVert
@@ -150,7 +151,7 @@ internal fun galleryThumbnailModel(item: GalleryItem): Any? = when (item) {
     is GalleryItem.Remote -> item.thumbnailAbsoluteUrl
 }
 
-/** Locale-aware gallery timestamp, shared by the list rows and the hero card. */
+/** Locale-aware gallery timestamp, shared by the list rows and the delete confirmation. */
 @Composable
 internal fun galleryDateStr(timestamp: Long): String {
     val locale = LocalConfiguration.current.locales[0]
@@ -289,7 +290,9 @@ internal fun RecordingActionsMenu(
             if (onExportRawFolder != null) {
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.recordings_export_raw_folder_menu)) },
-                    leadingIcon = { Icon(Icons.Default.SaveAlt, contentDescription = null) },
+                    // Same icon as the batch menu's entry for the same thing: the unconverted copy, which
+                    // is the one export that does not produce a playable file.
+                    leadingIcon = { Icon(Icons.Default.FolderOpen, contentDescription = null) },
                     onClick = {
                         menuExpanded = false
                         onExportRawFolder()
