@@ -43,6 +43,12 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    testOptions {
+        // The JVM unit tests drive real ViewModel code paths, and those still log through
+        // android.util.Log. Without this, every stubbed android.jar method throws "not mocked".
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 // Room writes one JSON per schema version here, so a migration review is a diff of two committed files
