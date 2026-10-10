@@ -420,7 +420,6 @@
     <string name="export_source_not_found">Source file not found</string>
     <string name="export_saved_gallery">Saved to Movies/EntryRecorder</string>
     <string name="export_mediastore_failed">Failed to create MediaStore entry</string>
-    <string name="export_saved_path">Saved to %1$s</string>
     <string name="export_save_failed">Save failed: %1$s</string>
 
     <!-- Enum display labels (badges, status pills, capability lines) -->

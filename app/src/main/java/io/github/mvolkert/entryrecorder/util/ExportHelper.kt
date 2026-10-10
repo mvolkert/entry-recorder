@@ -3,6 +3,7 @@ package io.github.mvolkert.entryrecorder.util
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -158,8 +159,13 @@ object ExportHelper {
 
     /**
      * [saveFileToGallery] core with an explicit [deviceName] used only for the file label, so server
-     * recordings (no local row) can be saved from a downloaded file. Outcome text goes to [onMessage]
+     * recordings (no local row) can be saved from a downloaded file. Outcome text goes back to [onMessage]
      * on the caller's thread; the return value stays the success flag the batch counters add up.
+     *
+     * MediaStore on every supported API level, because writing the public Movies folder through the File
+     * API needs `WRITE_EXTERNAL_STORAGE` — a permission this app never declares — so the pre-Q file copy it
+     * replaced could only ever throw. Below Q the row is placed by its `DATA` column and the media scanner
+     * is nudged by hand; from Q on the provider does both itself.
      */
     fun saveFileToGallery(
         context: Context,
@@ -172,45 +178,63 @@ object ExportHelper {
             return false
         }
 
-        return try {
-            val extension = sourceFile.extension.ifBlank { "mkv" }
-            val fileName = "EntryRecorder_${deviceName}_${System.currentTimeMillis()}.$extension"
+        val extension = sourceFile.extension.ifBlank { "mkv" }
+        val fileName = "EntryRecorder_${deviceName}_${System.currentTimeMillis()}.$extension"
+        val mimeType = mimeFor(sourceFile)
+        val usesPendingRow = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val values = ContentValues().apply {
-                    put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
-                    put(MediaStore.Video.Media.MIME_TYPE, mimeFor(sourceFile))
+        return try {
+            // Only the pre-Q row can be addressed by a path, and the path is what the scanner has to be
+            // told about afterwards, so it is computed here rather than inside the branch below.
+            @Suppress("DEPRECATION") // Owner-approved legacy branch: pre-Q MediaStore has no RELATIVE_PATH.
+            val legacyTarget = if (usesPendingRow) null else File(
+                File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "EntryRecorder"),
+                fileName,
+            )
+
+            val values = ContentValues().apply {
+                put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
+                put(MediaStore.Video.Media.MIME_TYPE, mimeType)
+                if (usesPendingRow) {
                     put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/EntryRecorder")
                     put(MediaStore.Video.Media.IS_PENDING, 1)
-                }
-
-                val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                val itemUri = context.contentResolver.insert(collection, values)
-
-                if (itemUri != null) {
-                    context.contentResolver.openOutputStream(itemUri).use { out ->
-                        FileInputStream(sourceFile).use { input ->
-                            input.copyTo(out!!)
-                        }
-                    }
-
-                    values.clear()
-                    values.put(MediaStore.Video.Media.IS_PENDING, 0)
-                    context.contentResolver.update(itemUri, values, null, null)
-                    onMessage(context.getString(R.string.export_saved_gallery))
-                    true
                 } else {
-                    onMessage(context.getString(R.string.export_mediastore_failed))
-                    false
+                    put(MediaStore.MediaColumns.DATA, legacyTarget?.absolutePath)
                 }
-            } else {
-                val destDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "EntryRecorder")
-                destDir.mkdirs()
-                val destFile = File(destDir, fileName)
-                sourceFile.copyTo(destFile, overwrite = true)
-                onMessage(context.getString(R.string.export_saved_path, destFile.absolutePath))
-                true
             }
+
+            val collection = if (usesPendingRow) {
+                MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            } else {
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            }
+            val itemUri = context.contentResolver.insert(collection, values)
+            if (itemUri == null) {
+                onMessage(context.getString(R.string.export_mediastore_failed))
+                return false
+            }
+
+            val stream = context.contentResolver.openOutputStream(itemUri)
+            if (stream == null) {
+                // The provider created an empty row it will list as a clip; take it back out.
+                context.contentResolver.delete(itemUri, null, null)
+                onMessage(context.getString(R.string.export_mediastore_failed))
+                return false
+            }
+            stream.use { out -> FileInputStream(sourceFile).use { input -> input.copyTo(out) } }
+
+            if (usesPendingRow) {
+                values.clear()
+                values.put(MediaStore.Video.Media.IS_PENDING, 0)
+                context.contentResolver.update(itemUri, values, null, null)
+            } else {
+                legacyTarget?.let {
+                    MediaScannerConnection.scanFile(context, arrayOf(it.absolutePath), null, null)
+                }
+            }
+
+            onMessage(context.getString(R.string.export_saved_gallery))
+            true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save to gallery", e)
             onMessage(context.getString(R.string.export_save_failed, e.localizedMessage ?: ""))
