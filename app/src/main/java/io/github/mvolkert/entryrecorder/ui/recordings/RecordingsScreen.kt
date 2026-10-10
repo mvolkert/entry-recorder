@@ -220,11 +220,18 @@ fun RecordingsScreen(
             } else {
                 // Every clip is one row of the same list: no hero above the newest item, so the gallery
                 // reads as a uniform archive and each row keeps the same tap, long-press and menu targets.
+                // animateItem()'s own defaults are framework springs that ignore the scheme, so all three
+                // phases name the motion scheme's specs (Design.md §4).
+                val motion = MaterialTheme.motionScheme
                 val rows: LazyListScope.() -> Unit = {
                     items(state.items, key = { it.stableKey }) { item ->
                         val localId = (item as? GalleryItem.Local)?.entity?.id
                         RecordingCardItem(
-                            modifier = Modifier.animateItem(),
+                            modifier = Modifier.animateItem(
+                                fadeInSpec = motion.defaultEffectsSpec(),
+                                placementSpec = motion.defaultSpatialSpec(),
+                                fadeOutSpec = motion.defaultEffectsSpec(),
+                            ),
                             item = item,
                             selectionMode = selectionMode,
                             selected = item is GalleryItem.Local && item.entity.id in selectedIds,

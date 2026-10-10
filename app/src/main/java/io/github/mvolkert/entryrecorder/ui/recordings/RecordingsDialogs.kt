@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.ui.components.ProgressLine
@@ -141,14 +142,17 @@ internal fun RunProgressStrip(
     var lastRun by remember { mutableStateOf(run) }
     if (run != null) lastRun = run
 
-    // Alpha takes the effects spec; the slide keeps the transition's own spatial spring, since the
-    // motion scheme's spatial spec is Float-typed and a vertical offset needs an Int.
+    // Alpha takes the effects spec and the offset the spatial one; both are generic over the animated
+    // type, so a vertical IntOffset gets the scheme's spring rather than the transition's own default.
     val effectsSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+    val slideSpec = MaterialTheme.motionScheme.fastSpatialSpec<IntOffset>()
 
     AnimatedVisibility(
         visible = run != null,
-        enter = fadeIn(animationSpec = effectsSpec) + slideInVertically(initialOffsetY = { -it / 3 }),
-        exit = fadeOut(animationSpec = effectsSpec) + slideOutVertically(targetOffsetY = { -it / 3 }),
+        enter = fadeIn(animationSpec = effectsSpec) +
+            slideInVertically(animationSpec = slideSpec, initialOffsetY = { -it / 3 }),
+        exit = fadeOut(animationSpec = effectsSpec) +
+            slideOutVertically(animationSpec = slideSpec, targetOffsetY = { -it / 3 }),
         modifier = modifier,
         label = "runProgressStrip",
     ) {

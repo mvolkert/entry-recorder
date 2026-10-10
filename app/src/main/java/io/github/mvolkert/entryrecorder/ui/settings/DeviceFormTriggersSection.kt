@@ -1,10 +1,6 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -71,8 +67,8 @@ internal fun DeviceFormTriggersSection(form: DeviceFormState) {
     // so the picker appears only once "Analyzed in-app" is the chosen source.
     AnimatedVisibility(
         visible = form.motionSource == MotionSource.APP,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically(),
+        enter = formRevealEnter(),
+        exit = formRevealExit(),
     ) {
         // AnimatedVisibility gives an AnimatedVisibilityScope, not a ColumnScope, so the picker and
         // its explanation would otherwise overlap instead of stacking.

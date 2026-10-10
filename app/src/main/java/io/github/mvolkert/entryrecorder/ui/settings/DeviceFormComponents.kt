@@ -1,6 +1,12 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
 import androidx.annotation.StringRes
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,7 +41,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -48,13 +55,36 @@ import io.github.mvolkert.entryrecorder.ui.adaptive.LocalWindowInfo
 import io.github.mvolkert.entryrecorder.ui.adaptive.WindowInfo
 import io.github.mvolkert.entryrecorder.ui.components.MorphingIcon
 
-/** Bold group title inside the device form. */
+/** Group title inside the device form; the role carries the weight and it is an accessibility heading. */
 @Composable
 internal fun FormSectionLabel(@StringRes labelRes: Int) {
-    Text(stringResource(labelRes), fontWeight = FontWeight.Bold)
+    Text(
+        stringResource(labelRes),
+        style = MaterialTheme.typography.titleSmall,
+        modifier = Modifier.semantics { heading() },
+    )
 }
 
-/** Title / switch row whose title carries Medium emphasis (HTTPS and the device-enabled toggle). */
+/**
+ * Reveal for a device-form block that a switch uncovers: alpha takes the scheme's effects spec and the
+ * height change its spatial spec, so no conditional section animates on a framework default.
+ */
+@Composable
+internal fun formRevealEnter(): EnterTransition {
+    val motion = MaterialTheme.motionScheme
+    return fadeIn(animationSpec = motion.defaultEffectsSpec()) +
+        expandVertically(animationSpec = motion.defaultSpatialSpec())
+}
+
+/** The matching collapse of [formRevealEnter]. */
+@Composable
+internal fun formRevealExit(): ExitTransition {
+    val motion = MaterialTheme.motionScheme
+    return fadeOut(animationSpec = motion.defaultEffectsSpec()) +
+        shrinkVertically(animationSpec = motion.defaultSpatialSpec())
+}
+
+/** Title / switch row whose title takes the role one step heavier than the hint rows (HTTPS, device-enabled). */
 @Composable
 internal fun FormEmphasizedSwitchRow(
     title: String,
@@ -63,7 +93,7 @@ internal fun FormEmphasizedSwitchRow(
 ) {
     SettingsItemRow(
         onClick = { onCheckedChange(!checked) },
-        leading = { Text(title, fontWeight = FontWeight.Medium) },
+        leading = { Text(title, style = MaterialTheme.typography.titleMedium) },
         trailing = { Switch(checked = checked, onCheckedChange = onCheckedChange) }
     )
 }

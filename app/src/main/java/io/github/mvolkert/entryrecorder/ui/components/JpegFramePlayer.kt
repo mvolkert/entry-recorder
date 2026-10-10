@@ -3,6 +3,8 @@ package io.github.mvolkert.entryrecorder.ui.components
 import android.graphics.BitmapFactory
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
@@ -244,8 +246,20 @@ fun JpegFramePlayer(
                 )
             }
             val accent = MaterialTheme.colorScheme.primary
+            val sliderValue = if (refs.size <= 1) 0f else index.toFloat()
+            // The frame count arrives after the first composition, so the state cannot be the saveable
+            // rememberSliderState - its track range would stay at the 0..1 it was built with. It is keyed on
+            // refs.size instead, and playback pushes the position in unless a drag holds the thumb.
+            val seekInteractionSource = remember { MutableInteractionSource() }
+            val isSeeking by seekInteractionSource.collectIsDraggedAsState()
+            val sliderState = remember(refs.size) {
+                SliderState(value = sliderValue, steps = 0, trackRange = 0f..(refs.size - 1).coerceAtLeast(1).toFloat())
+            }
+            LaunchedEffect(index, refs.size) {
+                if (!isSeeking) sliderState.value = sliderValue
+            }
             Slider(
-                value = if (refs.size <= 1) 0f else index.toFloat(),
+                state = sliderState,
                 onValueChange = {
                     // A drag always pauses the loop so the frame under the thumb stays put, and remembers
                     // that it was running — a clip the user stopped first stays stopped.
@@ -261,7 +275,6 @@ fun JpegFramePlayer(
                         resumeAfterScrub = false
                     }
                 },
-                valueRange = 0f..(refs.size - 1).coerceAtLeast(1).toFloat(),
                 // A single frame has no position to move to, and the disabled pair in the colors below is
                 // the only state that says so.
                 enabled = refs.size > 1,
@@ -273,6 +286,7 @@ fun JpegFramePlayer(
                     disabledActiveTrackColor = accent.copy(alpha = 0.38f),
                     disabledInactiveTrackColor = accent.copy(alpha = 0.12f)
                 ),
+                interactionSource = seekInteractionSource,
                 modifier = Modifier
                     .fillMaxWidth()
                     .semantics {

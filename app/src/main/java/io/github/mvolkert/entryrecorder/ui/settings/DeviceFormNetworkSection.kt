@@ -1,10 +1,6 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
@@ -88,8 +84,8 @@ internal fun DeviceFormNetworkSection(form: DeviceFormState) {
     )
     AnimatedVisibility(
         visible = form.useHttps,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically(),
+        enter = formRevealEnter(),
+        exit = formRevealExit(),
     ) {
         OutlinedTextField(
             value = form.httpsPort,

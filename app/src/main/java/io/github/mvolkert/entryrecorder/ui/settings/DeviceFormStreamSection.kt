@@ -1,10 +1,6 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -70,8 +66,8 @@ internal fun DeviceFormStreamSection(
     AnimatedVisibility(
         visible = form.streamProtocol == StreamProtocol.MJPEG_STREAM ||
             form.streamProtocol == StreamProtocol.AUTO,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically(),
+        enter = formRevealEnter(),
+        exit = formRevealExit(),
     ) {
         OutlinedTextField(
             value = form.mjpegPath,
@@ -86,8 +82,8 @@ internal fun DeviceFormStreamSection(
     AnimatedVisibility(
         visible = form.streamProtocol == StreamProtocol.HTTP_SNAPSHOT ||
             form.streamProtocol == StreamProtocol.AUTO,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically(),
+        enter = formRevealEnter(),
+        exit = formRevealExit(),
     ) {
         // AnimatedVisibility gives an AnimatedVisibilityScope, not a ColumnScope, so its direct
         // children overlap unless they get their own stacking Column.

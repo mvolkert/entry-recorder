@@ -134,6 +134,9 @@ fun LiveCamerasScreen(
                     }
                 }
             } else {
+                // animateItem()'s own defaults are framework springs that ignore the scheme, so all three
+                // phases name the motion scheme's specs (Design.md §4).
+                val motion = MaterialTheme.motionScheme
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(Spacing.lg),
@@ -152,7 +155,11 @@ fun LiveCamerasScreen(
                                 "${settings.serverBaseUrl.trimEnd('/')}/api/live/${device.serverDeviceId}/mjpeg"
                             else null
                         LiveDeviceCard(
-                            modifier = Modifier.animateItem(),
+                            modifier = Modifier.animateItem(
+                                fadeInSpec = motion.defaultEffectsSpec(),
+                                placementSpec = motion.defaultSpatialSpec(),
+                                fadeOutSpec = motion.defaultEffectsSpec(),
+                            ),
                             device = device,
                             mjpegReader = viewModel.mjpegReader,
                             snapshotClient = viewModel.snapshotClient,
