@@ -24,6 +24,20 @@ android {
         }
     }
 
+    buildTypes {
+        // R8 ships in the release build: nothing had ever proved that the Gson-reflected JSON models or the
+        // reflectively instantiated workers survive shrinking. Signing stays out of this file, exactly as
+        // it was before, so this change cannot alter which key a release is signed with.
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -68,7 +82,6 @@ dependencies {
     // OkHttp for 2N REST API & Server-Sent Events (SSE)
     implementation(libs.okhttp)
     implementation(libs.okhttp.sse)
-    implementation(libs.okhttp.logging.interceptor)
 
     // Linphone SDK for SIP calling (Peer-to-Peer and PBX registrar)
     implementation(libs.linphone.sdk.android)
