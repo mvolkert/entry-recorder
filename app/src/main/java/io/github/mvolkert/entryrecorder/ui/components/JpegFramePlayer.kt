@@ -18,6 +18,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
@@ -25,6 +26,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.mvolkert.entryrecorder.R
+import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 import io.github.mvolkert.entryrecorder.ui.theme.onScrimColor
 import io.github.mvolkert.entryrecorder.video.MjpegMkvReader
 import kotlinx.coroutines.Dispatchers
@@ -139,6 +141,7 @@ fun JpegFramePlayer(
     val currentMs = refs.getOrNull(index)?.let { it.timestampMs - refs.first().timestampMs } ?: 0L
     // Resolved outside the semantics lambda, which is not a composable scope.
     val seekLabel = stringResource(R.string.player_cd_seek)
+    val seekState = stringResource(R.string.player_state_seek, index + 1, refs.size)
 
     Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.9f))) {
         val img = frame
@@ -148,6 +151,8 @@ fun JpegFramePlayer(
                     if (file.exists()) R.string.player_no_frames else R.string.player_file_not_found
                 ),
                 color = onScrimColor,
+                // The same role the damaged-frame state below uses; a bare Text would default to bodyLarge.
+                style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.align(Alignment.Center)
             )
         } else if (frameFailed) {
@@ -157,7 +162,7 @@ fun JpegFramePlayer(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .padding(horizontal = 24.dp)
+                    .padding(horizontal = Spacing.xl)
             ) {
                 Text(
                     text = stringResource(R.string.player_error_decode),
@@ -165,7 +170,7 @@ fun JpegFramePlayer(
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(Spacing.sm))
                 TextButton(
                     onClick = {
                         frameFailed = false
@@ -186,14 +191,22 @@ fun JpegFramePlayer(
                 contentScale = ContentScale.Fit
             )
         } else {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            // Tinted for the scrim like every other glyph here: the scheme's primary is only guaranteed
+            // against a light surface, and this indicator sits on black.
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.Center),
+                color = onScrimColor
+            )
         }
 
         // Transport controls: timestamps row above an edge-to-edge timeline. The strip reaches the window
-        // edge but keeps its contents clear of the system bar, because the player is handed the whole
-        // window and the navigation bar would otherwise cover the timeline. background first, insets
-        // second: a background fills the region including padding added later in the chain. The cutout is
-        // stacked rather than unioned with the bars, so a landscape punch-hole cannot eat the timeline.
+        // edge but keeps its contents clear of the system bar - the player layer now sits over the app's
+        // own navigation suite, and the gesture pill would otherwise land on the timeline. background
+        // first, insets second: a background fills the region including padding added later in the chain.
+        // The cutout is stacked rather than unioned with the bars, so a landscape punch-hole cannot eat the
+        // timeline, and the token bottom step after both adds air on a device whose inset reports as zero.
+        // No haptic tick per step: one drag crosses dozens of frames, so it would buzz continuously rather
+        // than mark a stop.
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -201,12 +214,16 @@ fun JpegFramePlayer(
                 .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f))
                 .windowInsetsPadding(WindowInsets.navigationBars)
                 .windowInsetsPadding(WindowInsets.displayCutout)
+                .padding(bottom = Spacing.lg)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 8.dp)
+                modifier = Modifier.padding(horizontal = Spacing.lg)
             ) {
-                IconButton(onClick = { if (refs.size >= 2) playing = !playing }) {
+                IconButton(
+                    onClick = { playing = !playing },
+                    enabled = refs.size >= 2,
+                ) {
                     MorphingIcon(
                         imageVector = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = stringResource(if (playing) R.string.player_cd_pause else R.string.player_cd_play),
@@ -223,7 +240,7 @@ fun JpegFramePlayer(
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier
                         .weight(1f)
-                        .padding(start = 8.dp)
+                        .padding(start = Spacing.sm)
                 )
             }
             val accent = MaterialTheme.colorScheme.primary
@@ -245,6 +262,9 @@ fun JpegFramePlayer(
                     }
                 },
                 valueRange = 0f..(refs.size - 1).coerceAtLeast(1).toFloat(),
+                // A single frame has no position to move to, and the disabled pair in the colors below is
+                // the only state that says so.
+                enabled = refs.size > 1,
                 colors = SliderDefaults.colors(
                     thumbColor = accent,
                     activeTrackColor = accent,
@@ -255,14 +275,24 @@ fun JpegFramePlayer(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    // Announcing a bare percentage would not say what the handle is a position *in*.
-                    .semantics { contentDescription = seekLabel }
-                    // One thumb footprint of clearance so the 44dp-tall M3 handle never sits flush to the screen edge.
-                    .padding(horizontal = 24.dp, vertical = 8.dp)
+                    .semantics {
+                        // Announcing a bare percentage would not say what the handle is a position *in*.
+                        contentDescription = seekLabel
+                        stateDescription = seekState
+                    }
+                    .padding(horizontal = TimelineEdgeClearance, vertical = Spacing.xs)
             )
         }
     }
 }
+
+/**
+ * The expressive slider handle is a 4x44 dp pill whose touch bounds reach the composable's own edge, so the
+ * timeline needs one Spacing step plus a thumb footprint before the screen edge while the strip stays
+ * full-bleed. The row above it is inset by [Spacing.lg] alone, which puts the play glyph within 4 dp of the
+ * track's start so the two read as one edge.
+ */
+private val TimelineEdgeClearance = Spacing.xl + 8.dp
 
 /**
  * Monotonic millisecond clock for the frame schedule. `System.nanoTime` rather than

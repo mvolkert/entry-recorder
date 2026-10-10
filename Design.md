@@ -174,6 +174,10 @@ place, and each gets re-checked on every Material upgrade.
   and both glyph steps on each test run.
 - `ui/theme/Theme.kt` — `Spacing` steps. Material 3 ships no spacing tokens, so the multiples of 4/8 that
   layouts already used are named once instead of repeating as dp literals.
+- `ui/components/JpegFramePlayer.kt` — `TimelineEdgeClearance` (one `Spacing` step plus a thumb footprint) and
+  the strip's token bottom clearance. The expressive handle is a 4x44 dp pill whose touch bounds reach the
+  slider's own edge, and gesture navigation reports a bottom inset of near zero, so neither the system bar
+  nor a `Spacing` step on its own keeps the timeline off the screen edge.
 - Shape gap in the pinned material3 — `MaterialTheme.shapes` has no `full` token, so `CircleShape` renders
   every stadium pill (`StatusChip`, `CelebrationCheck`, the search field). Swap to the token when it lands.
 - `ui/components` holds the wrappers section 7 asks for: `StatusChip`, `RecordFab`, `LoadingSpot`,
