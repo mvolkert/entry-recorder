@@ -16,11 +16,22 @@ import java.util.Locale
  * folder overlaps a synced copy of the server archive. Anything that is not one of the two patterns below
  * is neither measured nor touched, which is what makes it safe to point the app at a folder that also holds
  * the user's own files.
+ *
+ * This is inference, not proof. One case stays indistinguishable: the server's fallback without an encoder
+ * writes a raw JPEG-in-MKV dump under the same `REC_<device>_<EVENT>_<timestamp>.mkv` name the app mirrors,
+ * so a folder that overlaps a synced server archive can still have server clips of that kind pruned from it.
+ * Only a record of what the app exported could settle that, which would mean a database row per export.
  */
 object SafExportName {
 
-    /** What `RtspStreamRecorder` writes, plus the `_h264` copy `ExportTranscoder` makes at export time. */
-    private val recordingName = Regex("""^REC_\d+_[A-Z]+_\d{8}_\d{6}(?:_h264)?\.[A-Za-z0-9]{1,5}$""")
+    /**
+     * The two files the app puts in the folder: the raw MJPEG MKV the auto-export mirror copies there
+     * (`RtspStreamRecorder`) and the H.264 transcode an export writes next to it (`ExportTranscoder`).
+     * Extension and suffix are both pinned, because the server names its own clips the same way and picks
+     * `.mp4` whenever it has an encoder — a looser pattern would classify those files as app-owned and
+     * hand them to the delete loop.
+     */
+    private val recordingName = Regex("""^REC_\d+_[A-Z]+_\d{8}_\d{6}(?:_h264\.mp4|\.mkv)$""")
 
     /** A server recording this app downloaded into the folder (`ServerRecordingClient` picks mkv or mp4). */
     private val serverDownloadName = Regex("""^server_rec_\d+\.[A-Za-z0-9]{1,5}$""")

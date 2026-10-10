@@ -1,15 +1,21 @@
 package io.github.mvolkert.entryrecorder.util
 
+import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import io.github.mvolkert.entryrecorder.data.model.EventType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The external pass ends in `DocumentsContract.deleteDocument`, so the decision that leads there gets its
- * own tests: which files the folder's usage is measured over, which of those are candidates at all, in
- * which order they are picked, and when the picking stops. Everything here runs on plain names and byte
- * counts instead of a live content provider.
+ * Both cleanup passes end in a delete call, so the decision that leads there gets its own tests: what a
+ * quota is allowed to touch, what it is measured over, in which order candidates are picked and when the
+ * picking stops. Everything here runs on plain names and byte counts instead of a live content provider or
+ * an app database.
+ *
+ * The bound a pass aims for is measured over the bytes that pass may actually remove, which is what the
+ * `asks for nothing` cases below pin down: a folder dominated by protected clips or server downloads must
+ * not turn into an order to delete everything that is not.
  */
 class CleanupPlanTest {
 
@@ -27,27 +33,58 @@ class CleanupPlanTest {
                 entry("REC_1_MOTION_20240616_083012.mkv", 300),
             ),
             protectedNames = protectedNames,
-            quotaMb = 400,
+            quotaMb = 100,
         )
         assertEquals(listOf("REC_1_MOTION_20240616_083012.mkv"), plan.deletions.map { it.displayName })
-        assertEquals(900 * mb, plan.appBytes)
+        assertEquals(300 * mb, plan.deletableBytes)
     }
 
     @Test
-    fun `server downloads are measured but never removed`() {
+    fun `protected footage is never paid for with the clips that are not protected`() {
+        // 900 MB of app files against a 400 MB quota, but 600 MB of it is the two copies of a locked clip.
+        // Measuring the target over all 900 MB would delete the third file and, after the next export, the
+        // one after it — an endless purge the quota was never meant to authorize.
+        val plan = CleanupPlan.external(
+            entries = listOf(
+                entry("REC_1_MOTION_20240615_083012.mkv", 300),
+                entry("REC_1_MOTION_20240615_083012_h264.mp4", 300),
+                entry("REC_1_MOTION_20240616_083012.mkv", 300),
+            ),
+            protectedNames = CleanupPlan.protectedExportNames(listOf("/recordings/REC_1_MOTION_20240615_083012.mkv")),
+            quotaMb = 400,
+        )
+        assertEquals(300 * mb, plan.deletableBytes)
+        assertEquals(0L, plan.bytesToFree)
+        assertTrue(plan.deletions.isEmpty())
+    }
+
+    @Test
+    fun `server downloads are never candidates for deletion`() {
         // The protection flag of a server clip lives on the server, so its archive copy cannot be trusted
-        // to be deletable just because the app downloaded it into the folder.
+        // to be deletable just because this app downloaded it into the folder.
         val plan = CleanupPlan.external(
             entries = listOf(
                 entry("server_rec_5.mp4", 800),
                 entry("REC_1_MOTION_20240615_083012.mkv", 300),
             ),
             protectedNames = emptySet(),
-            quotaMb = 400,
+            quotaMb = 100,
         )
-        assertEquals(1100 * mb, plan.appBytes)
         assertEquals(listOf("REC_1_MOTION_20240615_083012.mkv"), plan.deletions.map { it.displayName })
-        assertFalse(plan.quotaReachable)
+        assertEquals(300 * mb, plan.deletableBytes)
+        assertFalse("a download is not prunable", plan.deletions.any { it.displayName == "server_rec_5.mp4" })
+    }
+
+    @Test
+    fun `a folder of nothing but downloads asks for nothing`() {
+        val plan = CleanupPlan.external(
+            entries = listOf(entry("server_rec_5.mp4", 800)),
+            protectedNames = emptySet(),
+            quotaMb = 100,
+        )
+        assertEquals(0L, plan.deletableBytes)
+        assertEquals(0L, plan.bytesToFree)
+        assertTrue(plan.deletions.isEmpty())
     }
 
     @Test
@@ -59,11 +96,10 @@ class CleanupPlanTest {
                 entry("REC_1_MOTION_20240615_083012.mkv", 300),
             ),
             protectedNames = emptySet(),
-            quotaMb = 400,
+            quotaMb = 100,
         )
-        assertEquals(300 * mb, plan.appBytes)
-        assertEquals(0L, plan.bytesToFree)
-        assertTrue(plan.deletions.isEmpty())
+        assertEquals(300 * mb, plan.deletableBytes)
+        assertEquals(listOf("REC_1_MOTION_20240615_083012.mkv"), plan.deletions.map { it.displayName })
     }
 
     @Test
@@ -102,7 +138,8 @@ class CleanupPlanTest {
 
     @Test
     fun `the pick stops as soon as the quota is satisfied`() {
-        // 1200 MB used against a 400 MB limit asks for 900 MB back, so three clips go and the newest stays.
+        // 1200 MB of prunable files against a 400 MB limit asks for 900 MB back, so three clips go and the
+        // newest stays even though a fourth candidate is listed after it.
         val plan = CleanupPlan.external(
             entries = listOf(
                 entry("REC_1_MOTION_20240614_000000.mkv", 300),
@@ -113,10 +150,10 @@ class CleanupPlanTest {
             protectedNames = emptySet(),
             quotaMb = 400,
         )
+        assertEquals(1200 * mb, plan.deletableBytes)
         assertEquals(900 * mb, plan.bytesToFree)
         assertEquals(3, plan.deletions.size)
         assertEquals(900 * mb, plan.reclaimedBytes)
-        assertTrue(plan.quotaReachable)
     }
 
     @Test
@@ -141,10 +178,48 @@ class CleanupPlanTest {
                 protectedNames = emptySet(),
                 quotaMb = quota,
             )
-            assertEquals(600 * mb, plan.appBytes)
+            assertEquals(600 * mb, plan.deletableBytes)
             assertEquals(0L, plan.bytesToFree)
             assertTrue("quota $quota must delete nothing", plan.deletions.isEmpty())
         }
+    }
+
+    @Test
+    fun `the internal pass frees oldest-first down to one step under its quota`() {
+        // The caller hands these over oldest-first, which is what the DAO's ORDER BY timestamp guarantees.
+        val plan = CleanupPlan.internal(
+            candidates = listOf(candidate(id = 1, videoMb = 300, thumbnailMb = 0), candidate(2, 300, 0), candidate(3, 300, 0)),
+            quotaMb = 400,
+        )
+        assertEquals(600 * mb, plan.bytesToFree)
+        assertEquals(listOf(1L, 2L), plan.deletions.map { it.recording.id })
+        assertEquals(600 * mb, plan.reclaimedBytes)
+    }
+
+    @Test
+    fun `an internal candidate is credited with everything deleting it takes away`() {
+        // The worker adds the clip's thumbnail because `deleteRecording` removes both files; a pass that
+        // credited only the video would still believe it was short after every deletion and keep going.
+        val plan = CleanupPlan.internal(
+            candidates = listOf(candidate(id = 1, videoMb = 100, thumbnailMb = 100)),
+            quotaMb = 100,
+        )
+        assertEquals(200 * mb, plan.deletableBytes)
+        assertEquals(150 * mb, plan.bytesToFree)
+        assertEquals(200 * mb, plan.reclaimedBytes)
+        assertEquals(listOf(1L), plan.deletions.map { it.recording.id })
+    }
+
+    @Test
+    fun `the internal pass stops at its own candidates`() {
+        // Protected clips never reach the planner, so a quota that only the protected half of the archive
+        // could answer for asks nothing of the clips that are still there.
+        val plan = CleanupPlan.internal(
+            candidates = listOf(candidate(id = 1, videoMb = 150, thumbnailMb = 0), candidate(2, 150, 0)),
+            quotaMb = 400,
+        )
+        assertEquals(0L, plan.bytesToFree)
+        assertTrue(plan.deletions.isEmpty())
     }
 
     @Test
@@ -168,4 +243,16 @@ class CleanupPlanTest {
 
     private fun entry(name: String, sizeMb: Long) =
         ExportEntry(name, sizeBytes = sizeMb * mb, lastModifiedMillis = 0L)
+
+    private fun candidate(id: Long, videoMb: Long, thumbnailMb: Long) = InternalCandidate(
+        recording = RecordingEntity(
+            id = id,
+            deviceId = 1L,
+            deviceName = "Doorbell",
+            eventType = EventType.MOTION,
+            filePath = "/files/recordings/REC_1_MOTION_202406${id}_083012.mkv",
+            fileSizeBytes = videoMb * mb,
+        ),
+        reclaimableBytes = (videoMb + thumbnailMb) * mb,
+    )
 }

@@ -9,9 +9,9 @@ import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.util.CleanupPlan
-import io.github.mvolkert.entryrecorder.util.CleanupPolicy
 import io.github.mvolkert.entryrecorder.util.ExportFolderAccess
 import io.github.mvolkert.entryrecorder.util.ExportHelper
+import io.github.mvolkert.entryrecorder.util.InternalCandidate
 import io.github.mvolkert.entryrecorder.util.SafExportedFile
 import io.github.mvolkert.entryrecorder.util.StorageUsage
 import io.github.mvolkert.entryrecorder.util.thumbnailUsageBytes
@@ -19,6 +19,7 @@ import io.github.mvolkert.entryrecorder.util.thumbnailsDirOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * Reclaims archive space on the schedule the settings describe: expired clips first, then the two
@@ -103,9 +104,10 @@ class RetentionCleanupWorker(
     }
 
     /**
-     * Brings the app's private storage back under its quota by deleting oldest unprotected clips. Thumbs
-     * count towards the usage because they occupy the same space, but they only shrink as their recording
-     * goes, so a quota that cannot be met from the deletable clips says so instead of looping.
+     * Brings the app's private storage back under its quota by deleting unprotected clips, oldest first.
+     * The quota is bound over what this pass may actually remove — unprotected clips plus the thumbnails
+     * that are deleted together with them — so protected footage and leftover thumbnails can never be paid
+     * for with recordings the user did not lock away.
      */
     private suspend fun purgeInternal(repository: IntercomRepository, settings: AppSettingsEntity) {
         if (!settings.internalCleanupEnabled) {
@@ -116,29 +118,37 @@ class RetentionCleanupWorker(
             recordingsBytes = repository.getTotalStorageBytes(),
             thumbnailBytes = thumbnailUsageBytes(thumbnailsDirOf(applicationContext)),
         )
-        val bytesToFree = CleanupPolicy.bytesToFree(usage.totalBytes, settings.internalQuotaMb)
-        if (bytesToFree <= 0L) {
-            Log.i(tag, "Internal usage ${usage.totalBytes} of ${settings.internalQuotaMb}MB quota: nothing to free")
+        val candidates = repository.getOldestUnprotectedRecordings().map { rec ->
+            InternalCandidate(rec, rec.fileSizeBytes + thumbnailBytes(rec.thumbnailPath))
+        }
+        val plan = CleanupPlan.internal(candidates, settings.internalQuotaMb)
+        if (plan.bytesToFree <= 0L) {
+            Log.i(
+                tag,
+                "Internal usage ${usage.totalBytes} bytes with ${plan.deletableBytes} deletable of a " +
+                    "${settings.internalQuotaMb}MB quota: nothing to free"
+            )
             return
         }
 
-        Log.i(tag, "Internal usage ${usage.totalBytes} bytes is over quota, need to free $bytesToFree bytes")
-        var freed = 0L
-        var deleted = 0
-        for (rec in repository.getOldestUnprotectedRecordings()) {
-            if (freed >= bytesToFree) break
-            freed += rec.fileSizeBytes
-            repository.deleteRecording(rec)
-            deleted++
-        }
-        Log.i(tag, "Internal pass deleted $deleted recordings, reclaimed ~$freed bytes")
-        if (freed < bytesToFree) {
-            Log.w(
-                tag,
-                "Quota not reached: only protected clips and thumbnails account for the remaining space"
-            )
-        }
+        Log.i(
+            tag,
+            "Internal usage ${usage.totalBytes} bytes is over quota, need to free ${plan.bytesToFree} bytes"
+        )
+        plan.deletions.forEach { repository.deleteRecording(it.recording) }
+        Log.i(
+            tag,
+            "Internal pass deleted ${plan.deletions.size} recordings, reclaimed ~${plan.reclaimedBytes} " +
+                "of ${plan.bytesToFree} bytes"
+        )
     }
+
+    /**
+     * A clip's own thumbnail counts towards the internal usage, so it has to count towards the reclaim as
+     * well: `deleteRecording` removes both files and a pass that only credited the video would keep
+     * deleting past its quota. A missing or already-removed thumbnail reports zero length.
+     */
+    private fun thumbnailBytes(thumbnailPath: String?): Long = thumbnailPath?.let { File(it).length() } ?: 0L
 
     /**
      * Brings the SAF export folder back under its own quota. Deliberately narrower than the internal pass:
@@ -165,7 +175,12 @@ class RetentionCleanupWorker(
             quotaMb = settings.externalQuotaMb,
         )
         if (plan.bytesToFree <= 0L) {
-            Log.i(tag, "Export folder holds ${plan.appBytes} of ${settings.externalQuotaMb}MB quota: nothing to free")
+            val appBytes = documents.filter(SafExportedFile::isAppCreated).sumOf { it.sizeBytes }
+            Log.i(
+                tag,
+                "Export folder holds $appBytes of app files with ${plan.deletableBytes} prunable of a " +
+                    "${settings.externalQuotaMb}MB quota: nothing to free"
+            )
             return
         }
 
@@ -194,10 +209,13 @@ class RetentionCleanupWorker(
                 if (refused > 0) " ($refused refused by the provider)" else ""
         )
         if (freed < plan.bytesToFree) {
+            // The plan itself cannot come up short: its target is measured over the very files it picked.
+            // So whatever is missing was refused or moved, and saying so is the only signal a user gets that
+            // the folder will keep growing despite the switch being on.
             Log.w(
                 tag,
-                "Export folder quota not reachable: the rest is protected clips, server downloads or " +
-                    "files this app did not write"
+                "Export folder quota not met: the provider removed less than the plan asked for " +
+                    "(${plan.bytesToFree - freed} bytes short)"
             )
         }
     }

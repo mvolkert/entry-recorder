@@ -25,6 +25,22 @@ class SafExportNameTest {
     }
 
     @Test
+    fun `a server clip wearing the same prefix is not an app export`() {
+        // The Python server names its recordings identically and picks `.mp4` whenever it has an encoder,
+        // while this app only ever writes `.mkv` or the `_h264.mp4` transcode. Pinning the extension is what
+        // keeps a folder that overlaps a synced server archive from being pruned as if it were the app's own.
+        listOf(
+            "REC_3_MOTION_20240615_083012.mp4",
+            "REC_3_MOTION_20240615_083012_h264.mkv",
+            "REC_3_MOTION_20240615_083012.mp3",
+        ).forEach {
+            assertFalse("$it is not an app file", SafExportName.isAppCreated(it))
+            assertFalse("$it is never prunable", SafExportName.isPrunable(it))
+            assertNull("$it names no instant for the app", SafExportName.recordedTimestampMillis(it))
+        }
+    }
+
+    @Test
     fun `a thumbnail is not something the app exports`() {
         // Thumbnails live in the app's own files dir and are never written through SAF; the `THUMB_` images
         // that do turn up in a folder come from the server's data directory, which the app cannot claim.
