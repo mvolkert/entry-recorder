@@ -142,7 +142,9 @@
     <string name="settings_server_testing">Testing connection…</string>
     <string name="settings_server_test">Test Server Connection</string>
     <string name="settings_section_retention">Video Retention &amp; Auto-Cleanup</string>
+    <string name="settings_section_internal_storage">Phone Storage</string>
     <string name="settings_storage_usage">Current storage usage: %1$s</string>
+    <string name="settings_internal_usage_split">Recordings %1$s · thumbnails %2$s</string>
     <string name="settings_retention_period">Retention Period</string>
     <string name="settings_retention_indefinite">Keep indefinitely</string>
     <plurals name="settings_retention_days">
@@ -156,9 +158,14 @@
     <string name="settings_retention_dialog_hint">0 keeps recordings indefinitely; anything older than this is deleted by the daily cleanup.</string>
     <string name="settings_retention_dialog_invalid">Enter a whole number between 0 and 3650</string>
     <string name="settings_storage_quota">Storage Quota</string>
-    <string name="settings_quota_purge">Purge oldest recordings above %1$d GB</string>
+    <string name="settings_quota_purge">Purge oldest recordings above %1$s</string>
     <string name="settings_quota_gb" translatable="false">%1$dGB</string>
-    <string name="settings_auto_cleanup">Automatic Daily Cleanup</string>
+    <string name="settings_quota_mb" translatable="false">%1$dMB</string>
+    <string name="settings_quota_mb_label">Limit in megabytes</string>
+    <string name="settings_quota_dialog_hint">Any whole number of megabytes between 100 and 102400. The steppers next to this row move in 100 MB steps.</string>
+    <string name="settings_quota_dialog_invalid_range">Enter between 100 and 102400</string>
+    <string name="settings_internal_cleanup">Auto-Clean Phone Storage</string>
+    <string name="settings_internal_cleanup_hint">Daily: drop clips past the retention period, then the oldest unprotected ones once usage is 100 MB over quota.</string>
     <string name="settings_transcode_export">Transcode to H.264 on Export</string>
     <string name="settings_transcode_export_hint">Converts recordings for universal playback when sharing/saving. Uses CPU &amp; battery only during export.</string>
     <string name="settings_auto_export">Auto-Export Finished Recordings</string>
@@ -172,6 +179,15 @@
     <string name="settings_folder_change">Change folder</string>
     <string name="settings_folder_grant_again">Grant folder again</string>
     <string name="settings_folder_remove">Remove</string>
+    <string name="settings_section_external_storage">Export Folder Archive</string>
+    <string name="settings_external_usage_hint">Counts only the files this app wrote into the folder itself; your own files and its subfolders are never measured, cleaned or deleted.</string>
+    <string name="settings_external_usage">Current export usage: %1$s</string>
+    <string name="settings_external_usage_unavailable">Export usage unavailable — folder not reachable</string>
+    <string name="settings_external_usage_measuring">Measuring export folder…</string>
+    <string name="settings_external_quota">Export Folder Quota</string>
+    <string name="settings_quota_purge_mirror">Purge exported app files above %1$s</string>
+    <string name="settings_external_cleanup">Auto-Clean Export Folder</string>
+    <string name="settings_external_cleanup_hint">Off by default, because this folder is the archive your sync tools read. When on, the daily pass deletes only files this app exported here, oldest recording first.</string>
     <string name="settings_cleanup_now">Run Storage Cleanup Now</string>
     <string name="settings_cd_decrease">Decrease</string>
     <string name="settings_cd_increase">Increase</string>
@@ -206,7 +222,10 @@
 
     <!-- Settings hub category rows -->
     <string name="settings_hub_devices_subtitle">%1$d configured</string>
-    <string name="settings_hub_storage_subtitle">%1$s used</string>
+    <string name="settings_hub_storage_subtitle">%1$s on phone · %2$s exported</string>
+    <string name="settings_hub_storage_no_folder">no folder</string>
+    <string name="settings_hub_storage_measuring">measuring…</string>
+    <string name="settings_hub_storage_needs_access">folder needs access</string>
     <string name="settings_hub_backup_subtitle">Export or restore settings &amp; devices</string>
 
     <!-- Appearance / accent colors -->

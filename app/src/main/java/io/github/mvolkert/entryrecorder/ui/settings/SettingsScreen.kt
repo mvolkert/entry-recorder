@@ -29,6 +29,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
+import io.github.mvolkert.entryrecorder.util.ExportFolderAccess
 
 /** Detail routes pushed from the hub; each maps to a sibling settings-detail destination in the NavHost. */
 internal const val ROUTE_SETTINGS_DEVICES = "settings/devices"
@@ -50,6 +51,9 @@ fun SettingsScreen(
     onNavigate: (String) -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val exportFolderAccess by viewModel.exportFolderAccess.collectAsStateWithLifecycle()
+    val storageUsage by viewModel.storageUsage.collectAsStateWithLifecycle()
+    val externalUsageBytes by viewModel.externalUsageBytes.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     val devicesSubtitle = stringResource(R.string.settings_hub_devices_subtitle, state.devices.size)
@@ -57,9 +61,23 @@ fun SettingsScreen(
         if (state.appSettings.recordingMode == RecordingMode.PYTHON_SERVER) R.string.settings_mode_server
         else R.string.settings_mode_local
     )
+    // Two numbers because the two halves are cleaned independently. The export half names its own state
+    // instead of showing zero: a folder that is configured but currently unreachable is something the user
+    // has to notice, and "0 B" there would read as an empty archive.
+    val externalValue = when {
+        state.appSettings.exportFolderUri.isBlank() ->
+            stringResource(R.string.settings_hub_storage_no_folder)
+
+        exportFolderAccess == ExportFolderAccess.OK || exportFolderAccess == ExportFolderAccess.UNKNOWN ->
+            externalUsageBytes?.let { Formatter.formatFileSize(context, it) }
+                ?: stringResource(R.string.settings_hub_storage_measuring)
+
+        else -> stringResource(R.string.settings_hub_storage_needs_access)
+    }
     val storageSubtitle = stringResource(
         R.string.settings_hub_storage_subtitle,
-        Formatter.formatFileSize(context, state.totalStorageBytes)
+        Formatter.formatFileSize(context, storageUsage.totalBytes),
+        externalValue,
     )
     val appearanceSubtitle = stringResource(
         when (state.appSettings.themeMode) {

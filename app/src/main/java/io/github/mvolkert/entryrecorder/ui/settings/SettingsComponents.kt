@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardColors
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -38,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.ui.LocalAppSnackbar
@@ -45,12 +47,25 @@ import io.github.mvolkert.entryrecorder.ui.showMessage
 import io.github.mvolkert.entryrecorder.ui.components.ExpressiveIconBadge
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * The one card fill every settings surface uses. Hub rows and submenu section cards each used to pick
+ * their own container colour and drifted apart, so the choice now lives here once and both read it.
+ */
+internal object SettingsCardDefaults {
+    @Composable
+    fun cardColors(): CardColors = CardDefaults.cardColors(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+    )
+}
+
 /** Section card shell shared by every settings section (content-card shape, 16 dp inner padding). */
 @Composable
 internal fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium
+        shape = MaterialTheme.shapes.medium,
+        colors = SettingsCardDefaults.cardColors(),
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -141,10 +156,7 @@ internal fun SettingsNavRow(
             }
             .clickable(interactionSource = interactionSource, indication = LocalIndication.current, onClick = onClick),
         shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-        ),
+        colors = SettingsCardDefaults.cardColors(),
     ) {
         Row(
             modifier = Modifier
@@ -167,7 +179,9 @@ internal fun SettingsNavRow(
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }

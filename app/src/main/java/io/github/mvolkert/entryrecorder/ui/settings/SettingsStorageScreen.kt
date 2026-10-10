@@ -10,8 +10,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mvolkert.entryrecorder.R
 
 /**
- * Submenu for storage & retention: usage, retention/quota, transcode/auto-export switches and the
- * export folder. Owns the tree picker and the grant re-check that previously lived on the hub.
+ * Submenu for storage: the app's own archive (usage, retention, internal quota) and the SAF export folder
+ * (its own quota and cleanup, transcode and auto-export switches). Owns the tree picker and the grant
+ * re-check that previously lived on the hub.
  */
 @Composable
 fun SettingsStorageScreen(
@@ -20,13 +21,16 @@ fun SettingsStorageScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val exportFolderAccess by viewModel.exportFolderAccess.collectAsStateWithLifecycle()
+    val storageUsage by viewModel.storageUsage.collectAsStateWithLifecycle()
+    val externalUsageBytes by viewModel.externalUsageBytes.collectAsStateWithLifecycle()
 
     val exportFolderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri -> viewModel.onExportFolderSelected(uri) }
 
     // Re-check the persisted export-folder grant on entry and whenever the folder changes: a revoked
-    // permission or a deleted folder is otherwise invisible until the next export fails.
+    // permission or a deleted folder is otherwise invisible until the next export fails. The same tick
+    // re-measures the folder, since walking a tree is far too expensive to do on a timer.
     LaunchedEffect(state.appSettings.exportFolderUri) {
         viewModel.recheckExportFolder()
     }
@@ -39,7 +43,8 @@ fun SettingsStorageScreen(
         SettingsStorageCard(
             settings = state.appSettings,
             onSettingsChange = viewModel::updateSettings,
-            totalStorageBytes = state.totalStorageBytes,
+            internalUsage = storageUsage,
+            externalUsageBytes = externalUsageBytes,
             exportFolderAccess = exportFolderAccess,
             onPickExportFolder = {
                 // Pre-select the current folder so re-granting lands where the user left off;

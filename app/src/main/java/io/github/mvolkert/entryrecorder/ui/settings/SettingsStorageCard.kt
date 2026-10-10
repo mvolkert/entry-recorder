@@ -1,9 +1,11 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
+import android.content.Context
 import android.text.format.Formatter
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,12 +32,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
+import io.github.mvolkert.entryrecorder.ui.adaptive.LocalWindowInfo
+import io.github.mvolkert.entryrecorder.ui.adaptive.WindowInfo
+import io.github.mvolkert.entryrecorder.util.CleanupPolicy
 import io.github.mvolkert.entryrecorder.util.ExportFolderAccess
 import io.github.mvolkert.entryrecorder.util.ExportHelper
+import io.github.mvolkert.entryrecorder.util.StorageUsage
 
 /**
  * Upper bound of the retention setting, so the value stays a sane number for the day-based cutoff
@@ -43,12 +50,20 @@ import io.github.mvolkert.entryrecorder.util.ExportHelper
  */
 internal const val MAX_RETENTION_DAYS = 3650
 
-/** How much archive space is used and how the app reclaims it: retention, quota, cleanups, export folder. */
+/** Which of the two independent quotas the entry dialog is editing. */
+private enum class QuotaScope { Internal, External }
+
+/**
+ * Storage settings, split by where the bytes live: the app's private directory, and the SAF export folder
+ * that mirrors recordings into it. Each half owns its quota, its cleanup switch and its own direct-entry
+ * dialog, because the phone and the archive are allowed to have completely different limits.
+ */
 @Composable
 internal fun SettingsStorageCard(
     settings: AppSettingsEntity,
     onSettingsChange: (AppSettingsEntity) -> Unit,
-    totalStorageBytes: Long,
+    internalUsage: StorageUsage,
+    externalUsageBytes: Long?,
     exportFolderAccess: ExportFolderAccess,
     onPickExportFolder: () -> Unit,
     onClearExportFolder: () -> Unit,
@@ -56,14 +71,28 @@ internal fun SettingsStorageCard(
 ) {
     val context = LocalContext.current
     var showRetentionDialog by remember { mutableStateOf(false) }
+    var editingQuota by remember { mutableStateOf<QuotaScope?>(null) }
 
     SettingsCard {
         Text(
+            text = stringResource(R.string.settings_section_internal_storage),
+            style = MaterialTheme.typography.titleMedium
+        )
+        Text(
             text = stringResource(
                 R.string.settings_storage_usage,
-                Formatter.formatFileSize(context, totalStorageBytes)
+                Formatter.formatFileSize(context, internalUsage.totalBytes)
             ),
             fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = stringResource(
+                R.string.settings_internal_usage_split,
+                Formatter.formatFileSize(context, internalUsage.recordingsBytes),
+                Formatter.formatFileSize(context, internalUsage.thumbnailBytes)
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         StepperRow(
@@ -78,6 +107,7 @@ internal fun SettingsStorageCard(
             hint = stringResource(R.string.settings_retention_period_edit_hint),
             value = stringResource(R.string.settings_retention_days_short, settings.retentionDays),
             onValueClick = { showRetentionDialog = true },
+            valueClickLabel = stringResource(R.string.settings_retention_period),
             onDecrease = {
                 onSettingsChange(
                     settings.copy(retentionDays = (settings.retentionDays - 1).coerceAtLeast(0))
@@ -90,24 +120,72 @@ internal fun SettingsStorageCard(
             }
         )
 
-        StepperRow(
+        QuotaStepperRow(
             title = stringResource(R.string.settings_storage_quota),
-            subtitle = stringResource(R.string.settings_quota_purge, settings.maxStorageUsageMb / 1024),
-            value = stringResource(R.string.settings_quota_gb, settings.maxStorageUsageMb / 1024),
-            onDecrease = {
-                onSettingsChange(
-                    settings.copy(maxStorageUsageMb = (settings.maxStorageUsageMb - 1024L).coerceAtLeast(1024L))
-                )
-            },
-            onIncrease = {
-                onSettingsChange(settings.copy(maxStorageUsageMb = settings.maxStorageUsageMb + 1024L))
-            }
+            subtitle = stringResource(
+                R.string.settings_quota_purge,
+                quotaLabel(settings.internalQuotaMb)
+            ),
+            quotaMb = settings.internalQuotaMb,
+            onValueClick = { editingQuota = QuotaScope.Internal },
+            onQuotaChange = { onSettingsChange(settings.copy(internalQuotaMb = it)) }
         )
 
         SettingsSwitchRow(
-            title = stringResource(R.string.settings_auto_cleanup),
-            checked = settings.autoCleanupEnabled,
-            onCheckedChange = { onSettingsChange(settings.copy(autoCleanupEnabled = it)) }
+            title = stringResource(R.string.settings_internal_cleanup),
+            subtitle = stringResource(R.string.settings_internal_cleanup_hint),
+            checked = settings.internalCleanupEnabled,
+            onCheckedChange = { onSettingsChange(settings.copy(internalCleanupEnabled = it)) }
+        )
+
+        OutlinedButton(
+            onClick = onCleanupNow,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.CleaningServices, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(stringResource(R.string.settings_cleanup_now))
+        }
+    }
+
+    SettingsCard {
+        Text(
+            text = stringResource(R.string.settings_section_external_storage),
+            style = MaterialTheme.typography.titleMedium
+        )
+        Text(
+            text = stringResource(R.string.settings_external_usage_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = externalUsageLabel(context, exportFolderAccess, externalUsageBytes),
+            fontWeight = FontWeight.SemiBold
+        )
+
+        QuotaStepperRow(
+            title = stringResource(R.string.settings_external_quota),
+            subtitle = stringResource(
+                R.string.settings_quota_purge_mirror,
+                quotaLabel(settings.externalQuotaMb)
+            ),
+            quotaMb = settings.externalQuotaMb,
+            onValueClick = { editingQuota = QuotaScope.External },
+            onQuotaChange = { onSettingsChange(settings.copy(externalQuotaMb = it)) }
+        )
+
+        SettingsSwitchRow(
+            title = stringResource(R.string.settings_external_cleanup),
+            subtitle = stringResource(R.string.settings_external_cleanup_hint),
+            checked = settings.externalCleanupEnabled,
+            onCheckedChange = { onSettingsChange(settings.copy(externalCleanupEnabled = it)) }
+        )
+
+        ExportFolderRow(
+            folderUri = settings.exportFolderUri,
+            access = exportFolderAccess,
+            onPick = onPickExportFolder,
+            onClear = onClearExportFolder
         )
 
         SettingsSwitchRow(
@@ -123,22 +201,6 @@ internal fun SettingsStorageCard(
             checked = settings.autoExportOnFinalize,
             onCheckedChange = { onSettingsChange(settings.copy(autoExportOnFinalize = it)) }
         )
-
-        ExportFolderRow(
-            folderUri = settings.exportFolderUri,
-            access = exportFolderAccess,
-            onPick = onPickExportFolder,
-            onClear = onClearExportFolder
-        )
-
-        OutlinedButton(
-            onClick = onCleanupNow,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(Icons.Default.CleaningServices, contentDescription = null)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(stringResource(R.string.settings_cleanup_now))
-        }
     }
 
     if (showRetentionDialog) {
@@ -148,11 +210,84 @@ internal fun SettingsStorageCard(
             onSave = { onSettingsChange(settings.copy(retentionDays = it)) }
         )
     }
+
+    val scope = editingQuota
+    if (scope != null) {
+        val current = when (scope) {
+            QuotaScope.Internal -> settings.internalQuotaMb
+            QuotaScope.External -> settings.externalQuotaMb
+        }
+        QuotaMbDialog(
+            title = stringResource(
+                when (scope) {
+                    QuotaScope.Internal -> R.string.settings_storage_quota
+                    QuotaScope.External -> R.string.settings_external_quota
+                }
+            ),
+            initialQuotaMb = current,
+            onDismiss = { editingQuota = null },
+            onSave = { quotaMb ->
+                onSettingsChange(
+                    when (scope) {
+                        QuotaScope.Internal -> settings.copy(internalQuotaMb = quotaMb)
+                        QuotaScope.External -> settings.copy(externalQuotaMb = quotaMb)
+                    }
+                )
+                editingQuota = null
+            }
+        )
+    }
+}
+
+/** The quota on its own line: whole gigabytes where that reads better, megabytes otherwise. */
+@Composable
+private fun quotaLabel(quotaMb: Long): String {
+    val gigabytes = CleanupPolicy.wholeGigabytes(quotaMb)
+    return if (gigabytes != null) stringResource(R.string.settings_quota_gb, gigabytes)
+    else stringResource(R.string.settings_quota_mb, quotaMb)
+}
+
+/** What the export folder currently costs, or why it cannot be measured. */
+@Composable
+private fun externalUsageLabel(
+    context: Context,
+    access: ExportFolderAccess,
+    usageBytes: Long?,
+): String = when {
+    access != ExportFolderAccess.OK -> stringResource(R.string.settings_external_usage_unavailable)
+    usageBytes == null -> stringResource(R.string.settings_external_usage_measuring)
+    else -> stringResource(R.string.settings_external_usage, Formatter.formatFileSize(context, usageBytes))
+}
+
+/**
+ * A quota row: the stepper moves one 100 MB step per tap, the value opens exact entry. Both are clamped by
+ * [CleanupPolicy], so the number on screen is always one the purge will honour.
+ */
+@Composable
+private fun QuotaStepperRow(
+    title: String,
+    subtitle: String,
+    quotaMb: Long,
+    onValueClick: () -> Unit,
+    onQuotaChange: (Long) -> Unit,
+) {
+    StepperRow(
+        title = title,
+        subtitle = subtitle,
+        value = quotaLabel(quotaMb),
+        onValueClick = onValueClick,
+        valueClickLabel = title,
+        onDecrease = { onQuotaChange(CleanupPolicy.nextQuotaMb(quotaMb, -1)) },
+        onIncrease = { onQuotaChange(CleanupPolicy.nextQuotaMb(quotaMb, 1)) }
+    )
 }
 
 /**
  * Caption + hint on the left, a - / value / + stepper on the right. [onValueClick] makes the value
  * readable and directly editable at the same time; [hint] adds a third line under the subtitle.
+ *
+ * On Compact the control drops to its own right-aligned line instead of competing with the label for
+ * width: two 48 dp icon buttons plus the value would otherwise push a localized caption off the edge.
  */
 @Composable
 private fun StepperRow(
@@ -162,45 +297,81 @@ private fun StepperRow(
     onDecrease: () -> Unit,
     onIncrease: () -> Unit,
     hint: String? = null,
-    onValueClick: (() -> Unit)? = null
+    onValueClick: (() -> Unit)? = null,
+    valueClickLabel: String? = null,
 ) {
-    SettingsItemRow(
-        leading = {
-            Text(title, fontWeight = FontWeight.Medium)
+    val captions: @Composable ColumnScope.() -> Unit = {
+        Text(title, fontWeight = FontWeight.Medium)
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (hint != null) {
             Text(
-                text = subtitle,
+                text = hint,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            if (hint != null) {
-                Text(
-                    text = hint,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        },
-        trailing = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onDecrease) {
-                    Icon(Icons.Default.Remove, contentDescription = stringResource(R.string.settings_cd_decrease))
-                }
-                val valueModifier = if (onValueClick != null) {
-                    Modifier.clickable(onClickLabel = stringResource(R.string.settings_retention_period)) { onValueClick() }
-                } else {
-                    Modifier
-                }
-                Text(
-                    value,
-                    modifier = valueModifier,
-                    fontWeight = FontWeight.Bold
-                )
-                IconButton(onClick = onIncrease) {
-                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.settings_cd_increase))
-                }
+        }
+    }
+    val controls: @Composable () -> Unit = {
+        StepperControls(
+            value = value,
+            onValueClick = onValueClick,
+            valueClickLabel = valueClickLabel,
+            onDecrease = onDecrease,
+            onIncrease = onIncrease,
+        )
+    }
+
+    if (LocalWindowInfo.current == WindowInfo.Compact) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            captions()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                controls()
             }
         }
-    )
+    } else {
+        SettingsItemRow(leading = captions, trailing = controls)
+    }
+}
+
+@Composable
+private fun StepperControls(
+    value: String,
+    onValueClick: (() -> Unit)?,
+    valueClickLabel: String?,
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onDecrease) {
+            Icon(Icons.Default.Remove, contentDescription = stringResource(R.string.settings_cd_decrease))
+        }
+        val valueModifier = if (onValueClick != null) {
+            Modifier.clickable(onClickLabel = valueClickLabel.orEmpty()) { onValueClick() }
+        } else {
+            Modifier
+        }
+        Text(
+            value,
+            modifier = valueModifier,
+            fontWeight = FontWeight.Bold,
+            maxLines = 2,
+            overflow = TextOverflow.MiddleEllipsis
+        )
+        IconButton(onClick = onIncrease) {
+            Icon(Icons.Default.Add, contentDescription = stringResource(R.string.settings_cd_increase))
+        }
+    }
 }
 
 /** SAF tree-URI picker for the mirror/export folder, warning when the stored grant has gone stale. */
@@ -230,7 +401,9 @@ private fun ExportFolderRow(
                     ExportHelper.safFolderDisplayName(folderUri.toUri())
                 ),
                 style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             if (unusable) {
                 Text(
@@ -244,13 +417,10 @@ private fun ExportFolderRow(
                 )
             }
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        val buttons: @Composable (Modifier) -> Unit = { rowModifier ->
             OutlinedButton(
                 onClick = onPick,
-                modifier = Modifier.weight(1f)
+                modifier = rowModifier
             ) {
                 Icon(Icons.Default.FolderOpen, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
@@ -264,11 +434,34 @@ private fun ExportFolderRow(
                     )
                 )
             }
-            if (folderUri.isNotBlank()) {
-                TextButton(onClick = onClear) {
-                    Text(stringResource(R.string.settings_folder_remove), color = MaterialTheme.colorScheme.error)
+        }
+        if (LocalWindowInfo.current == WindowInfo.Compact) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                buttons(Modifier.fillMaxWidth())
+                if (folderUri.isNotBlank()) {
+                    RemoveFolderLink(onClear = onClear)
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                buttons(Modifier.weight(1f))
+                if (folderUri.isNotBlank()) {
+                    RemoveFolderLink(onClear = onClear)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RemoveFolderLink(onClear: () -> Unit) {
+    TextButton(onClick = onClear) {
+        Text(stringResource(R.string.settings_folder_remove), color = MaterialTheme.colorScheme.error)
     }
 }

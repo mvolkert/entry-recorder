@@ -16,6 +16,7 @@ import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.backup.AppBackup
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.data.local.entity.normalizedForRestore
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
@@ -23,6 +24,10 @@ import io.github.mvolkert.entryrecorder.service.MonitorStatusHolder
 import io.github.mvolkert.entryrecorder.ui.theme.UiModePrefs
 import io.github.mvolkert.entryrecorder.util.ExportFolderAccess
 import io.github.mvolkert.entryrecorder.util.ExportHelper
+import io.github.mvolkert.entryrecorder.util.SafExportedFile
+import io.github.mvolkert.entryrecorder.util.StorageUsage
+import io.github.mvolkert.entryrecorder.util.thumbnailUsageBytes
+import io.github.mvolkert.entryrecorder.util.thumbnailsDirOf
 import io.github.mvolkert.entryrecorder.worker.RetentionCleanupWorker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -50,7 +55,6 @@ sealed interface SettingsUiEvent {
 data class SettingsUiState(
     val devices: List<DeviceEntity> = emptyList(),
     val appSettings: AppSettingsEntity = AppSettingsEntity(),
-    val totalStorageBytes: Long = 0,
     /** Per-device health of the camera event stream (doorbell / camera-motion / noise), for capability display. */
     val eventQualities: Map<Long, ConnectionQuality> = emptyMap(),
     /** Per-device health of the HTTP snapshot path (live view / recording / in-app motion analysis). */
@@ -74,19 +78,15 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private val probeTick = MutableStateFlow(0L)
 
-    // Includes the recordings flow so "Total storage" stays current after adds/deletes/cleanup
-    // without leaving the screen (previously it only refreshed when devices/settings changed).
     val uiState: StateFlow<SettingsUiState> = combine(
         repository.allDevices,
         repository.settingsFlow,
-        repository.allRecordings,
         MonitorStatusHolder.eventQualities,
         MonitorStatusHolder.snapshotQualities
-    ) { devices, settings, recordings, eventQualities, snapshotQualities ->
+    ) { devices, settings, eventQualities, snapshotQualities ->
         SettingsUiState(
             devices = devices,
             appSettings = settings ?: AppSettingsEntity(),
-            totalStorageBytes = recordings.sumOf { it.fileSizeBytes },
             eventQualities = eventQualities,
             snapshotQualities = snapshotQualities,
             isLoading = false
@@ -106,6 +106,46 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         .map { (folderUri, _) -> ExportHelper.probeExportFolderAccess(context, folderUri) }
         .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ExportFolderAccess.UNKNOWN)
+
+    /**
+     * What the archive occupies in the app's private storage, split by kind. Measured off the main thread
+     * because the thumbnails half is a directory listing; the recordings half comes straight from the row
+     * stream, so a delete or a cleanup pass updates the number without leaving the screen.
+     */
+    val storageUsage: StateFlow<StorageUsage> = combine(
+        repository.allRecordings.map { recordings -> recordings.sumOf { it.fileSizeBytes } },
+        probeTick
+    ) { recordingsBytes, tick -> recordingsBytes to tick }
+        .distinctUntilChanged()
+        .map { key ->
+            StorageUsage(
+                recordingsBytes = key.first,
+                thumbnailBytes = thumbnailUsageBytes(thumbnailsDirOf(context))
+            )
+        }
+        .flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), StorageUsage())
+
+    /**
+     * Bytes the export folder holds, or null when there is nothing to measure — no folder chosen, a grant
+     * the user revoked, or a probe that has not answered yet. Listing a tree is a provider round trip per
+     * document, so this only runs on the same ticks that re-probe the grant.
+     */
+    val externalUsageBytes: StateFlow<Long?> = combine(
+        repository.settingsFlow.map { it?.exportFolderUri.orEmpty() },
+        probeTick,
+        exportFolderAccess
+    ) { folderUri, tick, access -> folderUri to (tick to access) }
+        .distinctUntilChanged()
+        .map { (folderUri, probe) ->
+            val access = probe.second
+            if (folderUri.isBlank() || access != ExportFolderAccess.OK) null
+            else ExportHelper.listSafExportedFiles(context, folderUri.toUri())
+                .filter(SafExportedFile::isAppCreated)
+                .sumOf { it.sizeBytes }
+        }
+        .flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /**
      * Persists [device] locally, then — only in PYTHON_SERVER mode — best-effort syncs it to the server
@@ -284,7 +324,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
                 backup.appSettings?.let {
                     UiModePrefs.setThemeMode(getApplication(), it.themeMode)
-                    repository.updateSettings(it.copy(id = 1))
+                    repository.updateSettings(it.normalizedForRestore().copy(id = 1))
                 }
                 // Reset serverDeviceId: a backup may have been taken against a different server, so the
                 // restored devices re-register lazily against whichever server is configured now.
