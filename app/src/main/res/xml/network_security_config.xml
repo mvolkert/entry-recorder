@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Allow cleartext HTTP/RTSP traffic to local LAN IP addresses for 2N intercoms -->
+    <!-- Allow cleartext HTTP/RTSP traffic to local LAN IP addresses for 2N intercoms; a
+         domain-config cannot express this because NSC matches hostnames, never IP literals.
+         User-added CA anchors are deliberately NOT trusted: trusting the user store would let any
+         installed root CA MITM the "secure" paths, while the system store alone still covers every
+         properly issued certificate. -->
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
-            <certificates src="user" />
         </trust-anchors>
     </base-config>
 </network-security-config>
