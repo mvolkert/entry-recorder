@@ -12,7 +12,7 @@ import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.service.MonitorStatusRegistry
-import io.github.mvolkert.entryrecorder.video.RtspStreamRecorder
+import io.github.mvolkert.entryrecorder.video.RecordingController
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -36,7 +36,7 @@ data class LiveUiState(
 @HiltViewModel
 class LiveViewModel @Inject constructor(
     private val repository: IntercomRepository,
-    private val recorder: RtspStreamRecorder,
+    private val recorder: RecordingController,
     private val monitorStatusRegistry: MonitorStatusRegistry,
     // Exposed for the Live cards: the player must use the same shared snapshot/MJPEG clients as the
     // recorder, otherwise one camera gets polled through two connection pools with different timeouts.

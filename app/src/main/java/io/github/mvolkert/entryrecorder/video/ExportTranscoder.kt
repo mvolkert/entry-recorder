@@ -28,7 +28,7 @@ import java.io.File
 class ExportTranscoder @Inject constructor(
     private val storageDirs: AppStorageDirs,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
-) {
+) : H264Transcoder {
     private companion object {
         private const val TAG = "ExportTranscoder"
 
@@ -38,16 +38,16 @@ class ExportTranscoder @Inject constructor(
     }
 
     /** The H.264 file [source] transcodes to: beside it in the scratch folder, with a `_h264` suffix. */
-    fun outputFor(source: File): File = File(storageDirs.transcodeScratchDir, "${source.nameWithoutExtension}_h264.mp4")
+    override fun outputFor(source: File): File = File(storageDirs.transcodeScratchDir, "${source.nameWithoutExtension}_h264.mp4")
 
     /**
      * Transcodes [recording]'s MKV to a temporary H.264 fMP4 under the app cache dir.
      * @return the produced file.
      * @throws IllegalStateException if there are no frames or the platform encoder is unavailable.
      */
-    suspend fun transcodeToH264(
+    override suspend fun transcodeToH264(
         recording: RecordingEntity,
-        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+        onProgress: (done: Int, total: Int) -> Unit,
     ): File = withContext(ioDispatcher) {
         val source = File(recording.filePath)
         val reader = MjpegMkvReader(source)

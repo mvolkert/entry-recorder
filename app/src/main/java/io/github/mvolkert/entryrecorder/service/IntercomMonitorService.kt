@@ -28,7 +28,7 @@ import io.github.mvolkert.entryrecorder.ui.incoming.IncomingCallActivity
 import io.github.mvolkert.entryrecorder.video.OnDeviceMotionAnalyzer
 import io.github.mvolkert.entryrecorder.video.PreRollFrame
 import io.github.mvolkert.entryrecorder.video.RecorderEvent
-import io.github.mvolkert.entryrecorder.video.RtspStreamRecorder
+import io.github.mvolkert.entryrecorder.video.RecordingController
 import javax.inject.Inject
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
@@ -54,7 +54,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     private var wifiLock: WifiManager.WifiLock? = null
 
     @Inject lateinit var repository: IntercomRepository
-    @Inject lateinit var recorder: RtspStreamRecorder
+    @Inject lateinit var recorder: RecordingController
     @Inject lateinit var sipManager: SipCallManager
     @Inject lateinit var deviceFactory: IntercomDeviceFactory
     @Inject lateinit var snapshotClient: HttpSnapshotClient

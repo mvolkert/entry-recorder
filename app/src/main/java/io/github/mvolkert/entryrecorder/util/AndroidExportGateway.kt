@@ -35,6 +35,10 @@ class AndroidExportGateway @Inject constructor(
 
     private companion object {
         private const val TAG = "ExportGateway"
+
+        /** The read+write pair the export folder needs: write to mirror clips, read to list and probe them. */
+        private val EXPORT_FOLDER_FLAGS =
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
     }
 
     /**
@@ -324,6 +328,22 @@ class AndroidExportGateway @Inject constructor(
             Log.e(TAG, "Failed to delete $displayName from the export folder", e)
             false
         }
+    }
+
+    override fun takePersistableTreeGrant(uri: Uri): Boolean = try {
+        context.contentResolver.takePersistableUriPermission(uri, EXPORT_FOLDER_FLAGS)
+        true
+    } catch (e: SecurityException) {
+        // The picker result did not carry the persistable flag, or the framework refused the grant.
+        Log.w(TAG, "Export folder grant refused for $uri", e)
+        false
+    }
+
+    override fun releasePersistableTreeGrant(folderUri: String) {
+        if (folderUri.isBlank()) return
+        runCatching {
+            context.contentResolver.releasePersistableUriPermission(folderUri.toUri(), EXPORT_FOLDER_FLAGS)
+        }.onFailure { Log.d(TAG, "No live grant left to release for $folderUri", it) }
     }
 
     /** Returns the URI and byte size of a direct child document named [name] in [treeUri], or null if absent. */

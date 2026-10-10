@@ -12,7 +12,7 @@ import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.util.ExportGateway
-import io.github.mvolkert.entryrecorder.video.ExportTranscoder
+import io.github.mvolkert.entryrecorder.video.H264Transcoder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.first
@@ -33,7 +33,7 @@ class ExportTriggerWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val repository: IntercomRepository,
     private val exportGateway: ExportGateway,
-    private val transcoder: ExportTranscoder,
+    private val transcoder: H264Transcoder,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : CoroutineWorker(appContext, params) {
 

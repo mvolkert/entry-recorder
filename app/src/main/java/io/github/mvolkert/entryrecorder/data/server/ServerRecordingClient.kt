@@ -133,7 +133,7 @@ class ServerRecordingClient @Inject constructor(
     @StreamClient private val downloadClient: OkHttpClient,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     private val gson: Gson,
-) {
+) : ServerClient {
     private val tag = "ServerRecordingClient"
 
     private fun normalizeUrl(url: String): String {
@@ -146,7 +146,7 @@ class ServerRecordingClient @Inject constructor(
     private fun Request.Builder.withApiKey(apiKey: String?): Request.Builder =
         if (!apiKey.isNullOrBlank()) addHeader("X-API-Key", apiKey) else this
 
-    suspend fun testConnection(serverUrl: String, apiKey: String? = null): Result<Boolean> = withContext(ioDispatcher) {
+    override suspend fun testConnection(serverUrl: String, apiKey: String?): Result<Boolean> = withContext(ioDispatcher) {
         try {
             val base = normalizeUrl(serverUrl)
             val requestBuilder = Request.Builder()
@@ -179,7 +179,7 @@ class ServerRecordingClient @Inject constructor(
      * deliberately omitted: the server resolves the RTSP/snapshot URL and auth from the row the app
      * registered via [registerDevice], so the device password no longer rides on every start call.
      */
-    suspend fun startRecording(
+    override suspend fun startRecording(
         serverUrl: String,
         apiKey: String?,
         serverDeviceId: Long,
@@ -257,7 +257,7 @@ class ServerRecordingClient @Inject constructor(
      * the caller persists as `DeviceEntity.serverDeviceId`. The server rejects a device with neither an
      * RTSP nor a snapshot URL, so a fully-blank camera surfaces here as a failure the caller can fall back on.
      */
-    suspend fun registerDevice(
+    override suspend fun registerDevice(
         serverUrl: String,
         apiKey: String?,
         device: DeviceEntity
@@ -288,7 +288,7 @@ class ServerRecordingClient @Inject constructor(
     }
 
     /** Pushes the current [device] config onto an already-registered server row (`PUT /api/devices/{id}`). */
-    suspend fun updateServerDevice(
+    override suspend fun updateServerDevice(
         serverUrl: String,
         apiKey: String?,
         serverDeviceId: Long,
@@ -322,7 +322,7 @@ class ServerRecordingClient @Inject constructor(
      * intentionally keeps the device's recordings (no cascade), and a failure here must not block deleting
      * the device locally — the caller treats this as fire-and-forget.
      */
-    suspend fun deleteServerDevice(
+    override suspend fun deleteServerDevice(
         serverUrl: String,
         apiKey: String?,
         serverDeviceId: Long
@@ -351,7 +351,7 @@ class ServerRecordingClient @Inject constructor(
     }
 
     /** Whether the server still runs a job for [deviceId]; null success means "the server has none". */
-    suspend fun activeRecordingFor(
+    override suspend fun activeRecordingFor(
         serverUrl: String,
         apiKey: String?,
         deviceId: Long
@@ -380,7 +380,7 @@ class ServerRecordingClient @Inject constructor(
         }
     }
 
-    suspend fun stopRecording(
+    override suspend fun stopRecording(
         serverUrl: String,
         apiKey: String?,
         deviceId: Long
@@ -417,11 +417,11 @@ class ServerRecordingClient @Inject constructor(
      * Fetch the recordings stored on the server (data-layer foundation for surfacing server
      * recordings in the app gallery). Returns server-relative URLs that callers prefix with the base URL.
      */
-    suspend fun listRecordings(
+    override suspend fun listRecordings(
         serverUrl: String,
         apiKey: String?,
-        deviceId: Long? = null,
-        limit: Int = 100
+        deviceId: Long?,
+        limit: Int
     ): Result<List<ServerRecordingDto>> = withContext(ioDispatcher) {
         try {
             val base = normalizeUrl(serverUrl)
@@ -455,7 +455,7 @@ class ServerRecordingClient @Inject constructor(
      * Sets or clears the protection flag the server's retention/quota cleanup respects. The server takes
      * the flag as a query parameter, so the request carries an empty body.
      */
-    suspend fun setProtected(
+    override suspend fun setProtected(
         serverUrl: String,
         apiKey: String?,
         recordingId: Long,
@@ -485,7 +485,7 @@ class ServerRecordingClient @Inject constructor(
 
     /** Removes a completed server recording and its files. A protected row is still deleted here: only
      * automatic cleanup honours the flag, not an explicit user delete. */
-    suspend fun deleteRecording(
+    override suspend fun deleteRecording(
         serverUrl: String,
         apiKey: String?,
         recordingId: Long
@@ -520,11 +520,11 @@ class ServerRecordingClient @Inject constructor(
      * job is cancelled, and the chunk loop checks for cancellation before every read, so a cancelled
      * export stops pushing bytes instead of finishing the file first.
      */
-    suspend fun downloadVideo(
+    override suspend fun downloadVideo(
         absoluteUrl: String,
         targetDir: File,
         baseName: String,
-        onProgress: (percent: Int) -> Unit = {}
+        onProgress: (percent: Int) -> Unit
     ): Result<File> = withContext(ioDispatcher) {
         try {
             val request = Request.Builder().url(absoluteUrl).get().build()

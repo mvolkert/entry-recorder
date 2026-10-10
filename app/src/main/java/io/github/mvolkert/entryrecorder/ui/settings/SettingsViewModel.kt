@@ -1,20 +1,15 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
-import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import androidx.annotation.StringRes
-import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
 import com.google.gson.Gson
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.backup.AppBackup
+import io.github.mvolkert.entryrecorder.data.backup.BackupDocumentStore
 import io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
@@ -23,19 +18,19 @@ import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
-import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
+import io.github.mvolkert.entryrecorder.data.server.ServerClient
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.service.MonitorStatusRegistry
-import io.github.mvolkert.entryrecorder.sip.SipCallManager
-import io.github.mvolkert.entryrecorder.ui.theme.UiModePrefs
+import io.github.mvolkert.entryrecorder.sip.SipRegistrar
+import io.github.mvolkert.entryrecorder.ui.theme.ThemeModeStore
+import io.github.mvolkert.entryrecorder.util.AppStorageDirs
 import io.github.mvolkert.entryrecorder.util.ExportEntry
 import io.github.mvolkert.entryrecorder.util.ExportFolderAccess
 import io.github.mvolkert.entryrecorder.util.ExportGateway
 import io.github.mvolkert.entryrecorder.util.StorageUsage
 import io.github.mvolkert.entryrecorder.util.UiStrings
 import io.github.mvolkert.entryrecorder.util.thumbnailUsageBytes
-import io.github.mvolkert.entryrecorder.util.thumbnailsDirOf
-import io.github.mvolkert.entryrecorder.worker.RetentionCleanupWorker
+import io.github.mvolkert.entryrecorder.worker.RetentionCleanupScheduler
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -76,16 +71,24 @@ data class SettingsUiState(
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val repository: IntercomRepository,
-    private val serverClient: ServerRecordingClient,
+    private val serverClient: ServerClient,
     private val monitorStatusRegistry: MonitorStatusRegistry,
     private val gson: Gson,
     private val strings: UiStrings,
-    @ApplicationContext private val context: Context,
+    // The screen's file, theme, cleanup and SIP needs all arrive as JVM-only contracts or plain values —
+    // storage dirs, a theme-mode mirror, a cleanup trigger, a document stream — so no Context is held
+    // here and the whole ViewModel can be constructed and driven from an ordinary unit test. The only
+    // Android types left are the caller-supplied `Uri`s the SAF picker returns, which pass straight
+    // through to [ExportGateway] / [BackupDocumentStore].
+    private val storageDirs: AppStorageDirs,
+    private val themeModeStore: ThemeModeStore,
+    private val cleanupScheduler: RetentionCleanupScheduler,
+    private val backupStore: BackupDocumentStore,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     private val exportGateway: ExportGateway,
     private val snapshotClient: HttpSnapshotClient,
     private val deviceFactory: IntercomDeviceFactory,
-    private val sipCallManager: SipCallManager,
+    private val sipRegistrar: SipRegistrar,
 ) : ViewModel() {
 
     private val tag = "SettingsViewModel"
@@ -139,7 +142,7 @@ class SettingsViewModel @Inject constructor(
         .map { key ->
             StorageUsage(
                 recordingsBytes = key.first,
-                thumbnailBytes = thumbnailUsageBytes(thumbnailsDirOf(context))
+                thumbnailBytes = thumbnailUsageBytes(storageDirs.thumbnailsDir)
             )
         }
         .flowOn(ioDispatcher)
@@ -242,7 +245,7 @@ class SettingsViewModel @Inject constructor(
     fun updateSettings(settings: AppSettingsEntity) {
         // Mirror the mode into the synchronous SharedPreferences store first: MainActivity reads it
         // in attachBaseContext, which runs before Room is even opened on the next cold start.
-        UiModePrefs.setThemeMode(context, settings.themeMode)
+        themeModeStore.setThemeMode(settings.themeMode)
         viewModelScope.launch {
             repository.updateSettings(settings)
         }
@@ -261,11 +264,10 @@ class SettingsViewModel @Inject constructor(
             if (previous.isNotBlank() && previous != uri.toString()) {
                 releaseExportFolderGrant(previous)
             }
-            try {
-                context.contentResolver.takePersistableUriPermission(uri, EXPORT_FOLDER_FLAGS)
+            if (exportGateway.takePersistableTreeGrant(uri)) {
                 repository.updateSettings(settings.copy(exportFolderUri = uri.toString()))
-            } catch (e: SecurityException) {
-                Log.w(tag, "Export folder grant refused for $uri", e)
+            } else {
+                // The gateway already logged the refusal; the user just hears that it failed.
                 message(R.string.settings_toast_folder_permission_failed)
             }
         }
@@ -286,10 +288,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     private fun releaseExportFolderGrant(folderUri: String) {
-        if (folderUri.isBlank()) return
-        runCatching {
-            context.contentResolver.releasePersistableUriPermission(folderUri.toUri(), EXPORT_FOLDER_FLAGS)
-        }.onFailure { Log.d(tag, "No live grant left to release for $folderUri", it) }
+        exportGateway.releasePersistableTreeGrant(folderUri)
     }
 
     // --- Probes the create/edit form runs against unsaved values ---
@@ -363,12 +362,12 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    /** Asks a registrar whether the typed SIP account would register. See [SipCallManager.probeRegistration]. */
+    /** Asks a registrar whether the typed SIP account would register. See [SipRegistrar.probeRegistration]. */
     fun testSipRegistration(candidate: DeviceEntity) {
         if (_sipTest.value is SipTestState.Running) return
         viewModelScope.launch {
             _sipTest.value = SipTestState.Running
-            _sipTest.value = SipTestState.Completed(sipCallManager.probeRegistration(candidate))
+            _sipTest.value = SipTestState.Completed(sipRegistrar.probeRegistration(candidate))
         }
     }
 
@@ -385,7 +384,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     /** True while the monitor service holds a Linphone core, which is what a second probe would contend with. */
-    val monitorUsesSip: Boolean get() = sipCallManager.hasActiveCore
+    val monitorUsesSip: Boolean get() = sipRegistrar.hasActiveCore
 
     private val _isTestingServer = MutableStateFlow(false)
     val isTestingServer: StateFlow<Boolean> = _isTestingServer.asStateFlow()
@@ -410,8 +409,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun triggerCleanupNow() {
-        val work = OneTimeWorkRequestBuilder<RetentionCleanupWorker>().build()
-        WorkManager.getInstance(context).enqueue(work)
+        cleanupScheduler.runNow()
         message(R.string.settings_toast_cleanup_triggered, short = true)
     }
 
@@ -428,11 +426,7 @@ class SettingsViewModel @Inject constructor(
                 )
                 val json = gson.toJson(backup)
                 withContext(ioDispatcher) {
-                    context.contentResolver.openOutputStream(uri)
-                        ?.use { it.write(json.toByteArray(Charsets.UTF_8)) }
-                        ?: throw IllegalStateException(
-                            strings(R.string.settings_backup_open_write_failed)
-                        )
+                    backupStore.writeText(uri, json)
                 }
                 message(R.string.settings_backup_export_success, backup.devices.size)
             } catch (e: CancellationException) {
@@ -454,20 +448,14 @@ class SettingsViewModel @Inject constructor(
     fun restoreBackup(uri: Uri) {
         viewModelScope.launch {
             try {
-                val json = withContext(ioDispatcher) {
-                    context.contentResolver.openInputStream(uri)?.use {
-                        String(it.readBytes(), Charsets.UTF_8)
-                    } ?: throw IllegalStateException(
-                        strings(R.string.settings_backup_open_read_failed)
-                    )
-                }
+                val json = withContext(ioDispatcher) { backupStore.readText(uri) }
                 val backup = gson.fromJson(json, AppBackup::class.java)
                     ?: throw IllegalStateException(
                         strings(R.string.settings_backup_invalid_file)
                     )
 
                 backup.appSettings?.let {
-                    UiModePrefs.setThemeMode(context, it.themeMode)
+                    themeModeStore.setThemeMode(it.themeMode)
                     repository.updateSettings(it.normalizedForRestore().copy(id = 1))
                 }
                 // Reset serverDeviceId: a backup may have been taken against a different server, so the
@@ -496,9 +484,6 @@ class SettingsViewModel @Inject constructor(
     }
 
     companion object {
-        private val EXPORT_FOLDER_FLAGS =
-            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-
         /** How often [measuredSnapshotFps] re-reads a rate that is a getter, not a stream. */
         private const val MEASURED_FPS_POLL_MS = 2_000L
     }

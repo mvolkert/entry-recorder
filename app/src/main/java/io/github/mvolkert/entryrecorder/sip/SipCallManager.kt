@@ -79,7 +79,7 @@ sealed interface SipProbeResult {
 @Singleton
 class SipCallManager @Inject constructor(
     @ApplicationContext private val app: Context,
-) {
+) : SipRegistrar {
 
     private val tag = "SipCallManager"
     private var core: Core? = null
@@ -99,7 +99,7 @@ class SipCallManager @Inject constructor(
      * True while the monitor's core exists, i.e. while a live registration is in place that a registration
      * probe would duplicate for the same account. The device form warns on that.
      */
-    val hasActiveCore: Boolean get() = core != null
+    override val hasActiveCore: Boolean get() = core != null
 
     /**
      * Invoked when the intercom actually rings this phone (SIP INVITE received), with the remote host and
@@ -316,7 +316,7 @@ class SipCallManager @Inject constructor(
      * The answer is reported, then the core is shut down on a later main loop message; see the teardown below
      * for why stopping it from inside the registration callback kills the process.
      */
-    suspend fun probeRegistration(device: DeviceEntity): SipProbeResult = probeLock.withLock {
+    override suspend fun probeRegistration(device: DeviceEntity): SipProbeResult = probeLock.withLock {
         if (device.sipMode != SipMode.PBX_REGISTRAR) {
             return@withLock SipProbeResult.MissingFields(SipMissingField.CALLING_MODE)
         }

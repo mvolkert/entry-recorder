@@ -11,12 +11,16 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import io.github.mvolkert.entryrecorder.data.backup.AndroidBackupDocumentStore
+import io.github.mvolkert.entryrecorder.data.backup.BackupDocumentStore
 import io.github.mvolkert.entryrecorder.data.local.AppDatabase
 import io.github.mvolkert.entryrecorder.data.local.dao.ActiveServerRecordingDao
 import io.github.mvolkert.entryrecorder.data.local.dao.AppSettingsDao
 import io.github.mvolkert.entryrecorder.data.local.dao.DeviceDao
 import io.github.mvolkert.entryrecorder.data.local.dao.RecordingDao
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
+import io.github.mvolkert.entryrecorder.ui.theme.AndroidThemeModeStore
+import io.github.mvolkert.entryrecorder.ui.theme.ThemeModeStore
 import io.github.mvolkert.entryrecorder.util.AndroidExportGateway
 import io.github.mvolkert.entryrecorder.util.AndroidUiStrings
 import io.github.mvolkert.entryrecorder.util.AppStorageDirs
@@ -25,6 +29,8 @@ import io.github.mvolkert.entryrecorder.util.TRANSCODE_DIR_NAME
 import io.github.mvolkert.entryrecorder.util.UiStrings
 import io.github.mvolkert.entryrecorder.util.recordingsDirOf
 import io.github.mvolkert.entryrecorder.util.thumbnailsDirOf
+import io.github.mvolkert.entryrecorder.worker.AndroidRetentionCleanupScheduler
+import io.github.mvolkert.entryrecorder.worker.RetentionCleanupScheduler
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -83,6 +89,26 @@ object AppModule {
         thumbnailsDir = thumbnailsDirOf(context),
         transcodeScratchDir = File(context.cacheDir, TRANSCODE_DIR_NAME),
     )
+
+    /** The synchronous theme-mode mirror, behind the one method the settings ViewModel writes through. */
+    @Provides
+    @Singleton
+    fun provideThemeModeStore(@ApplicationContext context: Context): ThemeModeStore =
+        AndroidThemeModeStore(context)
+
+    /** The "clean up now" button, behind the one method the settings ViewModel calls. */
+    @Provides
+    @Singleton
+    fun provideRetentionCleanupScheduler(@ApplicationContext context: Context): RetentionCleanupScheduler =
+        AndroidRetentionCleanupScheduler(context)
+
+    /** SAF document streams for backup export/restore, behind the two methods the settings ViewModel uses. */
+    @Provides
+    @Singleton
+    fun provideBackupDocumentStore(
+        @ApplicationContext context: Context,
+        strings: UiStrings,
+    ): BackupDocumentStore = AndroidBackupDocumentStore(context, strings)
 
     /** MediaStore, the SAF export folder and the share sheet, behind the interface its callers use. */
     @Provides

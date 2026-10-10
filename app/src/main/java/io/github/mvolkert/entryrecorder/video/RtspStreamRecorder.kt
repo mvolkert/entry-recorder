@@ -17,7 +17,7 @@ import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
-import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
+import io.github.mvolkert.entryrecorder.data.server.ServerClient
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.util.ExportGateway
@@ -33,6 +33,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -79,12 +80,12 @@ sealed interface RecorderEvent {
 class RtspStreamRecorder @Inject constructor(
     @ApplicationContext private val context: Context,
     private val repository: IntercomRepository,
-    private val serverClient: ServerRecordingClient,
+    private val serverClient: ServerClient,
     private val snapshotClient: HttpSnapshotClient,
     private val mjpegReader: MjpegStreamReader,
     private val exportGateway: ExportGateway,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
-) {
+) : RecordingController {
     private val tag = "RtspStreamRecorder"
     private val scope = CoroutineScope(ioDispatcher + SupervisorJob())
     private val activeRecordings = ConcurrentHashMap<Long, ActiveRecordingJob>()
@@ -97,11 +98,11 @@ class RtspStreamRecorder @Inject constructor(
     // Live screen observes this StateFlow through LiveViewModel instead of polling for a live status.
     private val _activeDeviceIds = MutableStateFlow<Set<Long>>(emptySet())
     /** Device ids that currently have an active recording (local or on the server). */
-    val activeDeviceIds: StateFlow<Set<Long>> = _activeDeviceIds.asStateFlow()
+    override val activeDeviceIds: StateFlow<Set<Long>> = _activeDeviceIds.asStateFlow()
 
     private val _events = Channel<RecorderEvent>(Channel.BUFFERED)
     /** One-shot recorder observations for the monitor service to route (never replayed to a late collector). */
-    val events = _events.receiveAsFlow()
+    override val events: Flow<RecorderEvent> = _events.receiveAsFlow()
 
     private fun publishActiveIds() {
         _activeDeviceIds.value = (activeRecordings.keys + activeServerRecordings.keys).toSet()
@@ -171,7 +172,7 @@ class RtspStreamRecorder @Inject constructor(
      * server-side recordings). Motion analysis backs off on this, because in PYTHON_SERVER mode the
      * server is the poller and slowing the analyzer would relieve contention that doesn't exist here.
      */
-    fun isLocallyRecording(deviceId: Long): Boolean = activeRecordings.containsKey(deviceId)
+    override fun isLocallyRecording(deviceId: Long): Boolean = activeRecordings.containsKey(deviceId)
 
     /**
      * Start recording an RTSP/Snapshot video sequence for a given device and trigger event.
@@ -181,11 +182,11 @@ class RtspStreamRecorder @Inject constructor(
      * instead, because one recording per device is what the camera and the storage budget allow.
      */
     @Synchronized
-    fun startRecording(
+    override fun startRecording(
         device: DeviceEntity,
         eventType: EventType,
-        maxDurationSeconds: Int = 60,
-        preRoll: List<PreRollFrame> = emptyList()
+        maxDurationSeconds: Int,
+        preRoll: List<PreRollFrame>
     ) {
         val running = activeRecordings[device.id]
         if (running != null) {
@@ -348,7 +349,7 @@ class RtspStreamRecorder @Inject constructor(
      * the Live view) stops whatever is running for the device.
      */
     @Synchronized
-    fun stopRecording(deviceId: Long, reason: EventType? = null) {
+    override fun stopRecording(deviceId: Long, reason: EventType?) {
         val active = activeRecordings[deviceId]
         when {
             active == null -> Unit
@@ -491,7 +492,7 @@ class RtspStreamRecorder @Inject constructor(
      * own, so the only thing lost is the app claiming it. Idempotent — a device already tracked live is
      * skipped, so repeated device-list emissions never stack watchers on one job.
      */
-    suspend fun resumePersistedServerRecordings(devices: List<DeviceEntity>) {
+    override suspend fun resumePersistedServerRecordings(devices: List<DeviceEntity>) {
         val persisted = repository.getActiveServerRecordings()
         if (persisted.isEmpty()) return
         val recordingMode = repository.getSettings().recordingMode

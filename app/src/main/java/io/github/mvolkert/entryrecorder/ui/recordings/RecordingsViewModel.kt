@@ -15,14 +15,14 @@ import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.data.repository.RecordingDeleteResult
-import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
+import io.github.mvolkert.entryrecorder.data.server.ServerClient
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingDto
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeLabelRes
 import io.github.mvolkert.entryrecorder.util.AppStorageDirs
 import io.github.mvolkert.entryrecorder.util.ExportGateway
 import io.github.mvolkert.entryrecorder.util.UiStrings
-import io.github.mvolkert.entryrecorder.video.ExportTranscoder
+import io.github.mvolkert.entryrecorder.video.H264Transcoder
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -90,9 +90,9 @@ sealed interface RecordingsUiEvent {
 @HiltViewModel
 class RecordingsViewModel @Inject constructor(
     private val repository: IntercomRepository,
-    private val serverClient: ServerRecordingClient,
+    private val serverClient: ServerClient,
     private val exportGateway: ExportGateway,
-    private val transcoder: ExportTranscoder,
+    private val transcoder: H264Transcoder,
     // MediaStore writes and the scratch folder the transcoder works in need paths, and the messages need
     // resource formatting: both arrive as [storageDirs] / [strings] rather than as a Context, so this class
     // can be constructed and driven from an ordinary JVM test. The one Context left is the Activity share()
@@ -137,7 +137,7 @@ class RecordingsViewModel @Inject constructor(
     private var activeRun: Job? = null
 
     /**
-     * Stops the running export or download. [ExportTranscoder] checks cancellation per frame, so this
+     * Stops the running export or download. [H264Transcoder] checks cancellation per frame, so this
      * lands within one frame; the strip and the unfinished file are dropped by the cancelled run's own
      * `finally`, which is where it learns which output to delete.
      */

@@ -1,6 +1,7 @@
 package io.github.mvolkert.entryrecorder.util
 
 import android.content.Context
+import android.net.Uri
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import java.io.File
 
@@ -121,4 +122,15 @@ interface ExportGateway {
      * rather than an exception it would only swallow.
      */
     fun deleteExportedFile(folderUri: String, displayName: String): Boolean
+
+    /**
+     * Takes the persistable read/write grant for the tree picker's [uri]. The grant — not the URI alone —
+     * is what lets exports outlive the picking Activity, so the stored URI's meaning is decided here and
+     * never in a ViewModel (which would need a ContentResolver, hence a Context, for the one call).
+     * @return false when the framework refused the grant; the caller then says so and stores nothing.
+     */
+    fun takePersistableTreeGrant(uri: Uri): Boolean
+
+    /** Drops the persistable grant for the stored export folder [folderUri], if any is still alive. */
+    fun releasePersistableTreeGrant(folderUri: String)
 }
