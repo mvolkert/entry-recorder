@@ -11,11 +11,20 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
+import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.service.IntercomMonitorService
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsViewModel
 import io.github.mvolkert.entryrecorder.ui.theme.AppTheme
@@ -35,6 +44,9 @@ class MainActivity : ComponentActivity() {
     // run they can no longer answer what the *device* setting is. Captured before the override;
     // in ThemeMode.System the framework recreates us on a device flip, which refreshes it.
     private var systemNightAtLaunch = false
+
+    /** Runtime permissions still missing at launch; empty skips the rationale, non-empty gates the request behind it. */
+    private var pendingPermissions: Array<String> = emptyArray()
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -62,7 +74,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        requestRequiredPermissions()
+        pendingPermissions = missingRequiredPermissions()
         IntercomMonitorService.start(this)
 
         lifecycleScope.launch {
@@ -94,6 +106,12 @@ class MainActivity : ComponentActivity() {
                 tertiaryIndex = settings.themeTertiaryIndex,
                 useDynamicColor = settings.themeUseDynamicColor,
             ) {
+                if (pendingPermissions.isNotEmpty()) {
+                    PermissionRationaleGate(
+                        pendingPermissions = pendingPermissions,
+                        onRequest = { permissionLauncher.launch(it) },
+                    )
+                }
                 AppRoot(settingsViewModel)
             }
         }
@@ -108,18 +126,45 @@ class MainActivity : ComponentActivity() {
     private fun Configuration.isNight(): Boolean =
         uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
 
-    private fun requestRequiredPermissions() {
+    private fun missingRequiredPermissions(): Array<String> {
         val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
-
-        val missing = permissions.filter {
+        return permissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }
-
-        if (missing.isNotEmpty()) {
-            permissionLauncher.launch(missing.toTypedArray())
-        }
+        }.toTypedArray()
     }
+}
+
+/**
+ * One-shot rationale shown before the launch-time permission request: the app needs the mic and
+ * notifications for background monitoring, and asking cold invites a deny-without-understanding.
+ * "Continue" runs the system dialog, "Skip" leaves the app degraded but working — the monitor
+ * service was already started in [MainActivity.onCreate] either way. Survives rotation via
+ * [rememberSaveable], so the system sheet is never gated twice per process.
+ */
+@Composable
+private fun PermissionRationaleGate(
+    pendingPermissions: Array<String>,
+    onRequest: (Array<String>) -> Unit,
+) {
+    var acknowledged by rememberSaveable { mutableStateOf(false) }
+    if (acknowledged) return
+    AlertDialog(
+        onDismissRequest = { acknowledged = true },
+        title = { Text(stringResource(R.string.permission_rationale_title)) },
+        text = { Text(stringResource(R.string.permission_rationale_body)) },
+        confirmButton = {
+            TextButton(onClick = {
+                acknowledged = true
+                onRequest(pendingPermissions)
+            }) { Text(stringResource(R.string.permission_rationale_continue)) }
+        },
+        dismissButton = {
+            TextButton(onClick = { acknowledged = true }) {
+                Text(stringResource(R.string.permission_rationale_skip))
+            }
+        },
+    )
 }
