@@ -9,7 +9,6 @@ import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.util.Log
-import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import io.github.mvolkert.entryrecorder.R
@@ -53,21 +52,18 @@ object ExportHelper {
     }
 
     /**
-     * Share video file via Android system share sheet (WhatsApp, Email, Cloud, etc.)
-     */
-    fun shareRecording(context: Context, recording: RecordingEntity) {
-        shareFile(context, File(recording.filePath), recording)
-    }
-
-    /**
      * Shares several recordings at once via the system share sheet (multi-select export).
      * Uses a FileProvider grant per file, same as [shareFile]; callers should pass files that
      * already exist on disk (transcoded when the setting is on, raw otherwise).
+     *
+     * Nothing here toasts: this is a utility, not UI, so whatever the user needs to hear goes back to
+     * the caller through [onMessage] and lands in the app's themed snack bar (see
+     * [io.github.mvolkert.entryrecorder.ui.LocalAppSnackbar]).
      */
-    fun shareFiles(context: Context, files: List<File>) {
+    fun shareFiles(context: Context, files: List<File>, onMessage: (String) -> Unit = {}) {
         val existing = files.filter { it.exists() }
         if (existing.isEmpty()) {
-            Toast.makeText(context, R.string.export_share_no_files, Toast.LENGTH_SHORT).show()
+            onMessage(context.getString(R.string.export_share_no_files))
             return
         }
         try {
@@ -86,22 +82,38 @@ object ExportHelper {
             })
         } catch (e: Exception) {
             Log.e("ExportHelper", "Failed to share files", e)
-            Toast.makeText(context, R.string.export_share_failed, Toast.LENGTH_SHORT).show()
+            onMessage(context.getString(R.string.export_share_failed))
         }
     }
 
     /** Shares a single video [file] (e.g. a transcoded H.264 export) via the system share sheet. */
-    fun shareFile(context: Context, file: File, recording: RecordingEntity) =
-        shareFile(context, file, recording.deviceName, context.getString(eventTypeLabelRes(recording.eventType)))
+    fun shareFile(
+        context: Context,
+        file: File,
+        recording: RecordingEntity,
+        onMessage: (String) -> Unit = {},
+    ) = shareFile(
+        context,
+        file,
+        recording.deviceName,
+        context.getString(eventTypeLabelRes(recording.eventType)),
+        onMessage,
+    )
 
     /**
      * Shares a single video [file] using an explicit [deviceName] / [eventTypeLabel] for the sheet's
      * subject and text. The [RecordingEntity] overload delegates here; server recordings, which have no
      * local row, call this directly after downloading the video into the app cache.
      */
-    fun shareFile(context: Context, file: File, deviceName: String, eventTypeLabel: String) {
+    fun shareFile(
+        context: Context,
+        file: File,
+        deviceName: String,
+        eventTypeLabel: String,
+        onMessage: (String) -> Unit = {},
+    ) {
         if (!file.exists()) {
-            Toast.makeText(context, R.string.export_video_not_found, Toast.LENGTH_SHORT).show()
+            onMessage(context.getString(R.string.export_video_not_found))
             return
         }
 
@@ -129,19 +141,8 @@ object ExportHelper {
             context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.export_chooser_title)))
         } catch (e: Exception) {
             Log.e(TAG, "Failed to share video", e)
-            Toast.makeText(
-                context,
-                context.getString(R.string.recordings_toast_export_failed, e.localizedMessage ?: ""),
-                Toast.LENGTH_SHORT
-            ).show()
+            onMessage(context.getString(R.string.recordings_toast_export_failed, e.localizedMessage ?: ""))
         }
-    }
-
-    /**
-     * Save video to public Downloads / Movies folder via MediaStore
-     */
-    fun saveToPublicGallery(context: Context, recording: RecordingEntity) {
-        saveFileToGallery(context, File(recording.filePath), recording)
     }
 
     /**
@@ -152,21 +153,22 @@ object ExportHelper {
         context: Context,
         sourceFile: File,
         recording: RecordingEntity,
-        showToast: Boolean = true,
-    ): Boolean = saveFileToGallery(context, sourceFile, recording.deviceName, showToast)
+        onMessage: (String) -> Unit = {},
+    ): Boolean = saveFileToGallery(context, sourceFile, recording.deviceName, onMessage)
 
     /**
      * [saveFileToGallery] core with an explicit [deviceName] used only for the file label, so server
-     * recordings (no local row) can be saved from a downloaded file.
+     * recordings (no local row) can be saved from a downloaded file. Outcome text goes to [onMessage]
+     * on the caller's thread; the return value stays the success flag the batch counters add up.
      */
     fun saveFileToGallery(
         context: Context,
         sourceFile: File,
         deviceName: String,
-        showToast: Boolean = true,
+        onMessage: (String) -> Unit = {},
     ): Boolean {
         if (!sourceFile.exists()) {
-            if (showToast) Toast.makeText(context, R.string.export_source_not_found, Toast.LENGTH_SHORT).show()
+            onMessage(context.getString(R.string.export_source_not_found))
             return false
         }
 
@@ -195,10 +197,10 @@ object ExportHelper {
                     values.clear()
                     values.put(MediaStore.Video.Media.IS_PENDING, 0)
                     context.contentResolver.update(itemUri, values, null, null)
-                    if (showToast) Toast.makeText(context, R.string.export_saved_gallery, Toast.LENGTH_LONG).show()
+                    onMessage(context.getString(R.string.export_saved_gallery))
                     true
                 } else {
-                    if (showToast) Toast.makeText(context, R.string.export_mediastore_failed, Toast.LENGTH_SHORT).show()
+                    onMessage(context.getString(R.string.export_mediastore_failed))
                     false
                 }
             } else {
@@ -206,20 +208,12 @@ object ExportHelper {
                 destDir.mkdirs()
                 val destFile = File(destDir, fileName)
                 sourceFile.copyTo(destFile, overwrite = true)
-                if (showToast) Toast.makeText(
-                    context,
-                    context.getString(R.string.export_saved_path, destFile.absolutePath),
-                    Toast.LENGTH_LONG
-                ).show()
+                onMessage(context.getString(R.string.export_saved_path, destFile.absolutePath))
                 true
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save to gallery", e)
-            if (showToast) Toast.makeText(
-                context,
-                context.getString(R.string.export_save_failed, e.localizedMessage ?: ""),
-                Toast.LENGTH_SHORT
-            ).show()
+            onMessage(context.getString(R.string.export_save_failed, e.localizedMessage ?: ""))
             false
         }
     }

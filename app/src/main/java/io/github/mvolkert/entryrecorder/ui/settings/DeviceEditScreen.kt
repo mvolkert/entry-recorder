@@ -1,6 +1,5 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -23,6 +22,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -32,7 +32,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.R
+import io.github.mvolkert.entryrecorder.ui.LocalAppSnackbar
 import io.github.mvolkert.entryrecorder.ui.adaptive.appContentMaxWidth
+import io.github.mvolkert.entryrecorder.ui.showMessage
+import kotlinx.coroutines.launch
 
 /** Sentinel device id for "creating a new device" (no existing row matches it). */
 const val NEW_DEVICE_ID = -1L
@@ -69,9 +72,15 @@ fun DeviceEditScreen(
     // resolves the lazy holder; no Linphone core is created until monitoring or a probe starts one.
     val sipCallManager = (context.applicationContext as EntryRecorderApp).sipCallManager
 
-    val save = {
+    val snackbarHost = LocalAppSnackbar.current
+    val scope = rememberCoroutineScope()
+
+    val save: () -> Unit = {
         if (!form.isValid) {
-            Toast.makeText(context, R.string.device_toast_name_ip_required, Toast.LENGTH_SHORT).show()
+            // The required-field report goes through the app's snack bar rather than a toast: it is
+            // blocking the save, so it has to be readable inside the theme and above the navigation bar.
+            val text = resources.getString(R.string.device_toast_name_ip_required)
+            scope.launch { snackbarHost.showMessage(text, short = true) }
         } else {
             viewModel.saveDevice(form.buildDevice())
             onDone()

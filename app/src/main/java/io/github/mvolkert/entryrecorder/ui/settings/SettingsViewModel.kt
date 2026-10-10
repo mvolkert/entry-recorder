@@ -42,7 +42,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** One-shot results the screen turns into toasts. */
+/** One-shot results the screen turns into snack bar messages. */
 sealed interface SettingsUiEvent {
     data class Message(val text: String, val short: Boolean = false) : SettingsUiEvent
 }
@@ -177,7 +177,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 repository.updateSettings(settings.copy(exportFolderUri = uri.toString()))
             } catch (e: SecurityException) {
                 Log.w(tag, "Export folder grant refused for $uri", e)
-                toast(R.string.settings_toast_folder_permission_failed)
+                message(R.string.settings_toast_folder_permission_failed)
             }
         }
     }
@@ -212,9 +212,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             try {
                 val result = serverClient.testConnection(url, apiKey.ifBlank { null })
                 if (result.isSuccess) {
-                    toast(R.string.settings_server_connect_success)
+                    message(R.string.settings_server_connect_success)
                 } else {
-                    toastText(
+                    messageText(
                         result.exceptionOrNull()?.localizedMessage
                             ?: context.getString(R.string.settings_connection_failed)
                     )
@@ -228,7 +228,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun triggerCleanupNow() {
         val work = OneTimeWorkRequestBuilder<RetentionCleanupWorker>().build()
         WorkManager.getInstance(context).enqueue(work)
-        toast(R.string.settings_toast_cleanup_triggered, short = true)
+        message(R.string.settings_toast_cleanup_triggered, short = true)
     }
 
     // --- Backup & restore (settings + devices, via SAF, Gson-serialized) ---
@@ -250,12 +250,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                             context.getString(R.string.settings_backup_open_write_failed)
                         )
                 }
-                toast(R.string.settings_backup_export_success, backup.devices.size)
+                message(R.string.settings_backup_export_success, backup.devices.size)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w(tag, "Backup export failed", e)
-                toast(
+                message(
                     R.string.settings_backup_export_failed,
                     e.localizedMessage ?: context.getString(R.string.settings_unknown_error)
                 )
@@ -290,12 +290,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 // restored devices re-register lazily against whichever server is configured now.
                 backup.devices.forEach { repository.upsertDevice(it.copy(serverDeviceId = null)) }
 
-                toast(R.string.settings_backup_restore_success, backup.devices.size)
+                message(R.string.settings_backup_restore_success, backup.devices.size)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w(tag, "Backup restore failed", e)
-                toast(
+                message(
                     R.string.settings_backup_restore_failed,
                     e.localizedMessage ?: context.getString(R.string.settings_unknown_error)
                 )
@@ -303,11 +303,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun toast(@StringRes id: Int, vararg args: Any, short: Boolean = false) {
+    private fun message(@StringRes id: Int, vararg args: Any, short: Boolean = false) {
         _events.trySend(SettingsUiEvent.Message(context.getString(id, *args), short))
     }
 
-    private fun toastText(text: String) {
+    private fun messageText(text: String) {
         _events.trySend(SettingsUiEvent.Message(text))
     }
 

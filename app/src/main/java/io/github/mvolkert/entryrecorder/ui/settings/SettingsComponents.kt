@@ -1,6 +1,5 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
-import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.LocalIndication
@@ -38,10 +37,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
+import io.github.mvolkert.entryrecorder.ui.LocalAppSnackbar
+import io.github.mvolkert.entryrecorder.ui.showMessage
 import io.github.mvolkert.entryrecorder.ui.components.ExpressiveIconBadge
 import kotlinx.coroutines.flow.Flow
 
@@ -73,15 +73,11 @@ internal fun SettingsSubscreenScaffold(
     floatingActionButton: @Composable () -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val context = LocalContext.current
+    val snackbarHost = LocalAppSnackbar.current
     LaunchedEffect(events) {
         events.collect { event ->
             when (event) {
-                is SettingsUiEvent.Message -> Toast.makeText(
-                    context,
-                    event.text,
-                    if (event.short) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
-                ).show()
+                is SettingsUiEvent.Message -> snackbarHost.showMessage(event.text, event.short)
             }
         }
     }

@@ -51,7 +51,7 @@ data class RecordingsUiState(
         get() = items.filterIsInstance<GalleryItem.Local>().map { it.entity }
 }
 
-/** One-shot export effects the screen has to perform (toasts, the share sheet). */
+/** One-shot export effects the screen has to perform (snack-bar messages, the share sheet). */
 sealed interface RecordingsUiEvent {
     data class Message(val text: String, val short: Boolean = false) : RecordingsUiEvent
 
@@ -111,7 +111,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _events = Channel<RecordingsUiEvent>(Channel.BUFFERED)
 
-    /** Export results the screen turns into toasts or a share sheet. */
+    /** Export results the screen turns into a snack-bar message or a share sheet. */
     val events: Flow<RecordingsUiEvent> = _events.receiveAsFlow()
 
     private val context: Context get() = getApplication()
@@ -212,7 +212,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     /**
      * Fetches the server's completed recordings; called when the screen is shown. A no-op that also clears
      * any stale list outside PYTHON_SERVER mode, so the app never dials a server the user is not using.
-     * A failure is reported as a toast and leaves whatever was already listed in place.
+     * A failure is reported as a message and leaves whatever was already listed in place.
      */
     fun refreshServerRecordings() {
         viewModelScope.launch {
@@ -229,7 +229,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
                 _serverState.value = ServerListState(items = list)
             }.onFailure { error ->
                 _serverState.value = _serverState.value.copy(isLoading = false)
-                toast(R.string.recordings_toast_server_unreachable, error.message ?: "")
+                message(R.string.recordings_toast_server_unreachable, error.message ?: "")
             }
         }
     }
@@ -304,7 +304,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
         // ask for it, so the skip is reported instead of being dropped silently.
         val (deletable, kept) = targets.partition { !it.isProtected }
         if (kept.isNotEmpty()) {
-            toastPlural(R.plurals.recordings_toast_bulk_delete_skipped_protected, kept.size, kept.size)
+            messagePlural(R.plurals.recordings_toast_bulk_delete_skipped_protected, kept.size, kept.size)
         }
         if (deletable.isEmpty()) {
             clearSelection()
@@ -340,7 +340,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
                     state.copy(items = state.items.map { if (it.id == dto.id) it.copy(isProtected = newProtected) else it })
                 }
             }.onFailure { error ->
-                toast(R.string.recordings_toast_server_action_failed, error.message ?: "")
+                message(R.string.recordings_toast_server_action_failed, error.message ?: "")
             }
         }
     }
@@ -356,9 +356,9 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
                 recordingId = dto.id
             ).onSuccess {
                 _serverState.update { state -> state.copy(items = state.items.filterNot { it.id == dto.id }) }
-                toast(R.string.recordings_toast_server_deleted, short = true)
+                message(R.string.recordings_toast_server_deleted, short = true)
             }.onFailure { error ->
-                toast(R.string.recordings_toast_server_action_failed, error.message ?: "")
+                message(R.string.recordings_toast_server_action_failed, error.message ?: "")
             }
         }
     }
@@ -370,13 +370,13 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
      */
     fun exportServerRecording(item: GalleryItem.Remote, kind: RecordingExportKind) {
         if (item.videoAbsoluteUrl.isBlank()) {
-            toast(R.string.recordings_toast_download_failed, "no video url")
+            message(R.string.recordings_toast_download_failed, "no video url")
             return
         }
         viewModelScope.launch {
             val settings = repository.getSettings()
             if (kind == RecordingExportKind.FOLDER && settings.exportFolderUri.isBlank()) {
-                toast(R.string.recordings_toast_set_folder_first)
+                message(R.string.recordings_toast_set_folder_first)
                 return@launch
             }
             _serverDownload.value = 0
@@ -389,7 +389,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
                 _serverDownload.value = null
                 result
                     .onSuccess { file -> deliverRemote(item, file, kind, settings.exportFolderUri) }
-                    .onFailure { error -> toast(R.string.recordings_toast_download_failed, error.message ?: "") }
+                    .onFailure { error -> message(R.string.recordings_toast_download_failed, error.message ?: "") }
             } catch (e: CancellationException) {
                 _serverDownload.value = null
                 throw e
@@ -405,7 +405,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
                 _events.trySend(RecordingsUiEvent.Share(listOf(file), recording = null, deviceName = deviceName, eventTypeLabel = label))
 
             RecordingExportKind.GALLERY -> withContext(Dispatchers.IO) {
-                if (ExportHelper.saveFileToGallery(context, file, deviceName)) celebrate()
+                if (ExportHelper.saveFileToGallery(context, file, deviceName, onMessage = ::emitMessage)) celebrate()
             }
 
             // RAW_FOLDER never reaches a server row (no local original), it just keeps the when exhaustive.
@@ -415,10 +415,10 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
                     ExportHelper.saveFileToSafFolder(context, treeUri, file, file.name)
                 }
                 if (ok) {
-                    toast(R.string.recordings_toast_exported_to, ExportHelper.safFolderDisplayName(treeUri))
+                    message(R.string.recordings_toast_exported_to, ExportHelper.safFolderDisplayName(treeUri))
                     celebrate()
                 } else {
-                    toast(R.string.recordings_toast_export_folder_failed)
+                    message(R.string.recordings_toast_export_folder_failed)
                 }
             }
         }
@@ -447,11 +447,11 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
 
             if (goesToFolder) {
                 if (settings.exportFolderUri.isBlank()) {
-                    toast(R.string.recordings_toast_set_folder_first)
+                    message(R.string.recordings_toast_set_folder_first)
                     return@launch
                 }
                 if (!src.exists()) {
-                    toast(R.string.recordings_toast_file_not_found, short = true)
+                    message(R.string.recordings_toast_file_not_found, short = true)
                     return@launch
                 }
             }
@@ -470,7 +470,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                toast(R.string.recordings_toast_export_failed, e.message ?: "")
+                message(R.string.recordings_toast_export_failed, e.message ?: "")
             } finally {
                 _exportProgress.value = null
             }
@@ -486,7 +486,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
     fun exportSelected(kind: RecordingExportKind) {
         val targets = uiState.value.localRecordings.filter { it.id in _selectedIds.value }
         if (targets.isEmpty()) {
-            toast(R.string.recordings_toast_nothing_selected)
+            message(R.string.recordings_toast_nothing_selected)
             return
         }
         viewModelScope.launch {
@@ -494,7 +494,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
             if ((kind == RecordingExportKind.FOLDER || kind == RecordingExportKind.RAW_FOLDER) &&
                 settings.exportFolderUri.isBlank()
             ) {
-                toast(R.string.recordings_toast_set_folder_first)
+                message(R.string.recordings_toast_set_folder_first)
                 return@launch
             }
             _batchProgress.value = 0 to targets.size
@@ -519,7 +519,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
                         RecordingExportKind.SHARE -> toShare.add(out)
                         RecordingExportKind.GALLERY ->
                             withContext(Dispatchers.IO) {
-                                if (ExportHelper.saveFileToGallery(context, out, rec, showToast = false)) saved++
+                                if (ExportHelper.saveFileToGallery(context, out, rec, onMessage = ::emitMessage)) saved++
                             }
 
                         RecordingExportKind.FOLDER, RecordingExportKind.RAW_FOLDER -> {
@@ -538,14 +538,14 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
                         if (toShare.isNotEmpty()) _events.trySend(RecordingsUiEvent.Share(toShare, null))
 
                     RecordingExportKind.GALLERY -> {
-                        toastPlural(
+                        messagePlural(
                             R.plurals.recordings_toast_saved_gallery, targets.size, saved, targets.size
                         )
                         if (saved > 0) celebrate()
                     }
 
                     RecordingExportKind.FOLDER, RecordingExportKind.RAW_FOLDER -> {
-                        toastPlural(
+                        messagePlural(
                             R.plurals.recordings_toast_exported_folder, targets.size, saved, targets.size
                         )
                         if (saved > 0) celebrate()
@@ -554,7 +554,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                toast(R.string.recordings_toast_export_failed, e.message ?: "")
+                message(R.string.recordings_toast_export_failed, e.message ?: "")
             } finally {
                 _batchProgress.value = null
                 clearSelection()
@@ -576,7 +576,7 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
             RecordingExportKind.SHARE -> _events.trySend(RecordingsUiEvent.Share(listOf(file), recording))
 
             RecordingExportKind.GALLERY -> withContext(Dispatchers.IO) {
-                if (ExportHelper.saveFileToGallery(context, file, recording)) celebrate()
+                if (ExportHelper.saveFileToGallery(context, file, recording, onMessage = ::emitMessage)) celebrate()
             }
 
             RecordingExportKind.FOLDER, RecordingExportKind.RAW_FOLDER -> {
@@ -587,10 +587,10 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
                     }
                 }
                 if (ok) {
-                    toast(R.string.recordings_toast_exported_to, ExportHelper.safFolderDisplayName(treeUri))
+                    message(R.string.recordings_toast_exported_to, ExportHelper.safFolderDisplayName(treeUri))
                     celebrate()
                 } else {
-                    toast(R.string.recordings_toast_export_folder_failed)
+                    message(R.string.recordings_toast_export_folder_failed)
                 }
             }
         }
@@ -601,12 +601,19 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
         _events.trySend(RecordingsUiEvent.ExportCompleted)
     }
 
-    private fun toast(@StringRes id: Int, vararg args: Any, short: Boolean = false) {
-        _events.trySend(RecordingsUiEvent.Message(context.getString(id, *args), short))
+    private fun message(@StringRes id: Int, vararg args: Any, short: Boolean = false) {
+        emitMessage(context.getString(id, *args), short)
     }
 
-    private fun toastPlural(@PluralsRes id: Int, quantity: Int, vararg args: Any) {
-        val text = context.resources.getQuantityString(id, quantity, *args)
-        _events.trySend(RecordingsUiEvent.Message(text))
+    private fun messagePlural(@PluralsRes id: Int, quantity: Int, vararg args: Any) {
+        emitMessage(context.resources.getQuantityString(id, quantity, *args))
+    }
+
+    /**
+     * The one way a message reaches the screen. Also the sink [ExportHelper] hands its already-built
+     * strings to, so a gallery save reports through the same snack bar as everything else.
+     */
+    private fun emitMessage(text: String, short: Boolean = false) {
+        _events.trySend(RecordingsUiEvent.Message(text, short))
     }
 }

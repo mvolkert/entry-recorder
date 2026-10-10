@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -14,13 +16,17 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 
 /**
  * One top-level navigation entry. Kept independent of the `Screen` sealed class so the adaptive
@@ -43,12 +49,18 @@ data class AdaptiveNavItem(
  * separate branch would recompose the whole destination subtree from scratch — which the screens below
  * cannot survive, because they hold their own playback state in `remember` (a player opened here flips
  * the chrome, and a rebuilt screen would immediately drop it again).
+ *
+ * [snackbarHost] is drawn here and nowhere else, so it is the one host every screen under the graph
+ * posts to (see [io.github.mvolkert.entryrecorder.ui.LocalAppSnackbar]). The compact layout hands it to
+ * [Scaffold], which parks it above the bottom bar; the rail layout has no [Scaffold] to ask, so the host
+ * is bottom-aligned over the content column and clears the navigation bar itself.
  */
 @Composable
 fun AdaptiveScaffold(
     items: List<AdaptiveNavItem>,
     selectedRoute: String?,
     showChrome: Boolean,
+    snackbarHost: SnackbarHostState,
     onNavigate: (AdaptiveNavItem) -> Unit,
     content: @Composable (Modifier) -> Unit,
 ) {
@@ -69,11 +81,22 @@ fun AdaptiveScaffold(
                     }
                 }
             }
-            Box(Modifier.weight(1f).fillMaxSize()) { content(Modifier) }
+            Box(Modifier.weight(1f).fillMaxSize()) {
+                content(Modifier)
+                SnackbarHost(
+                    hostState = snackbarHost,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(Spacing.lg),
+                )
+            }
         }
     } else {
         Scaffold(
             contentWindowInsets = WindowInsets(0),
+            // Only the side margins are added by hand; the Scaffold owns the vertical placement.
+            snackbarHost = { SnackbarHost(snackbarHost, Modifier.padding(horizontal = Spacing.lg)) },
             bottomBar = {
                 if (showChrome) {
                     NavigationBar {

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -86,7 +87,7 @@ private const val ARG_DEVICE_ID = "deviceId"
  * [io.github.mvolkert.entryrecorder.ui.adaptive.WindowInfo] into a [LocalWindowInfo] provider, and
  * wraps the NavHost inside an [AdaptiveScaffold] so the same three destinations render either under a
  * bottom [androidx.compose.material3.NavigationBar] or a leading [androidx.compose.material3.NavigationRail]
- * depending on window width.
+ * depending on window width. It also owns the one [LocalAppSnackbar] host the whole graph reports through.
  */
 @Composable
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -94,6 +95,9 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
     val windowInfo = rememberWindowInfo()
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
+    // The app's single message channel: [AdaptiveScaffold] draws it, every screen posts to it. Hoisted
+    // here because a settings detail route and the tab behind it must land in the same snack bar.
+    val snackbarHost = remember { SnackbarHostState() }
     // Hoisted above the NavHost: it is rememberSaveable internally, so it survives both the detail
     // pushes (whose composition tears the pager down) and configuration changes.
     val pagerState = rememberPagerState(pageCount = { TopLevelScreens.size })
@@ -130,11 +134,15 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
             fadeOut(animationSpec = fadeSpec)
     }
 
-    CompositionLocalProvider(LocalWindowInfo provides windowInfo) {
+    CompositionLocalProvider(
+        LocalWindowInfo provides windowInfo,
+        LocalAppSnackbar provides snackbarHost,
+    ) {
         AdaptiveScaffold(
             items = items,
             selectedRoute = selectedRoute,
             showChrome = showChrome,
+            snackbarHost = snackbarHost,
             onNavigate = { item ->
                 // Only reachable while on the tabs route (chrome is hidden on details), so the pager
                 // is attached and the animated scroll always drives the visible page.

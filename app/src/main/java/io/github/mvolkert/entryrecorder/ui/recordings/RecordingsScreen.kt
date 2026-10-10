@@ -1,6 +1,5 @@
 package io.github.mvolkert.entryrecorder.ui.recordings
 
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,6 +38,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
+import io.github.mvolkert.entryrecorder.ui.LocalAppSnackbar
+import io.github.mvolkert.entryrecorder.ui.showMessage
 import io.github.mvolkert.entryrecorder.ui.components.CelebrationCheck
 import io.github.mvolkert.entryrecorder.ui.components.ExpressiveIconBadge
 import io.github.mvolkert.entryrecorder.ui.components.LoadingSpot
@@ -47,6 +49,7 @@ import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeColor
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeOnColor
 import io.github.mvolkert.entryrecorder.util.ExportHelper
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,6 +61,8 @@ fun RecordingsScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val snackbarHost = LocalAppSnackbar.current
+    val scope = rememberCoroutineScope()
     val exportProgress by viewModel.exportProgress.collectAsStateWithLifecycle()
     val batchProgress by viewModel.batchProgress.collectAsStateWithLifecycle()
     val serverDownload by viewModel.serverDownload.collectAsStateWithLifecycle()
@@ -104,20 +109,22 @@ fun RecordingsScreen(
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             when (event) {
-                is RecordingsUiEvent.Message -> Toast.makeText(
-                    context,
-                    event.text,
-                    if (event.short) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
-                ).show()
+                // Awaiting the message keeps the queue in order: a batch that reports skipped protected
+                // clips and then a saved count delivers both instead of the last one winning.
+                is RecordingsUiEvent.Message -> snackbarHost.showMessage(event.text, event.short)
 
                 is RecordingsUiEvent.Share -> {
                     val recording = event.recording
                     val file = event.files.firstOrNull()
+                    // ExportHelper builds its outcome text on this thread and has no coroutine to post
+                    // from, so the screen hands it the hop into the snack bar.
+                    val post: (String) -> Unit = { text -> scope.launch { snackbarHost.showMessage(text) } }
                     when {
-                        recording != null && file != null -> ExportHelper.shareFile(context, file, recording)
+                        recording != null && file != null ->
+                            ExportHelper.shareFile(context, file, recording, onMessage = post)
                         event.deviceName != null && file != null ->
-                            ExportHelper.shareFile(context, file, event.deviceName, event.eventTypeLabel ?: "")
-                        else -> ExportHelper.shareFiles(context, event.files)
+                            ExportHelper.shareFile(context, file, event.deviceName, event.eventTypeLabel ?: "", onMessage = post)
+                        else -> ExportHelper.shareFiles(context, event.files, onMessage = post)
                     }
                 }
 
