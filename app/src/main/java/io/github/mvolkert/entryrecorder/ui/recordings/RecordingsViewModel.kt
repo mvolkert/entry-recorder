@@ -91,11 +91,9 @@ sealed interface RecordingsUiEvent {
 class RecordingsViewModel @Inject constructor(
     private val repository: IntercomRepository,
     private val serverClient: ServerRecordingClient,
-    // Not private: the share sheet has to be launched from an Activity context, which only the screen
-    // has, so RecordingsScreen performs that one call itself with the same gateway instance.
-    val exportGateway: ExportGateway,
-    // Share sheets and MediaStore writes need a Context; the application context is safe here because
-    // nothing UI-scoped is held from it.
+    private val exportGateway: ExportGateway,
+    // MediaStore writes and the cache folder the transcoder works in need a Context; nothing UI-scoped is
+    // held from it. A share sheet is the one export step that cannot use it, hence share()'s parameter.
     @ApplicationContext private val context: Context,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
@@ -168,6 +166,28 @@ class RecordingsViewModel @Inject constructor(
 
     /** Export results the screen turns into a snack-bar message or a share sheet. */
     val events: Flow<RecordingsUiEvent> = _events.receiveAsFlow()
+
+    /**
+     * Opens the system share sheet for [event]. [context] has to be the Activity hosting the screen: the
+     * single-file sheet is started without NEW_TASK, so an application context would place it outside the
+     * app's task. Everything else about a share is decided here — which of the three payload shapes the
+     * event is, and how the gateway's outcome text gets back to the snack bar — so the screen holds no
+     * gateway of its own.
+     */
+    fun share(context: Context, event: RecordingsUiEvent.Share, onMessage: (String) -> Unit) {
+        val recording = event.recording
+        val deviceName = event.deviceName
+        val file = event.files.firstOrNull()
+        when {
+            recording != null && file != null ->
+                exportGateway.shareFile(context, file, recording, onMessage)
+
+            deviceName != null && file != null ->
+                exportGateway.shareFile(context, file, deviceName, event.eventTypeLabel ?: "", onMessage)
+
+            else -> exportGateway.shareFiles(context, event.files, onMessage)
+        }
+    }
 
     /** Server rows are a lazy one-shot fetch, kept out of the Room flow so an offline server can't stall it. */
     private data class ServerListState(

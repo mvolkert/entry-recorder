@@ -54,14 +54,23 @@ class TwoNIPVersoDevice(
     // reconnect loop running, while stopMonitoring can still cancel this device on its own.
     private val parentJob: Job = parentScope.coroutineContext[Job] ?: SupervisorJob()
 
-    // Owns the reconnect delays and the status poll loop. It is a var because tearing a device down
-    // cancels it for good, and a device that gets watched again has to be given a live one.
-    private var scope = newScope()
+    // Owns the reconnect delays and the status poll loop, and is created only when something is actually
+    // launched into it: an instance built just to answer testConnection — which is what the device form's
+    // connection probe does — must not leave a child Job attached to the application scope that nothing will
+    // ever cancel. It is a var because tearing a device down cancels it for good.
+    private var scope: CoroutineScope? = null
     private val isMonitoring = AtomicBoolean(false)
     private var eventSource: EventSource? = null
     private var pollingJob: Job? = null
 
     private fun newScope() = CoroutineScope(ioDispatcher + SupervisorJob(parentJob))
+
+    /**
+     * The live scope for this device's monitoring work, rebuilt when a previous [stopMonitoring] cancelled
+     * the old one — a device that gets watched again must not reconnect and poll into a dead job forever.
+     */
+    private fun monitoringScope(): CoroutineScope =
+        scope?.takeIf { it.isActive } ?: newScope().also { scope = it }
 
     // Digest / Basic authentication support, bound to this device's credentials. Derived from the shared
     // stream profile so the connection pool is common but the timeouts stay this device's own.
@@ -130,10 +139,6 @@ class TwoNIPVersoDevice(
 
     override suspend fun startMonitoring(listener: IntercomEventListener) = withContext(ioDispatcher) {
         if (isMonitoring.getAndSet(true)) return@withContext
-
-        // A previous stopMonitoring cancelled the scope, so a device that is watched a second time
-        // would otherwise reconnect and poll into a dead job forever.
-        if (!scope.isActive) scope = newScope()
 
         Log.i(tag, "Starting 2N IP Verso monitoring on ${deviceEntity.ipAddress} (FW 2.50+)")
         listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, ConnectionQuality.ONLINE, "Connecting to 2N IP Verso..."))
@@ -260,7 +265,7 @@ class TwoNIPVersoDevice(
         val polledLabels = listOfNotNull("motion".takeIf { wantsMotion }, "noise".takeIf { wantsNoise })
             .joinToString("/")
 
-        pollingJob = scope.launch {
+        pollingJob = monitoringScope().launch {
             Log.i(tag, "Starting 2N HTTP polling fallback loop ($polledLabels)")
             // The fallback can only read boolean status endpoints; a doorbell ring has no pollable
             // endpoint here, so say so instead of letting the user assume the doorbell is broken.
@@ -459,7 +464,7 @@ class TwoNIPVersoDevice(
     }
 
     private fun scheduleReconnect(listener: IntercomEventListener) {
-        scope.launch {
+        monitoringScope().launch {
             delay(5000.milliseconds)
             if (isMonitoring.get()) {
                 startSseEventListener(listener)
@@ -479,8 +484,11 @@ class TwoNIPVersoDevice(
         eventSource?.cancel()
         eventSource = null
         pollingJob = null
-        // Cancels the poll loop and any pending reconnect along with the scope's own job.
-        scope.cancel()
+        // Cancels the poll loop and any pending reconnect along with the scope's own job. Dropped
+        // afterwards so the cancelled job leaves the application scope's children; a device that is watched
+        // again gets a fresh one from monitoringScope().
+        scope?.cancel()
+        scope = null
     }
 
     companion object {

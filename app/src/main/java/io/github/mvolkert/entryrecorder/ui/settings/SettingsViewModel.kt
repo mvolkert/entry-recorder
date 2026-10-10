@@ -39,6 +39,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -46,6 +47,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -53,6 +55,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
 
 /** One-shot results the screen turns into snack bar messages. */
 sealed interface SettingsUiEvent {
@@ -77,12 +80,10 @@ class SettingsViewModel @Inject constructor(
     private val gson: Gson,
     @ApplicationContext private val context: Context,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
-    // Not private: the create/edit form and the storage screen still do their own probing and folder-name
-    // lookups with these. Phase 4 moves that work behind hoisted state in this ViewModel.
-    val exportGateway: ExportGateway,
-    val snapshotClient: HttpSnapshotClient,
-    val deviceFactory: IntercomDeviceFactory,
-    val sipCallManager: SipCallManager,
+    private val exportGateway: ExportGateway,
+    private val snapshotClient: HttpSnapshotClient,
+    private val deviceFactory: IntercomDeviceFactory,
+    private val sipCallManager: SipCallManager,
 ) : ViewModel() {
 
     private val tag = "SettingsViewModel"
@@ -171,6 +172,27 @@ class SettingsViewModel @Inject constructor(
         }
         .flowOn(ioDispatcher)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /**
+     * The name the document provider gives the chosen export folder, "" while none is picked or the query
+     * has not answered. It is a number-free label, so a provider that refuses the query is reported as no
+     * name rather than as a broken folder — [externalUsageBytes] and [exportFolderAccess] already say
+     * whether the folder works. Resolved here because the name costs a ContentProvider round trip, which
+     * the storage screen used to pay on the UI thread inside a `remember`.
+     */
+    val exportFolderName: StateFlow<String> = repository.settingsFlow
+        .map { it?.exportFolderUri.orEmpty() }
+        .distinctUntilChanged()
+        .map { folderUri ->
+            if (folderUri.isBlank()) "" else runCatching {
+                exportGateway.safFolderDisplayName(folderUri.toUri())
+            }.onFailure {
+                if (it is CancellationException) throw it
+                Log.w(tag, "Export folder name for $folderUri could not be read", it)
+            }.getOrDefault("")
+        }
+        .flowOn(ioDispatcher)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
     /**
      * Persists [device] locally, then — only in PYTHON_SERVER mode — best-effort syncs it to the server
@@ -267,6 +289,101 @@ class SettingsViewModel @Inject constructor(
             context.contentResolver.releasePersistableUriPermission(folderUri.toUri(), EXPORT_FOLDER_FLAGS)
         }.onFailure { Log.d(tag, "No live grant left to release for $folderUri", it) }
     }
+
+    // --- Probes the create/edit form runs against unsaved values ---
+
+    private val _connectionTest = MutableStateFlow<DeviceTestState>(DeviceTestState.Idle)
+
+    /** Outcome of the HTTP probe against the values currently typed in. */
+    val connectionTest: StateFlow<DeviceTestState> = _connectionTest.asStateFlow()
+
+    private val _sipTest = MutableStateFlow<SipTestState>(SipTestState.Idle)
+
+    /** Outcome of the registrar probe, which runs on a throw-away Linphone core. */
+    val sipTest: StateFlow<SipTestState> = _sipTest.asStateFlow()
+
+    private val _snapshotProbe = MutableStateFlow<SnapshotProbeState>(SnapshotProbeState.Idle)
+
+    /** Outcome of the "Get FPS" burst. The screen writes the number into the field; this only measures. */
+    val snapshotProbe: StateFlow<SnapshotProbeState> = _snapshotProbe.asStateFlow()
+
+    private val measuredFpsDeviceId = MutableStateFlow<Long?>(null)
+
+    /**
+     * The snapshot rate the endpoint actually delivered lately, polled for whichever device the form is
+     * showing. It lives here rather than in the section because [HttpSnapshotClient.achievedFps] is a
+     * getter and not a stream: the loop that turned it into state used to sit in a `LaunchedEffect`, so
+     * rotating the phone restarted it and left a gap where the reading should have been.
+     */
+    val measuredSnapshotFps: StateFlow<Float> = flow {
+        while (true) {
+            val deviceId = measuredFpsDeviceId.value
+            emit(if (deviceId == null) 0f else snapshotClient.achievedFps(deviceId))
+            delay(MEASURED_FPS_POLL_MS.milliseconds)
+        }
+    }.flowOn(ioDispatcher).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
+
+    /**
+     * Points [measuredSnapshotFps] at [deviceId], or stops the poll when null. Switching to a different
+     * device — including leaving the form — also discards a finished probe, because a number that was
+     * measured against another camera's address and paths would be shown as if it were this one's.
+     */
+    fun watchMeasuredSnapshotFps(deviceId: Long?) {
+        if (measuredFpsDeviceId.value != deviceId) {
+            _connectionTest.value = DeviceTestState.Idle
+            _sipTest.value = SipTestState.Idle
+            _snapshotProbe.value = SnapshotProbeState.Idle
+        }
+        measuredFpsDeviceId.value = deviceId
+    }
+
+    /**
+     * Asks the intercom itself whether the typed address, port and credentials work, before anything is
+     * saved. A second call while one is in flight is ignored rather than queued: two probes against the
+     * same serial endpoint only slow both of them down.
+     */
+    fun testDeviceConnection(candidate: DeviceEntity) {
+        if (_connectionTest.value is DeviceTestState.Running) return
+        viewModelScope.launch {
+            _connectionTest.value = DeviceTestState.Running
+            val outcome = try {
+                deviceFactory.createDevice(candidate).testConnection()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A device class that cannot even report why it failed still has to leave the button idle.
+                Log.w(tag, "Connection probe for ${candidate.name} threw", e)
+                _connectionTest.value = DeviceTestState.Failed(e.localizedMessage)
+                return@launch
+            }
+            _connectionTest.value = if (outcome.isSuccess) DeviceTestState.Passed
+            else DeviceTestState.Failed(outcome.exceptionOrNull()?.localizedMessage)
+        }
+    }
+
+    /** Asks a registrar whether the typed SIP account would register. See [SipCallManager.probeRegistration]. */
+    fun testSipRegistration(candidate: DeviceEntity) {
+        if (_sipTest.value is SipTestState.Running) return
+        viewModelScope.launch {
+            _sipTest.value = SipTestState.Running
+            _sipTest.value = SipTestState.Completed(sipCallManager.probeRegistration(candidate))
+        }
+    }
+
+    /**
+     * Burst-measures what the snapshot endpoint can serve, for the typed path and credentials. Writes
+     * nothing: the form owns its own fields, so the screen decides how to use the number.
+     */
+    fun probeSnapshotFps(candidate: DeviceEntity) {
+        if (_snapshotProbe.value is SnapshotProbeState.Running) return
+        viewModelScope.launch {
+            _snapshotProbe.value = SnapshotProbeState.Running
+            _snapshotProbe.value = SnapshotProbeState.Measured(snapshotClient.probeSnapshotFps(candidate))
+        }
+    }
+
+    /** True while the monitor service holds a Linphone core, which is what a second probe would contend with. */
+    val monitorUsesSip: Boolean get() = sipCallManager.hasActiveCore
 
     private val _isTestingServer = MutableStateFlow(false)
     val isTestingServer: StateFlow<Boolean> = _isTestingServer.asStateFlow()
@@ -379,5 +496,8 @@ class SettingsViewModel @Inject constructor(
     companion object {
         private val EXPORT_FOLDER_FLAGS =
             Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+
+        /** How often [measuredSnapshotFps] re-reads a rate that is a getter, not a stream. */
+        private const val MEASURED_FPS_POLL_MS = 2_000L
     }
 }

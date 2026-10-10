@@ -5,7 +5,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mvolkert.entryrecorder.R
@@ -24,14 +23,9 @@ fun SettingsStorageScreen(
     val exportFolderAccess by viewModel.exportFolderAccess.collectAsStateWithLifecycle()
     val storageUsage by viewModel.storageUsage.collectAsStateWithLifecycle()
     val externalUsageBytes by viewModel.externalUsageBytes.collectAsStateWithLifecycle()
-
-    // Resolved here instead of inside the card: the display name costs a ContentProvider query, so the
-    // presentational layer stays free of the export gateway. Keyed on the URI so it runs once per folder.
-    val exportFolderUri = state.appSettings.exportFolderUri
-    val exportFolderName = remember(exportFolderUri) {
-        if (exportFolderUri.isBlank()) ""
-        else viewModel.exportGateway.safFolderDisplayName(exportFolderUri.toUri())
-    }
+    // The folder's display name costs a ContentProvider query, so the ViewModel resolves it off the main
+    // thread and this layer only reads the result.
+    val exportFolderName by viewModel.exportFolderName.collectAsStateWithLifecycle()
 
     val exportFolderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()

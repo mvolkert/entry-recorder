@@ -15,29 +15,21 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
-import io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory
 import io.github.mvolkert.entryrecorder.data.model.SipMode
-import io.github.mvolkert.entryrecorder.sip.SipCallManager
 import io.github.mvolkert.entryrecorder.sip.SipCallTiming
 import io.github.mvolkert.entryrecorder.sip.SipMissingField
 import io.github.mvolkert.entryrecorder.sip.SipProbeResult
 import io.github.mvolkert.entryrecorder.ui.components.MorphingIcon
-import kotlinx.coroutines.launch
 
 /**
- * Probes the device with the values currently typed in, before anything is saved. The result is
- * local to this section: leaving the screen discards it along with the running probe.
+ * Probes the device with the values currently typed in, before anything is saved. This section holds no
+ * state of its own: the probe lives in [SettingsViewModel] so that turning the phone over while one is
+ * running keeps the answer instead of losing both the result and the in-flight request.
  *
  * Two independent probes live here: the HTTP one asks the intercom itself, the SIP one asks a registrar
  * whether the typed account would register. The latter runs on a throw-away Linphone core, so testing
@@ -46,119 +38,54 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun DeviceFormTestSection(
     form: DeviceFormState,
-    sipCallManager: SipCallManager,
-    deviceFactory: IntercomDeviceFactory,
+    connectionTest: DeviceTestState,
+    sipTest: SipTestState,
+    monitorUsesSip: Boolean,
+    onTestConnection: () -> Unit,
+    onTestSipRegistration: () -> Unit,
 ) {
-    val resources = LocalResources.current
-    val scope = rememberCoroutineScope()
-    var isTestingConnection by remember { mutableStateOf(false) }
-    var testResult by remember { mutableStateOf<String?>(null) }
-    var isTestSuccess by remember { mutableStateOf(false) }
-
-    var isTestingSip by remember { mutableStateOf(false) }
-    var sipTestResult by remember { mutableStateOf<String?>(null) }
-    var isSipTestSuccess by remember { mutableStateOf(false) }
+    val connectionRunning = connectionTest is DeviceTestState.Running
 
     Button(
-        onClick = {
-            val candidate = form.buildTestCandidate()
-            isTestingConnection = true
-            testResult = null
-            scope.launch {
-                val testDev = deviceFactory.createDevice(candidate)
-                val res = testDev.testConnection()
-                isTestingConnection = false
-                isTestSuccess = res.isSuccess
-                testResult = if (res.isSuccess) {
-                    resources.getString(R.string.device_test_success)
-                } else {
-                    resources.getString(
-                        R.string.device_test_failed,
-                        res.exceptionOrNull()?.localizedMessage ?: ""
-                    )
-                }
-            }
-        },
+        onClick = onTestConnection,
         modifier = Modifier.fillMaxWidth(),
-        enabled = !isTestingConnection
+        enabled = !connectionRunning
     ) {
-        if (isTestingConnection) {
+        if (connectionRunning) {
             CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
             Spacer(modifier = Modifier.width(8.dp))
         }
         Text(stringResource(R.string.device_test_connection))
     }
 
-    testResult?.let { msg -> TestResultRow(msg, isTestSuccess) }
+    when (connectionTest) {
+        DeviceTestState.Idle, DeviceTestState.Running -> Unit
+        DeviceTestState.Passed -> TestResultRow(
+            stringResource(R.string.device_test_success),
+            success = true
+        )
+
+        is DeviceTestState.Failed -> TestResultRow(
+            stringResource(R.string.device_test_failed, connectionTest.reason ?: ""),
+            success = false
+        )
+    }
 
     // Peer-to-peer has no registrar to ask, so the probe only exists for the PBX case.
     if (form.sipMode == SipMode.PBX_REGISTRAR) {
         OutlinedButton(
-            onClick = {
-                val candidate = form.buildTestCandidate()
-                isTestingSip = true
-                sipTestResult = null
-                scope.launch {
-                    when (val probe = sipCallManager.probeRegistration(candidate)) {
-                        is SipProbeResult.Registered -> {
-                            isSipTestSuccess = true
-                            sipTestResult = resources.getString(
-                                R.string.device_sip_test_success,
-                                probe.server
-                            )
-                        }
-
-                        is SipProbeResult.Rejected -> {
-                            isSipTestSuccess = false
-                            sipTestResult = resources.getString(
-                                R.string.device_sip_test_failed,
-                                probe.reason
-                            )
-                        }
-
-                        is SipProbeResult.NoAnswer -> {
-                            isSipTestSuccess = false
-                            // The last state is what separates "the registrar ignored us" from "nothing was
-                            // ever sent", which are different bugs on different sides of the LAN.
-                            val lastState = probe.observed
-                                ?: resources.getString(R.string.device_sip_test_no_state)
-                            sipTestResult = resources.getString(
-                                R.string.device_sip_test_no_answer,
-                                probe.server,
-                                SipCallTiming.SIP_PROBE_TIMEOUT_MS.toInt() / 1000,
-                                lastState
-                            )
-                        }
-
-                        is SipProbeResult.MissingFields -> {
-                            isSipTestSuccess = false
-                            val messageRes = when (probe.field) {
-                                SipMissingField.CALLING_MODE ->
-                                    R.string.device_sip_test_missing_calling_mode
-
-                                SipMissingField.PBX_HOST ->
-                                    R.string.device_sip_test_missing_pbx_host
-
-                                SipMissingField.SIP_USER ->
-                                    R.string.device_sip_test_missing_sip_user
-                            }
-                            sipTestResult = resources.getString(messageRes)
-                        }
-                    }
-                    isTestingSip = false
-                }
-            },
+            onClick = onTestSipRegistration,
             modifier = Modifier.fillMaxWidth(),
-            enabled = !isTestingSip && !isTestingConnection
+            enabled = sipTest !is SipTestState.Running && !connectionRunning
         ) {
-            if (isTestingSip) {
+            if (sipTest is SipTestState.Running) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 Spacer(modifier = Modifier.width(8.dp))
             }
             Text(stringResource(R.string.device_sip_test_button))
         }
 
-        if (sipCallManager.hasActiveCore) {
+        if (monitorUsesSip) {
             Text(
                 text = stringResource(R.string.device_sip_test_monitoring_caution),
                 style = MaterialTheme.typography.bodySmall,
@@ -166,7 +93,10 @@ internal fun DeviceFormTestSection(
             )
         }
 
-        sipTestResult?.let { msg -> TestResultRow(msg, isSipTestSuccess) }
+        when (sipTest) {
+            SipTestState.Idle, SipTestState.Running -> Unit
+            is SipTestState.Completed -> SipTestResultRow(sipTest.result)
+        }
     }
 }
 
@@ -186,6 +116,57 @@ private fun TestResultRow(message: String, success: Boolean) {
             text = message,
             color = if (success) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall
+        )
+    }
+}
+
+/**
+ * One registrar-probe outcome. The four arms are four different facts about the typed account, so they
+ * stay four separate strings rather than one summary line.
+ */
+@Composable
+private fun SipTestResultRow(result: SipProbeResult) {
+    when (result) {
+        is SipProbeResult.Registered -> TestResultRow(
+            stringResource(R.string.device_sip_test_success, result.server),
+            success = true
+        )
+
+        is SipProbeResult.Rejected -> TestResultRow(
+            stringResource(R.string.device_sip_test_failed, result.reason),
+            success = false
+        )
+
+        is SipProbeResult.NoAnswer -> {
+            // The last state is what separates "the registrar ignored us" from "nothing was
+            // ever sent", which are different bugs on different sides of the LAN.
+            val lastState = result.observed
+                ?: stringResource(R.string.device_sip_test_no_state)
+            TestResultRow(
+                stringResource(
+                    R.string.device_sip_test_no_answer,
+                    result.server,
+                    SipCallTiming.SIP_PROBE_TIMEOUT_MS.toInt() / 1000,
+                    lastState
+                ),
+                success = false
+            )
+        }
+
+        is SipProbeResult.MissingFields -> TestResultRow(
+            stringResource(
+                when (result.field) {
+                    SipMissingField.CALLING_MODE ->
+                        R.string.device_sip_test_missing_calling_mode
+
+                    SipMissingField.PBX_HOST ->
+                        R.string.device_sip_test_missing_pbx_host
+
+                    SipMissingField.SIP_USER ->
+                        R.string.device_sip_test_missing_sip_user
+                }
+            ),
+            success = false
         )
     }
 }

@@ -67,8 +67,6 @@ fun RecordingsScreen(
     val context = LocalContext.current
     val snackbarHost = LocalAppSnackbar.current
     val scope = rememberCoroutineScope()
-    // Same instance the ViewModel exports with; only the screen can launch the sheet (Activity context).
-    val exportGateway = viewModel.exportGateway
     val exportProgress by viewModel.exportProgress.collectAsStateWithLifecycle()
     val batchProgress by viewModel.batchProgress.collectAsStateWithLifecycle()
     val serverDownload by viewModel.serverDownload.collectAsStateWithLifecycle()
@@ -104,8 +102,8 @@ fun RecordingsScreen(
     }
     BackHandler(enabled = selectionMode) { exitSelection() }
 
-    // Export runs in the ViewModel; its results arrive as one-shot events. The share sheet is launched
-    // here because exportGateway.shareFile needs an Activity context (it adds no NEW_TASK flag).
+    // Export runs in the ViewModel; its results arrive as one-shot events. This screen supplies only its
+    // own Activity context to the share sheet, which is the one step that cannot run from the application.
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             when (event) {
@@ -113,20 +111,12 @@ fun RecordingsScreen(
                 // clips and then a saved count delivers both instead of the last one winning.
                 is RecordingsUiEvent.Message -> snackbarHost.showMessage(event.text, event.short)
 
-                is RecordingsUiEvent.Share -> {
-                    val recording = event.recording
-                    val file = event.files.firstOrNull()
+                is RecordingsUiEvent.Share ->
                     // ExportGateway builds its outcome text on this thread and has no coroutine to post
                     // from, so the screen hands it the hop into the snack bar.
-                    val post: (String) -> Unit = { text -> scope.launch { snackbarHost.showMessage(text) } }
-                    when {
-                        recording != null && file != null ->
-                            exportGateway.shareFile(context, file, recording, onMessage = post)
-                        event.deviceName != null && file != null ->
-                            exportGateway.shareFile(context, file, event.deviceName, event.eventTypeLabel ?: "", onMessage = post)
-                        else -> exportGateway.shareFiles(context, event.files, onMessage = post)
+                    viewModel.share(context, event) { text ->
+                        scope.launch { snackbarHost.showMessage(text) }
                     }
-                }
 
                 RecordingsUiEvent.SelectionCleared -> selectionMode = false
 

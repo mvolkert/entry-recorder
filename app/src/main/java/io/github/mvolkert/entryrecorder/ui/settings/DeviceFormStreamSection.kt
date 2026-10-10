@@ -20,12 +20,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -33,18 +27,23 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
-import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
-import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * How the picture is pulled from the device. The path fields only appear for the protocols that
  * actually use them, and AUTO shows both because it may fall back between them.
+ *
+ * The burst measurement and the delivered-rate reading come from [SettingsViewModel] as state: a probe
+ * outlives this section's recompositions and a rotation alike, and the rate poll is not driven from here
+ * at all — the screen says which device it edits, and the ViewModel answers with the measured number.
  */
 @Composable
-internal fun DeviceFormStreamSection(form: DeviceFormState, snapshotClient: HttpSnapshotClient) {
+internal fun DeviceFormStreamSection(
+    form: DeviceFormState,
+    snapshotProbe: SnapshotProbeState,
+    measuredFps: Float,
+    onMeasureFps: () -> Unit,
+) {
     val protocols = listOf(
         StreamProtocol.AUTO,
         StreamProtocol.RTSP,
@@ -102,10 +101,16 @@ internal fun DeviceFormStreamSection(form: DeviceFormState, snapshotClient: Http
                 singleLine = true
             )
             // One-time burst measurement of what this endpoint can actually serve, so the rate stops
-            // being a per-device-type guess. Writes the measured number back into the field above it.
-            val scope = rememberCoroutineScope()
-            var probing by remember(form.deviceId) { mutableStateOf(false) }
-            var probeResult by remember(form.deviceId) { mutableStateOf(-1f) }
+            // being a per-device-type guess. The probe runs in the ViewModel; writing the number into the
+            // field above it is the one part only the form can do, because the form owns its own values.
+            val probing = snapshotProbe is SnapshotProbeState.Running
+            LaunchedEffect(snapshotProbe) {
+                val measured = (snapshotProbe as? SnapshotProbeState.Measured)?.fps ?: return@LaunchedEffect
+                if (measured > 0f) {
+                    form.snapshotFps =
+                        measured.roundToInt().coerceIn(1, form.maxSnapshotFps).toString()
+                }
+            }
             // Rate box and measure button share a row; Top alignment keeps the button level with the
             // input box rather than centered down the taller field+supportingText column.
             Row(
@@ -132,18 +137,7 @@ internal fun DeviceFormStreamSection(form: DeviceFormState, snapshotClient: Http
                     },
                 )
                 OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            probing = true
-                            probeResult = -1f
-                            val fps = snapshotClient.probeSnapshotFps(form.buildTestCandidate())
-                            if (fps > 0f) {
-                                form.snapshotFps = fps.roundToInt().coerceIn(1, form.maxSnapshotFps).toString()
-                            }
-                            probeResult = fps
-                            probing = false
-                        }
-                    },
+                    onClick = onMeasureFps,
                     enabled = !probing,
                 ) {
                     if (probing) {
@@ -155,19 +149,20 @@ internal fun DeviceFormStreamSection(form: DeviceFormState, snapshotClient: Http
                     }
                 }
             }
-            if (!probing && probeResult >= 0f) {
+            // A probe in flight replaces the previous verdict, so there is nothing to show while Running.
+            val probed = (snapshotProbe as? SnapshotProbeState.Measured)?.fps
+            if (probed != null) {
                 Text(
-                    text = if (probeResult > 0f)
-                        stringResource(R.string.device_snapshot_fps_probe_result, probeResult)
+                    text = if (probed > 0f)
+                        stringResource(R.string.device_snapshot_fps_probe_result, probed)
                     else
                         stringResource(R.string.device_snapshot_fps_probe_failed),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            // The rate the endpoint really delivered lately, measured by the shared snapshot client
-            // while the live view or a recording polls it. Without this the configured number is guesswork.
-            val measuredFps = rememberMeasuredSnapshotFps(form.deviceId, snapshotClient)
+            // The rate the endpoint really delivered lately, read by the ViewModel from the shared snapshot
+            // client while the live view or a recording polls it. Without this the number is guesswork.
             if (measuredFps > 0f) {
                 Text(
                     text = stringResource(R.string.device_snapshot_fps_measured, measuredFps),
@@ -177,21 +172,4 @@ internal fun DeviceFormStreamSection(form: DeviceFormState, snapshotClient: Http
             }
         }
     }
-}
-
-/**
- * Polls the shared snapshot client's measurement for [deviceId] while the dialog is open.
- * Reads the live value rather than a cached one, and only devices that were polled recently report a
- * rate — a new or never-polled device has nothing to show.
- */
-@Composable
-private fun rememberMeasuredSnapshotFps(deviceId: Long, snapshotClient: HttpSnapshotClient): Float {
-    var measured by remember(deviceId) { mutableFloatStateOf(snapshotClient.achievedFps(deviceId)) }
-    LaunchedEffect(deviceId) {
-        while (true) {
-            measured = snapshotClient.achievedFps(deviceId)
-            delay(2000.milliseconds)
-        }
-    }
-    return measured
 }

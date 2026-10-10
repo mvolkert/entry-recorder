@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -65,9 +66,19 @@ fun DeviceEditScreen(
         DeviceFormState(initial, resources.getString(R.string.device_default_name))
     }
 
-    // The app-scoped SIP manager, handed over by the ViewModel. Touching it here only resolves the
-    // holder; no Linphone core is created until monitoring or a probe starts one.
-    val sipCallManager = viewModel.sipCallManager
+    // The probes the form offers run in the ViewModel, so a rotation keeps an in-flight answer instead of
+    // restarting the request. Which row this form edits is what the delivered-rate poll reads.
+    val connectionTest by viewModel.connectionTest.collectAsStateWithLifecycle()
+    val sipTest by viewModel.sipTest.collectAsStateWithLifecycle()
+    val snapshotProbe by viewModel.snapshotProbe.collectAsStateWithLifecycle()
+    val measuredFps by viewModel.measuredSnapshotFps.collectAsStateWithLifecycle()
+    // One effect, not two: a LaunchedEffect that armed the poll and a DisposableEffect that cleared it
+    // could run in either order when the edited device changes, and the wrong order leaves the poll pointed
+    // at nothing. DisposableEffect's dispose-then-apply sequence is fixed.
+    DisposableEffect(form) {
+        viewModel.watchMeasuredSnapshotFps(form.deviceId)
+        onDispose { viewModel.watchMeasuredSnapshotFps(null) }
+    }
 
     val snackbarHost = LocalAppSnackbar.current
     val scope = rememberCoroutineScope()
@@ -133,7 +144,14 @@ fun DeviceEditScreen(
             ) {
                 SettingsCard { DeviceFormNetworkSection(form) }
 
-                SettingsCard { DeviceFormStreamSection(form, viewModel.snapshotClient) }
+                SettingsCard {
+                    DeviceFormStreamSection(
+                        form = form,
+                        snapshotProbe = snapshotProbe,
+                        measuredFps = measuredFps,
+                        onMeasureFps = { viewModel.probeSnapshotFps(form.buildTestCandidate()) },
+                    )
+                }
 
                 SettingsCard { DeviceFormSipSection(form) }
 
@@ -143,7 +161,16 @@ fun DeviceEditScreen(
 
                 SettingsCard { DeviceFormDurationsSection(form) }
 
-                SettingsCard { DeviceFormTestSection(form, sipCallManager, viewModel.deviceFactory) }
+                SettingsCard {
+                    DeviceFormTestSection(
+                        form = form,
+                        connectionTest = connectionTest,
+                        sipTest = sipTest,
+                        monitorUsesSip = viewModel.monitorUsesSip,
+                        onTestConnection = { viewModel.testDeviceConnection(form.buildTestCandidate()) },
+                        onTestSipRegistration = { viewModel.testSipRegistration(form.buildTestCandidate()) },
+                    )
+                }
 
                 // Bottom breathing room so the last field clears the navigation gesture area.
                 Text(
