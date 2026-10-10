@@ -99,6 +99,7 @@
     <string name="recordings_toast_export_folder_failed">Export to folder failed</string>
     <string name="recordings_toast_nothing_selected">Nothing selected</string>
     <string name="recordings_toast_deleted">Deleted</string>
+    <string name="recordings_toast_deleted_orphan">Deleted, but a file stayed behind; the next cleanup will reclaim it</string>
     <plurals name="recordings_toast_saved_gallery">
         <item quantity="one">Saved %1$d of %2$d recording to Gallery</item>
         <item quantity="other">Saved %1$d of %2$d recordings to Gallery</item>

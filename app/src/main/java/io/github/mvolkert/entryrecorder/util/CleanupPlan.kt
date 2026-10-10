@@ -1,6 +1,7 @@
 package io.github.mvolkert.entryrecorder.util
 
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import java.io.File
 
 /**
  * One document in the export folder, reduced to what a cleanup decision needs: its name, its size and the
@@ -97,6 +98,41 @@ object CleanupPlan {
             reclaimed += sizeOf(candidate)
         }
         return CleanupOutcome(deletableBytes, bytesToFree, deletions, reclaimed)
+    }
+
+    /**
+     * A file younger than this is never an orphan: the recorder creates the video and its thumbnail before
+     * the row that names them is committed, so a listing taken while a clip is still finalizing would
+     * otherwise delete a recording that is about to acquire its row. One cleanup interval is the schedule
+     * that runs the sweep, so anything older than that had a full cycle to be written down.
+     */
+    const val ORPHAN_MIN_AGE_MS: Long = 24L * 60L * 60L * 1000L
+
+    /**
+     * The files directly inside [dir] that no row references and that have not been touched for one cleanup
+     * interval — the bytes a delete leaked when its row went but its file did not. Only the flat file list
+     * counts: the archive never writes a subfolder, and a directory nobody can name is not this sweep's to
+     * remove.
+     *
+     * [knownPaths] has to cover every path any row still owns, thumbnails included, or the sweep would
+     * "reclaim" the thumbnail of a clip that is still listed. [nowMillis] and [minAgeMillis] are parameters
+     * rather than read from the clock, so the rule is testable without waiting a day for a file to age.
+     */
+    fun orphanFiles(
+        dir: File,
+        knownPaths: Set<String>,
+        nowMillis: Long = System.currentTimeMillis(),
+        minAgeMillis: Long = ORPHAN_MIN_AGE_MS,
+    ): List<File> {
+        if (!dir.isDirectory) return emptyList()
+        val cutoff = nowMillis - minAgeMillis
+        return dir.listFiles()?.filter { file ->
+            file.isFile &&
+                file.absolutePath !in knownPaths &&
+                // lastModified() == 0 means the filesystem will not say how old it is, which is not
+                // evidence of age, so an unreadable timestamp is never old enough to delete.
+                file.lastModified().let { it > 0L && it <= cutoff }
+        }.orEmpty()
     }
 
     /**

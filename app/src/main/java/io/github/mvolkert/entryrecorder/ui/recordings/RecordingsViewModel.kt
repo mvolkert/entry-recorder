@@ -15,6 +15,7 @@ import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.triggerTypes
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
+import io.github.mvolkert.entryrecorder.data.repository.RecordingDeleteResult
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingDto
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeLabelRes
@@ -309,10 +310,16 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
         _selectedIds.update { it - recording.id }
         if (selectionAnchorId == recording.id) selectionAnchorId = null
         viewModelScope.launch {
-            repository.deleteRecording(recording)
+            val result = repository.deleteRecording(recording)
             // A row that quietly vanishes is inferred, not confirmed - and this one took a file with it.
             // Short, because it is a receipt rather than news.
-            message(R.string.recordings_toast_deleted, short = true)
+            if (result is RecordingDeleteResult.DeletedWithOrphans) {
+                // Said out loud rather than swallowed: the clip is gone from the list, but the space it
+                // took is still on the partition until the cleanup sweep gets to it.
+                message(R.string.recordings_toast_deleted_orphan, short = true)
+            } else {
+                message(R.string.recordings_toast_deleted, short = true)
+            }
         }
     }
 
@@ -390,7 +397,14 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
             if (kept.isNotEmpty()) {
                 messagePlural(R.plurals.recordings_toast_bulk_delete_skipped_protected, kept.size, kept.size)
             }
-            if (deletable.isNotEmpty()) repository.deleteRecordings(deletable)
+            if (deletable.isNotEmpty()) {
+                val report = repository.deleteRecordings(deletable)
+                if (report.leftOrphans) {
+                    // One message for the batch: the rows are all gone, and the number of files that
+                    // outlived them is the cleanup sweep's to count, not something to read out per clip.
+                    message(R.string.recordings_toast_deleted_orphan)
+                }
+            }
             clearSelection()
         }
     }

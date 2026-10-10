@@ -19,6 +19,7 @@ import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.util.ExportHelper
+import io.github.mvolkert.entryrecorder.util.recordingsDirOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -288,7 +289,7 @@ class RtspStreamRecorder(
         preRoll: List<PreRollFrame>
     ) {
         val timestampStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val recordingsDir = File(context.filesDir, "recordings").apply { mkdirs() }
+        val recordingsDir = recordingsDirOf(context).apply { mkdirs() }
         val outputFile = File(recordingsDir, "REC_${device.id}_${eventType.name}_$timestampStr.mkv")
 
         // Start the timeline at the earliest pre-roll frame so the recording's timestamp/duration cover

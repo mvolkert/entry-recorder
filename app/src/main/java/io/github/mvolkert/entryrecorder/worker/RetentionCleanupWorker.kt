@@ -8,12 +8,14 @@ import androidx.work.WorkerParameters
 import io.github.mvolkert.entryrecorder.EntryRecorderApp
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
+import io.github.mvolkert.entryrecorder.data.repository.RecordingDeleteResult
 import io.github.mvolkert.entryrecorder.util.CleanupPlan
 import io.github.mvolkert.entryrecorder.util.ExportFolderAccess
 import io.github.mvolkert.entryrecorder.util.ExportHelper
 import io.github.mvolkert.entryrecorder.util.InternalCandidate
 import io.github.mvolkert.entryrecorder.util.SafExportedFile
 import io.github.mvolkert.entryrecorder.util.StorageUsage
+import io.github.mvolkert.entryrecorder.util.recordingsDirOf
 import io.github.mvolkert.entryrecorder.util.thumbnailUsageBytes
 import io.github.mvolkert.entryrecorder.util.thumbnailsDirOf
 import kotlinx.coroutines.CancellationException
@@ -67,6 +69,9 @@ class RetentionCleanupWorker(
         // but not counted: making them retry would re-run the two passes above once per backoff for a folder
         // that is deliberately somebody else's storage.
         runGuarded("external quota") { purgeExternal(repository, settings) }
+        // Last, so a pass that just deleted rows cannot have its freshly leaked file swept before it is
+        // even counted: the sweep only ever removes files older than one cleanup interval anyway.
+        runGuarded("orphan sweep") { purgeOrphans(repository) }
 
         if (criticalFailures > 0) {
             Log.w(tag, "Cleanup finished with $criticalFailures failed pass(es); retrying later")
@@ -100,7 +105,7 @@ class RetentionCleanupWorker(
         if (settings.retentionDays <= 0) return
         val expired = repository.getExpiredRecordings(settings.retentionDays)
         Log.i(tag, "Found ${expired.size} expired recordings to delete")
-        expired.forEach { repository.deleteRecording(it) }
+        expired.forEach { logOrphans(repository.deleteRecording(it), "retention") }
     }
 
     /**
@@ -135,7 +140,7 @@ class RetentionCleanupWorker(
             tag,
             "Internal usage ${usage.totalBytes} bytes is over quota, need to free ${plan.bytesToFree} bytes"
         )
-        plan.deletions.forEach { repository.deleteRecording(it.recording) }
+        plan.deletions.forEach { logOrphans(repository.deleteRecording(it.recording), "internal quota") }
         Log.i(
             tag,
             "Internal pass deleted ${plan.deletions.size} recordings, reclaimed ~${plan.reclaimedBytes} " +
@@ -216,6 +221,53 @@ class RetentionCleanupWorker(
                 tag,
                 "Export folder quota not met: the provider removed less than the plan asked for " +
                     "(${plan.bytesToFree - freed} bytes short)"
+            )
+        }
+    }
+
+    /**
+     * Reclaims the bytes a delete leaked: a file that outlived its row is counted by no quota anymore, so
+     * without this pass the leak is permanent and invisible. Restricted to files no row references and
+     * untouched for a whole cleanup interval, because a recording that is still being written has no row yet.
+     *
+     * Best-effort by construction — it can only ever remove unreferenced files, so a failure here is reported
+     * by the guard around it and never turns into a retry that re-runs the two quota passes above.
+     */
+    private suspend fun purgeOrphans(repository: IntercomRepository) {
+        val knownPaths = repository.getAllReferencedFilePaths().toSet()
+        var removed = 0
+        var reclaimedBytes = 0L
+        var refused = 0
+        for (dir in listOf(recordingsDirOf(applicationContext), thumbnailsDirOf(applicationContext))) {
+            for (file in CleanupPlan.orphanFiles(dir, knownPaths)) {
+                val size = file.length()
+                if (file.delete() || !file.exists()) {
+                    removed++
+                    reclaimedBytes += size
+                } else {
+                    refused++
+                }
+            }
+        }
+        if (removed > 0 || refused > 0) {
+            Log.i(
+                tag,
+                "Orphan sweep removed $removed unreferenced file(s), reclaimed ~$reclaimedBytes bytes" +
+                    if (refused > 0) " ($refused refused by the filesystem)" else ""
+            )
+        }
+    }
+
+    /**
+     * A delete whose files survived is the leak [purgeOrphans] exists to close, so it is worth a warn even
+     * though the row went: the archive just got smaller than the space it still occupies.
+     */
+    private fun logOrphans(result: RecordingDeleteResult, pass: String) {
+        if (result is RecordingDeleteResult.DeletedWithOrphans) {
+            Log.w(
+                tag,
+                "The $pass pass deleted the row but left ${result.orphanPaths.size} unreferenced file(s): " +
+                    result.orphanPaths.joinToString()
             )
         }
     }

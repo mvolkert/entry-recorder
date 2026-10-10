@@ -53,6 +53,17 @@ interface RecordingDao {
     @Query("SELECT filePath FROM recordings WHERE isProtected = 1")
     suspend fun getProtectedFilePaths(): List<String>
 
+    /**
+     * Every video path the archive still owns. The orphan sweep compares a directory listing against all of
+     * them, so it needs the whole set rather than the protected subset the external pass asks for.
+     */
+    @Query("SELECT filePath FROM recordings")
+    suspend fun getAllFilePaths(): List<String>
+
+    /** Every thumbnail path the archive still owns, for the same sweep over the thumbnail directory. */
+    @Query("SELECT thumbnailPath FROM recordings WHERE thumbnailPath IS NOT NULL")
+    suspend fun getAllThumbnailPaths(): List<String>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRecording(recording: RecordingEntity): Long
 

@@ -9,7 +9,9 @@ import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class IntercomRepository(
@@ -72,22 +74,42 @@ class IntercomRepository(
 
     suspend fun updateRecording(recording: RecordingEntity) = recordingDao.updateRecording(recording)
 
-    suspend fun deleteRecording(recording: RecordingEntity) {
-        // Remove physical files
-        try {
-            val videoFile = File(recording.filePath)
-            if (videoFile.exists()) videoFile.delete()
-            recording.thumbnailPath?.let { thumb ->
-                val thumbFile = File(thumb)
-                if (thumbFile.exists()) thumbFile.delete()
-            }
-        } catch (_: Exception) {}
+    /**
+     * Deletes [recording]'s row and the files it owned, reporting what actually went. The row goes whatever
+     * the files do — a file that survives is an orphan the caller has to know about, because space no row
+     * references is space no quota counts either.
+     */
+    suspend fun deleteRecording(recording: RecordingEntity): RecordingDeleteResult {
+        val orphans = listOfNotNull(
+            deleteFile(recording.filePath),
+            recording.thumbnailPath?.let { deleteFile(it) },
+        )
         recordingDao.deleteRecording(recording)
+        return if (orphans.isEmpty()) RecordingDeleteResult.Deleted
+        else RecordingDeleteResult.DeletedWithOrphans(orphans)
     }
 
-    /** Bulk variant used by multi-select delete; deletes each recording's files then its row. */
-    suspend fun deleteRecordings(recordings: List<RecordingEntity>) {
-        recordings.forEach { deleteRecording(it) }
+    /** Bulk variant used by multi-select delete; returns the aggregate of the whole batch. */
+    suspend fun deleteRecordings(recordings: List<RecordingEntity>): RecordingDeleteReport {
+        val results = recordings.map { deleteRecording(it) }
+        return RecordingDeleteReport(
+            deleted = results.size,
+            orphanPaths = results
+                .filterIsInstance<RecordingDeleteResult.DeletedWithOrphans>()
+                .flatMap { it.orphanPaths },
+        )
+    }
+
+    /**
+     * Removes one file on the IO dispatcher, retrying once: a MediaStore or player handle can still be open
+     * for a moment after a clip stops playing, and a second attempt covers that without pretending the bytes
+     * are gone. Null means nothing is left at [path], the path itself means it is now an orphan.
+     */
+    private suspend fun deleteFile(path: String): String? = withContext(Dispatchers.IO) {
+        val file = File(path)
+        if (!file.exists()) return@withContext null
+        if (file.delete() || !file.exists()) return@withContext null
+        if (file.delete() || !file.exists()) null else path
     }
 
     suspend fun setRecordingProtected(id: Long, isProtected: Boolean) {
@@ -110,6 +132,13 @@ class IntercomRepository(
 
     /** File paths of protected clips, used to keep their exported copies out of an external cleanup pass. */
     suspend fun getProtectedFilePaths(): List<String> = recordingDao.getProtectedFilePaths()
+
+    /**
+     * Every path any row still owns, videos and thumbnails together. The orphan sweep decides what to delete
+     * from this set, so it has to cover both kinds or it would reclaim the thumbnail of a listed clip.
+     */
+    suspend fun getAllReferencedFilePaths(): List<String> =
+        recordingDao.getAllFilePaths() + recordingDao.getAllThumbnailPaths()
 
     // Settings
     val settingsFlow: Flow<AppSettingsEntity?> = appSettingsDao.getSettingsFlow()
