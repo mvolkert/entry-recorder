@@ -667,9 +667,7 @@ class RtspStreamRecorder @Inject constructor(
             val settings = repository.getSettings()
             if (settings.autoExportOnFinalize && settings.exportFolderUri.isNotBlank()) {
                 val mirrored = try {
-                    exportGateway.saveFileToSafFolder(
-                        context, settings.exportFolderUri.toUri(), outputFile, outputFile.name
-                    )
+                    exportGateway.saveFileToSafFolder(settings.exportFolderUri, outputFile, outputFile.name)
                 } catch (e: Exception) {
                     Log.e(tag, "Auto-export mirror failed for ${outputFile.name}", e)
                     false

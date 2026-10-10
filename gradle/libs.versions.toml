@@ -21,6 +21,7 @@ androidxHilt = "1.4.0"
 junit = "4.13.2"
 junitVersion = "1.3.0"
 espresso = "3.7.0"
+turbine = "1.2.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -78,6 +79,12 @@ androidx-hilt-compiler = { group = "androidx.hilt", name = "hilt-compiler", vers
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
+# kotlinx-coroutines-test: runTest with a StandardTestDispatcher, so a ViewModel's coroutine code is driven by
+# the test clock instead of a real thread. Turbine: assert on a StateFlow/Channel-backed event stream, including
+# that a second export request is refused without a message ever arriving. Both versions match the coroutines
+# version already in use, so no new transitive version enters the graph.
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

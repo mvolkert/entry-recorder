@@ -12,7 +12,10 @@ data class ExportEntry(
     val displayName: String,
     val sizeBytes: Long,
     val lastModifiedMillis: Long,
-)
+) {
+    /** Name-grammar proof that this app wrote the file; see [SafExportName.isAppCreated]. */
+    val isAppCreated: Boolean get() = SafExportName.isAppCreated(displayName)
+}
 
 /**
  * A recording the internal pass is allowed to remove, together with everything deleting it actually

@@ -19,7 +19,9 @@ import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
         ActiveServerRecordingEntity::class
     ],
     version = 17,
-    exportSchema = false
+    // The schema of every shipped version is written to app/schemas, which is what makes a migration
+    // reviewable as a diff and what Room itself needs to verify a database at open time.
+    exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun deviceDao(): DeviceDao

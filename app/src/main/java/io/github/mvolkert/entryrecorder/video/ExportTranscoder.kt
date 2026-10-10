@@ -1,10 +1,13 @@
 package io.github.mvolkert.entryrecorder.video
 
-import android.content.Context
 import android.graphics.BitmapFactory
 import android.util.Log
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
-import kotlinx.coroutines.Dispatchers
+import io.github.mvolkert.entryrecorder.di.IoDispatcher
+import io.github.mvolkert.entryrecorder.util.AppStorageDirs
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -17,13 +20,25 @@ import java.io.File
  * produced file plays in third-party players (WhatsApp, gallery, VLC, browsers, …), unlike the
  * raw MJPEG MKV. fMP4 is the encoded deliverable's container by design: H.264's most universally
  * supported home, while Matroska remains the private crash-resilient capture buffer.
+ *
+ * [outputFor] is public because the half-written encode a cancelled run leaves behind is this class's
+ * naming decision, not the caller's to re-derive.
  */
-object ExportTranscoder {
-    private const val TAG = "ExportTranscoder"
+@Singleton
+class ExportTranscoder @Inject constructor(
+    private val storageDirs: AppStorageDirs,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+) {
+    private companion object {
+        private const val TAG = "ExportTranscoder"
 
-    // Bound the transcode resolution so export CPU/heat stays predictable on phones.
-    private const val MAX_DIM = 1280
-    private const val MIN_DIM = 16
+        // Bound the transcode resolution so export CPU/heat stays predictable on phones.
+        private const val MAX_DIM = 1280
+        private const val MIN_DIM = 16
+    }
+
+    /** The H.264 file [source] transcodes to: beside it in the scratch folder, with a `_h264` suffix. */
+    fun outputFor(source: File): File = File(storageDirs.transcodeScratchDir, "${source.nameWithoutExtension}_h264.mp4")
 
     /**
      * Transcodes [recording]'s MKV to a temporary H.264 fMP4 under the app cache dir.
@@ -31,10 +46,9 @@ object ExportTranscoder {
      * @throws IllegalStateException if there are no frames or the platform encoder is unavailable.
      */
     suspend fun transcodeToH264(
-        context: Context,
         recording: RecordingEntity,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
-    ): File = withContext(Dispatchers.IO) {
+    ): File = withContext(ioDispatcher) {
         val source = File(recording.filePath)
         val reader = MjpegMkvReader(source)
         val refs = reader.readFrameIndex()
@@ -44,8 +58,7 @@ object ExportTranscoder {
         val fps = estimateFps(refs)
         val bitrate = estimateBitrate(w, h, fps)
 
-        val outDir = File(context.cacheDir, "export").apply { mkdirs() }
-        val outFile = File(outDir, "${source.nameWithoutExtension}_h264.mp4")
+        val outFile = outputFor(source).also { it.parentFile?.mkdirs() }
 
         Log.i(TAG, "Transcoding ${refs.size} frames ${w}x$h @ ${fps}fps -> ${outFile.name}")
 

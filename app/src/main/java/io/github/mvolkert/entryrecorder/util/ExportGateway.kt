@@ -1,24 +1,8 @@
 package io.github.mvolkert.entryrecorder.util
 
-import android.content.ContentValues
 import android.content.Context
-import android.content.Intent
-import android.media.MediaScannerConnection
-import android.net.Uri
-import android.os.Build
-import android.os.Environment
-import android.provider.DocumentsContract
-import android.provider.MediaStore
-import android.util.Log
-import androidx.core.content.FileProvider
-import androidx.core.net.toUri
-import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
-import io.github.mvolkert.entryrecorder.ui.theme.eventTypeLabelRes
-import javax.inject.Inject
-import javax.inject.Singleton
 import java.io.File
-import java.io.FileInputStream
 
 /**
  * Live state of the persisted SAF grant behind a stored export-folder URI, so the UI can say *why*
@@ -45,79 +29,34 @@ enum class ExportFolderAccess {
  * Every way a finished clip can leave the app: the system share sheet, the public Movies folder, and the
  * user's own SAF export folder.
  *
- * Stateless, so it is a graph singleton — but each function still takes the `Context` it acts as, because
- * a share sheet has to be started from the Activity that asked for it (this one adds no NEW_TASK flag) and
- * a persistable URI permission belongs to the process that was granted it, not to the application.
+ * An interface rather than the concrete class because three of its methods decide what gets *deleted* from
+ * the export folder, and the retention policy behind them has to be exercisable without a live
+ * ContentProvider — see [CleanupRunner]. The folder itself is addressed by its stored tree-URI string, never
+ * by a parsed `Uri` or a document `Uri`, so nothing outside this type has to touch the Android runtime to
+ * talk to it; the implementation resolves both.
+ *
+ * [ExportFolderAccess] says how good a stored folder currently is; the caller decides whether to warn.
  */
-@Singleton
-class ExportGateway @Inject constructor() {
-    private companion object {
-        private const val TAG = "ExportGateway"
-    }
+interface ExportGateway {
 
     /**
-     * Derives the share/storage MIME type from the actual file extension: MKV stays correctly
-     * labelled for the raw MJPEG capture files, MP4 (incl. the exported H.264 fMP4) is `video/mp4`.
+     * Shares several recordings at once via the system share sheet (multi-select export). Nothing here
+     * toasts: this is not UI, so whatever the user needs to hear goes back to the caller through
+     * [onMessage]. [context] has to be an Activity — the batch sheet adds no NEW_TASK on its own.
      */
-    private fun mimeFor(file: File): String = when (file.extension.lowercase()) {
-        "mp4", "m4v" -> "video/mp4"
-        "mkv" -> "video/x-matroska"
-        else -> "video/*"
-    }
+    fun shareFiles(context: Context, files: List<File>, onMessage: (String) -> Unit = {})
 
-    /**
-     * Shares several recordings at once via the system share sheet (multi-select export).
-     * Uses a FileProvider grant per file, same as [shareFile]; callers should pass files that
-     * already exist on disk (transcoded when the setting is on, raw otherwise).
-     *
-     * Nothing here toasts: this is a utility, not UI, so whatever the user needs to hear goes back to
-     * the caller through [onMessage] and lands in the app's themed snack bar (see
-     * [io.github.mvolkert.entryrecorder.ui.LocalAppSnackbar]).
-     */
-    fun shareFiles(context: Context, files: List<File>, onMessage: (String) -> Unit = {}) {
-        val existing = files.filter { it.exists() }
-        if (existing.isEmpty()) {
-            onMessage(context.getString(R.string.export_share_no_files))
-            return
-        }
-        try {
-            val uris = ArrayList<Uri>()
-            for (f in existing) {
-                uris.add(FileProvider.getUriForFile(context, context.getString(R.string.fileprovider_authority), f))
-            }
-            val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-                type = "video/*"
-                putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(Intent.createChooser(intent, context.getString(R.string.export_share_chooser, uris.size)).apply {
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            })
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to share files", e)
-            onMessage(context.getString(R.string.export_share_failed))
-        }
-    }
-
-    /** Shares a single video [file] (e.g. a transcoded H.264 export) via the system share sheet. */
+    /** Shares a single video [file] (e.g. a transcoded H.264 export) labelled by [recording]. */
     fun shareFile(
         context: Context,
         file: File,
         recording: RecordingEntity,
         onMessage: (String) -> Unit = {},
-    ) = shareFile(
-        context,
-        file,
-        recording.deviceName,
-        context.getString(eventTypeLabelRes(recording.eventType)),
-        onMessage,
     )
 
     /**
      * Shares a single video [file] using an explicit [deviceName] / [eventTypeLabel] for the sheet's
-     * subject and text. The [RecordingEntity] overload delegates here; server recordings, which have no
-     * local row, call this directly after downloading the video into the app cache.
+     * subject and text. Server recordings have no local row, so this is the form a just-downloaded clip uses.
      */
     fun shareFile(
         context: Context,
@@ -125,321 +64,61 @@ class ExportGateway @Inject constructor() {
         deviceName: String,
         eventTypeLabel: String,
         onMessage: (String) -> Unit = {},
-    ) {
-        if (!file.exists()) {
-            onMessage(context.getString(R.string.export_video_not_found))
-            return
-        }
-
-        try {
-            val contentUri: Uri = FileProvider.getUriForFile(
-                context,
-                context.getString(R.string.fileprovider_authority),
-                file
-            )
-
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = mimeFor(file)
-                putExtra(Intent.EXTRA_STREAM, contentUri)
-                putExtra(
-                    Intent.EXTRA_SUBJECT,
-                    context.getString(R.string.export_subject_label, deviceName, eventTypeLabel)
-                )
-                putExtra(
-                    Intent.EXTRA_TEXT,
-                    context.getString(R.string.export_text_label, deviceName, eventTypeLabel)
-                )
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-
-            context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.export_chooser_title)))
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to share video", e)
-            onMessage(context.getString(R.string.recordings_toast_export_failed, e.localizedMessage ?: ""))
-        }
-    }
+    )
 
     /**
-     * Saves an arbitrary video [sourceFile] (e.g. a transcoded H.264 export) to the public
-     * Movies/EntryRecorder folder via MediaStore.
+     * Saves [sourceFile] into the public Movies/EntryRecorder folder, labelled with [recording]'s device
+     * name. @return true when the clip is in the gallery afterwards; every outcome text goes to [onMessage].
      */
     fun saveFileToGallery(
-        context: Context,
         sourceFile: File,
         recording: RecordingEntity,
         onMessage: (String) -> Unit = {},
-    ): Boolean = saveFileToGallery(context, sourceFile, recording.deviceName, onMessage)
+    ): Boolean
 
-    /**
-     * [saveFileToGallery] core with an explicit [deviceName] used only for the file label, so server
-     * recordings (no local row) can be saved from a downloaded file. Outcome text goes back to [onMessage]
-     * on the caller's thread; the return value stays the success flag the batch counters add up.
-     *
-     * MediaStore on every supported API level, because writing the public Movies folder through the File
-     * API needs `WRITE_EXTERNAL_STORAGE` — a permission this app never declares — so the pre-Q file copy it
-     * replaced could only ever throw. Below Q the row is placed by its `DATA` column and the media scanner
-     * is nudged by hand; from Q on the provider does both itself.
-     */
+    /** [saveFileToGallery] with an explicit [deviceName] used only for the file label. */
     fun saveFileToGallery(
-        context: Context,
         sourceFile: File,
         deviceName: String,
         onMessage: (String) -> Unit = {},
-    ): Boolean {
-        if (!sourceFile.exists()) {
-            onMessage(context.getString(R.string.export_source_not_found))
-            return false
-        }
-
-        val extension = sourceFile.extension.ifBlank { "mkv" }
-        val fileName = "EntryRecorder_${deviceName}_${System.currentTimeMillis()}.$extension"
-        val mimeType = mimeFor(sourceFile)
-        val usesPendingRow = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
-
-        return try {
-            // Only the pre-Q row can be addressed by a path, and the path is what the scanner has to be
-            // told about afterwards, so it is computed here rather than inside the branch below.
-            @Suppress("DEPRECATION") // Owner-approved legacy branch: pre-Q MediaStore has no RELATIVE_PATH.
-            val legacyTarget = if (usesPendingRow) null else File(
-                File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "EntryRecorder"),
-                fileName,
-            )
-
-            val values = ContentValues().apply {
-                put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
-                put(MediaStore.Video.Media.MIME_TYPE, mimeType)
-                if (usesPendingRow) {
-                    put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/EntryRecorder")
-                    put(MediaStore.Video.Media.IS_PENDING, 1)
-                } else {
-                    put(MediaStore.MediaColumns.DATA, legacyTarget?.absolutePath)
-                }
-            }
-
-            val collection = if (usesPendingRow) {
-                MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-            } else {
-                MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-            }
-            val itemUri = context.contentResolver.insert(collection, values)
-            if (itemUri == null) {
-                onMessage(context.getString(R.string.export_mediastore_failed))
-                return false
-            }
-
-            val stream = context.contentResolver.openOutputStream(itemUri)
-            if (stream == null) {
-                // The provider created an empty row it will list as a clip; take it back out.
-                context.contentResolver.delete(itemUri, null, null)
-                onMessage(context.getString(R.string.export_mediastore_failed))
-                return false
-            }
-            stream.use { out -> FileInputStream(sourceFile).use { input -> input.copyTo(out) } }
-
-            if (usesPendingRow) {
-                values.clear()
-                values.put(MediaStore.Video.Media.IS_PENDING, 0)
-                context.contentResolver.update(itemUri, values, null, null)
-            } else {
-                legacyTarget?.let {
-                    MediaScannerConnection.scanFile(context, arrayOf(it.absolutePath), null, null)
-                }
-            }
-
-            onMessage(context.getString(R.string.export_saved_gallery))
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to save to gallery", e)
-            onMessage(context.getString(R.string.export_save_failed, e.localizedMessage ?: ""))
-            false
-        }
-    }
+    ): Boolean
 
     /**
-     * Copies [sourceFile] into the SAF tree folder [treeUri] (a persisted ACTION_OPEN_DOCUMENT_TREE
-     * URI) under [displayName]. A document that already exists with the same name and the same byte
-     * size is left untouched and reported as success; a size mismatch (stale or interrupted copy)
-     * replaces it. Used by "Export to folder" so exports persist to a user-accessible location
-     * independent of Share.
-     * [onProgress] receives 0..100 of bytes copied and is invoked from the caller's (IO) thread.
+     * Copies [sourceFile] into the SAF folder [folderUri] under [displayName]. A document that already
+     * exists with the same name and the same byte size is left untouched and reported as success; a size
+     * mismatch (stale or interrupted copy) replaces it. [onProgress] receives 0..100 of bytes copied and is
+     * invoked from the caller's (IO) thread.
      * @return true when the folder holds the file after the call, whether copied or already present.
      */
     fun saveFileToSafFolder(
-        context: Context,
-        treeUri: Uri,
+        folderUri: String,
         sourceFile: File,
         displayName: String,
         onProgress: ((Int) -> Unit)? = null,
-    ): Boolean {
-        if (!sourceFile.exists()) return false
-        return try {
-            val existing = findSafChildByName(context, treeUri, displayName)
-            if (existing != null) {
-                val (existingUri, existingSize) = existing
-                if (existingSize == sourceFile.length()) return true
-                DocumentsContract.deleteDocument(context.contentResolver, existingUri)
-            }
-
-            val parentDoc = DocumentsContract.buildDocumentUriUsingTree(
-                treeUri, DocumentsContract.getTreeDocumentId(treeUri)
-            )
-            val child = DocumentsContract.createDocument(
-                context.contentResolver, parentDoc, mimeFor(sourceFile), displayName
-            ) ?: return false
-
-            context.contentResolver.openOutputStream(child)?.use { out ->
-                val total = sourceFile.length().coerceAtLeast(1L)
-                FileInputStream(sourceFile).use { input ->
-                    val buffer = ByteArray(128 * 1024)
-                    var copied = 0L
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read <= 0) break
-                        out.write(buffer, 0, read)
-                        copied += read
-                        onProgress?.invoke(((copied * 100) / total).coerceAtMost(100L).toInt())
-                    }
-                }
-            } ?: return false
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to write to SAF export folder", e)
-            false
-        }
-    }
-
-    /** Returns the URI and byte size of a direct child document named [name] in [treeUri], or null if absent. */
-    private fun findSafChildByName(context: Context, treeUri: Uri, name: String): Pair<Uri, Long>? {
-        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
-            treeUri, DocumentsContract.getTreeDocumentId(treeUri)
-        )
-        val projection = arrayOf(
-            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-            DocumentsContract.Document.COLUMN_SIZE
-        )
-        context.contentResolver.query(childrenUri, projection, null, null, null)?.use { c ->
-            val idIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-            val nameIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-            val sizeIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
-            while (c.moveToNext()) {
-                if (c.getString(nameIdx) == name) {
-                    val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, c.getString(idIdx))
-                    return uri to c.getLong(sizeIdx)
-                }
-            }
-        }
-        return null
-    }
+    ): Boolean
 
     /**
-     * Checks that the stored export folder [folderUri] still carries a readable *and* writable
-     * persistable permission and that its tree resolves. Blocking — the provider query needs an IO
-     * dispatcher. Any provider failure is reported as [ExportFolderAccess.MISSING] rather than thrown,
-     * because the caller can only act on the result, not fix the folder.
+     * Whether the stored export folder [folderUri] still carries a readable *and* writable persistable
+     * permission and resolves at all. Blocking provider work: call it on an IO dispatcher. Any provider
+     * failure is reported as [ExportFolderAccess.MISSING] rather than thrown, because the caller can only
+     * act on the answer, not fix the folder.
      */
-    fun probeExportFolderAccess(context: Context, folderUri: String): ExportFolderAccess {
-        if (folderUri.isBlank()) return ExportFolderAccess.NONE
-        val treeUri = folderUri.toUri()
-        val granted = context.contentResolver.persistedUriPermissions.any {
-            it.uri == treeUri && it.isReadPermission && it.isWritePermission
-        }
-        if (!granted) return ExportFolderAccess.NO_PERMISSION
-        return runCatching {
-            val documentUri = DocumentsContract.buildDocumentUriUsingTree(
-                treeUri, DocumentsContract.getTreeDocumentId(treeUri)
-            )
-            context.contentResolver.query(
-                documentUri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null
-            )?.use { cursor ->
-                if (cursor.count > 0) ExportFolderAccess.OK else ExportFolderAccess.MISSING
-            } ?: ExportFolderAccess.MISSING
-        }.getOrDefault(ExportFolderAccess.MISSING)
-    }
+    fun probeExportFolderAccess(folderUri: String): ExportFolderAccess
 
-    /** Human-readable label for a SAF tree URI (the path after the volume, e.g. "Documents/Exports"). */
-    fun safFolderDisplayName(treeUri: Uri): String {
-        return try {
-            val docId = DocumentsContract.getTreeDocumentId(treeUri)
-            val parts = docId.split(":")
-            (parts.drop(1).firstOrNull() ?: docId).trimEnd('/')
-        } catch (e: Exception) {
-            treeUri.toString()
-        }
-    }
+    /** Human-readable label for the stored export folder (the path after the volume, e.g. "Documents/Exports"). */
+    fun safFolderDisplayName(folderUri: String): String
 
     /**
-     * The documents the app itself put in the export folder, measured so the UI and the cleanup pass can
-     * talk about a quota for it. Only direct children of the chosen tree are listed — the same level
-     * [saveFileToSafFolder] writes to — and every entry is reported, foreign files included, so the caller
-     * decides what counts. Blocking provider query: call it on an IO dispatcher.
-     *
-     * Size and modification time are read as optional columns: the document provider contract does not
-     * guarantee either, and a provider that omits one is reporting an unknown amount rather than asking
-     * the caller to crash over it. The document id, name and mime type carry the listing itself, so those
-     * stay required.
+     * The direct children of the export folder as the cleanup planner sees them: name, size, provider
+     * timestamp. Foreign files are included, so the caller decides what counts; subfolders are not. Blocking
+     * provider query: call it on an IO dispatcher.
      */
-    fun listSafExportedFiles(context: Context, treeUri: Uri): List<SafExportedFile> {
-        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
-            treeUri, DocumentsContract.getTreeDocumentId(treeUri)
-        )
-        val projection = arrayOf(
-            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-            DocumentsContract.Document.COLUMN_MIME_TYPE,
-            DocumentsContract.Document.COLUMN_SIZE,
-            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
-        )
-        val files = mutableListOf<SafExportedFile>()
-        context.contentResolver.query(childrenUri, projection, null, null, null)?.use { c ->
-            val idIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-            val nameIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-            val mimeIdx = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
-            val sizeIdx = c.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
-            val modifiedIdx = c.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
-            while (c.moveToNext()) {
-                val name = c.getString(nameIdx) ?: continue
-                // Subfolders are the user's own organisation; this app only ever writes flat.
-                if (c.getString(mimeIdx) == DocumentsContract.Document.MIME_TYPE_DIR) continue
-                files += SafExportedFile(
-                    uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, c.getString(idIdx)),
-                    displayName = name,
-                    sizeBytes = if (sizeIdx >= 0) c.getLong(sizeIdx) else 0L,
-                    lastModifiedMillis = if (modifiedIdx >= 0) c.getLong(modifiedIdx) else 0L,
-                )
-            }
-        }
-        return files
-    }
+    fun listExportedFiles(folderUri: String): List<ExportEntry>
 
     /**
-     * Removes one document from the export folder. Providers are free to refuse deletion (read-only
-     * mounts, documents they no longer serve), so the answer is a flag the caller logs rather than an
-     * exception it would only swallow.
+     * Removes the direct child named [displayName] from the export folder. Providers are free to refuse
+     * deletion (read-only mounts, documents they no longer serve), so the answer is a flag the caller logs
+     * rather than an exception it would only swallow.
      */
-    fun deleteSafDocument(context: Context, documentUri: Uri): Boolean = try {
-        DocumentsContract.deleteDocument(context.contentResolver, documentUri)
-    } catch (e: Exception) {
-        Log.e(TAG, "Failed to delete $documentUri from the export folder", e)
-        false
-    }
+    fun deleteExportedFile(folderUri: String, displayName: String): Boolean
 }
-
-/**
- * One document in the SAF export folder: what it is called, how big it is and when the provider last
- * touched it, together with the tree URI a deletion has to be addressed by. Whether the file belongs to
- * this app at all is [isAppCreated]'s question, and [CleanupPlan] decides what may be removed.
- */
-data class SafExportedFile(
-    val uri: Uri,
-    val displayName: String,
-    val sizeBytes: Long,
-    val lastModifiedMillis: Long,
-) {
-    /** Name-grammar proof that this app wrote the file; see [SafExportName.isAppCreated]. */
-    val isAppCreated: Boolean get() = SafExportName.isAppCreated(displayName)
-
-    /** The same document as the cleanup planner wants it, without the Android [uri]. */
-    fun toCleanupEntry(): ExportEntry = ExportEntry(displayName, sizeBytes, lastModifiedMillis)
-}
-

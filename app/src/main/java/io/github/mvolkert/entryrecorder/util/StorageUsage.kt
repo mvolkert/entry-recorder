@@ -6,6 +6,9 @@ import java.io.File
 private const val THUMBNAILS_DIR_NAME = "thumbnails"
 private const val RECORDINGS_DIR_NAME = "recordings"
 
+/** The cache subfolder an export writes its H.264 deliverable into before it leaves the app. */
+const val TRANSCODE_DIR_NAME = "export"
+
 /**
  * What the archive costs the app's private storage. Split by kind because only the recordings half can
  * be reclaimed by deleting rows: a quota that counts thumbnails too needs to say so, otherwise a pass
@@ -30,3 +33,17 @@ fun recordingsDirOf(context: Context): File = File(context.filesDir, RECORDINGS_
  */
 fun thumbnailUsageBytes(thumbnailsDir: File): Long =
     thumbnailsDir.listFiles()?.sumOf { it.length() } ?: 0L
+
+/**
+ * The three directories the app's own files live in, resolved once from the application context.
+ *
+ * A value type instead of a `Context` handed to every class that stores a file: a class that needs a path
+ * asks for one of these, so a unit test can point it at ordinary temp folders rather than needing an
+ * Android runtime. [transcodeScratchDir] sits under the cache directory because the system may reclaim it,
+ * which is never true of the archive.
+ */
+data class AppStorageDirs(
+    val recordingsDir: File,
+    val thumbnailsDir: File,
+    val transcodeScratchDir: File,
+)

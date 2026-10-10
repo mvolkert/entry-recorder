@@ -17,12 +17,21 @@ import io.github.mvolkert.entryrecorder.data.local.dao.AppSettingsDao
 import io.github.mvolkert.entryrecorder.data.local.dao.DeviceDao
 import io.github.mvolkert.entryrecorder.data.local.dao.RecordingDao
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
+import io.github.mvolkert.entryrecorder.util.AndroidExportGateway
+import io.github.mvolkert.entryrecorder.util.AndroidUiStrings
+import io.github.mvolkert.entryrecorder.util.AppStorageDirs
+import io.github.mvolkert.entryrecorder.util.ExportGateway
+import io.github.mvolkert.entryrecorder.util.TRANSCODE_DIR_NAME
+import io.github.mvolkert.entryrecorder.util.UiStrings
+import io.github.mvolkert.entryrecorder.util.recordingsDirOf
+import io.github.mvolkert.entryrecorder.util.thumbnailsDirOf
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import java.io.File
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
@@ -54,6 +63,32 @@ object AppModule {
     @Provides
     @Singleton
     fun provideGson(): Gson = Gson()
+
+    /**
+     * The one way a class that is not UI reaches a string resource, and the reason a ViewModel can be
+     * constructed in a JVM test at all — see [UiStrings].
+     */
+    @Provides
+    @Singleton
+    fun provideUiStrings(@ApplicationContext context: Context): UiStrings = AndroidUiStrings(context)
+
+    /**
+     * Where the app's own files live, resolved once. Consumers take the [AppStorageDirs] value instead of a
+     * Context so a test can hand them three temp folders.
+     */
+    @Provides
+    @Singleton
+    fun provideAppStorageDirs(@ApplicationContext context: Context): AppStorageDirs = AppStorageDirs(
+        recordingsDir = recordingsDirOf(context),
+        thumbnailsDir = thumbnailsDirOf(context),
+        transcodeScratchDir = File(context.cacheDir, TRANSCODE_DIR_NAME),
+    )
+
+    /** MediaStore, the SAF export folder and the share sheet, behind the interface its callers use. */
+    @Provides
+    @Singleton
+    fun provideExportGateway(@ApplicationContext context: Context): ExportGateway =
+        AndroidExportGateway(context)
 
     /**
      * The control-plane client: 5 s to connect, 10 s to read, 5 s to write. This is also the client the
@@ -108,7 +143,10 @@ object AppModule {
             AppDatabase::class.java,
             "entry_recorder_database",
         )
-            .fallbackToDestructiveMigration(false)
+            // Deliberately no fallbackToDestructiveMigration: its Boolean argument is *dropAllTables*, not an
+            // on/off switch, so any call to it still empties the archive when a step is missing. Without it,
+            // a database this app has no migration for fails at open instead of silently deleting the user's
+            // recordings — see the note on APP_DATABASE_MIGRATIONS about the pre-4 gap.
             .addMigrations(*APP_DATABASE_MIGRATIONS)
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onCreate(db: SupportSQLiteDatabase) {
@@ -147,8 +185,12 @@ object AppModule {
  * [AppDatabase]'s companion because they are wiring — how a database gets built — not part of the
  * database's own contract, and because Hilt is the only caller.
  *
- * Destructive migration is disabled, so each step has to be real: an install below the current version
- * is upgraded through this list or the build fails, never silently wiped.
+ * Destructive migration is not configured, so each step has to be real: an install below the current
+ * version is upgraded through this list or Room refuses to open the database, never silently emptied.
+ *
+ * The oldest file this list can upgrade is version 4 — the app's first three schema steps were never written
+ * down as migrations. An install that old now fails at open with Room naming the missing step, which is the
+ * honest answer for an archive: the alternative was deleting the user's recordings to make the app start.
  */
 private val APP_DATABASE_MIGRATIONS: Array<Migration> = arrayOf(
     // v4 -> v5: add the transcode-on-export setting. Kept as a real migration because

@@ -28,10 +28,11 @@ import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.service.MonitorStatusRegistry
 import io.github.mvolkert.entryrecorder.sip.SipCallManager
 import io.github.mvolkert.entryrecorder.ui.theme.UiModePrefs
+import io.github.mvolkert.entryrecorder.util.ExportEntry
 import io.github.mvolkert.entryrecorder.util.ExportFolderAccess
 import io.github.mvolkert.entryrecorder.util.ExportGateway
-import io.github.mvolkert.entryrecorder.util.SafExportedFile
 import io.github.mvolkert.entryrecorder.util.StorageUsage
+import io.github.mvolkert.entryrecorder.util.UiStrings
 import io.github.mvolkert.entryrecorder.util.thumbnailUsageBytes
 import io.github.mvolkert.entryrecorder.util.thumbnailsDirOf
 import io.github.mvolkert.entryrecorder.worker.RetentionCleanupWorker
@@ -78,6 +79,7 @@ class SettingsViewModel @Inject constructor(
     private val serverClient: ServerRecordingClient,
     private val monitorStatusRegistry: MonitorStatusRegistry,
     private val gson: Gson,
+    private val strings: UiStrings,
     @ApplicationContext private val context: Context,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     private val exportGateway: ExportGateway,
@@ -120,7 +122,7 @@ class SettingsViewModel @Inject constructor(
         probeTick
     ) { folderUri, tick -> folderUri to tick }
         .distinctUntilChanged()
-        .map { (folderUri, _) -> exportGateway.probeExportFolderAccess(context, folderUri) }
+        .map { (folderUri, _) -> exportGateway.probeExportFolderAccess(folderUri) }
         .flowOn(ioDispatcher)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ExportFolderAccess.UNKNOWN)
 
@@ -162,8 +164,8 @@ class SettingsViewModel @Inject constructor(
             val access = probe.second
             if (folderUri.isBlank() || access != ExportFolderAccess.OK) null
             else runCatching {
-                exportGateway.listSafExportedFiles(context, folderUri.toUri())
-                    .filter(SafExportedFile::isAppCreated)
+                exportGateway.listExportedFiles(folderUri)
+                    .filter(ExportEntry::isAppCreated)
                     .sumOf { it.sizeBytes }
             }.onFailure {
                 if (it is CancellationException) throw it
@@ -185,7 +187,7 @@ class SettingsViewModel @Inject constructor(
         .distinctUntilChanged()
         .map { folderUri ->
             if (folderUri.isBlank()) "" else runCatching {
-                exportGateway.safFolderDisplayName(folderUri.toUri())
+                exportGateway.safFolderDisplayName(folderUri)
             }.onFailure {
                 if (it is CancellationException) throw it
                 Log.w(tag, "Export folder name for $folderUri could not be read", it)
@@ -398,7 +400,7 @@ class SettingsViewModel @Inject constructor(
                 } else {
                     messageText(
                         result.exceptionOrNull()?.localizedMessage
-                            ?: context.getString(R.string.settings_connection_failed)
+                            ?: strings(R.string.settings_connection_failed)
                     )
                 }
             } finally {
@@ -429,7 +431,7 @@ class SettingsViewModel @Inject constructor(
                     context.contentResolver.openOutputStream(uri)
                         ?.use { it.write(json.toByteArray(Charsets.UTF_8)) }
                         ?: throw IllegalStateException(
-                            context.getString(R.string.settings_backup_open_write_failed)
+                            strings(R.string.settings_backup_open_write_failed)
                         )
                 }
                 message(R.string.settings_backup_export_success, backup.devices.size)
@@ -439,7 +441,7 @@ class SettingsViewModel @Inject constructor(
                 Log.w(tag, "Backup export failed", e)
                 message(
                     R.string.settings_backup_export_failed,
-                    e.localizedMessage ?: context.getString(R.string.settings_unknown_error)
+                    e.localizedMessage ?: strings(R.string.settings_unknown_error)
                 )
             }
         }
@@ -456,12 +458,12 @@ class SettingsViewModel @Inject constructor(
                     context.contentResolver.openInputStream(uri)?.use {
                         String(it.readBytes(), Charsets.UTF_8)
                     } ?: throw IllegalStateException(
-                        context.getString(R.string.settings_backup_open_read_failed)
+                        strings(R.string.settings_backup_open_read_failed)
                     )
                 }
                 val backup = gson.fromJson(json, AppBackup::class.java)
                     ?: throw IllegalStateException(
-                        context.getString(R.string.settings_backup_invalid_file)
+                        strings(R.string.settings_backup_invalid_file)
                     )
 
                 backup.appSettings?.let {
@@ -479,14 +481,14 @@ class SettingsViewModel @Inject constructor(
                 Log.w(tag, "Backup restore failed", e)
                 message(
                     R.string.settings_backup_restore_failed,
-                    e.localizedMessage ?: context.getString(R.string.settings_unknown_error)
+                    e.localizedMessage ?: strings(R.string.settings_unknown_error)
                 )
             }
         }
     }
 
     private fun message(@StringRes id: Int, vararg args: Any, short: Boolean = false) {
-        _events.trySend(SettingsUiEvent.Message(context.getString(id, *args), short))
+        _events.trySend(SettingsUiEvent.Message(strings(id, *args), short))
     }
 
     private fun messageText(text: String) {
