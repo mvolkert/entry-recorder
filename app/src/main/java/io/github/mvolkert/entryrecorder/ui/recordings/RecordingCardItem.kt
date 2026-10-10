@@ -104,12 +104,28 @@ internal fun RecordingCardItem(
         label = "recordingCardContainer",
     )
 
+    // combinedClickable already merges the row's readables into one node (foundation's
+    // AbstractClickableNode sets shouldMergeDescendantSemantics), so what the row was missing is the name
+    // of the gesture: without it TalkBack offers a bare "Double-tap to activate" for a tap that either
+    // plays the clip or toggles the checkbox.
+    val clickLabel = when {
+        !selectionMode || isRemote -> stringResource(R.string.recordings_cd_play)
+        selected -> stringResource(R.string.recordings_cd_deselect_row)
+        else -> stringResource(R.string.recordings_cd_select_row)
+    }
+    // A long press only extends a range once a batch is being picked; on a plain row it starts one.
+    val longClickLabel = if (selectionMode && !isRemote)
+        stringResource(R.string.recordings_cd_extend_selection)
+    else null
+
     Card(
         modifier = modifier
             .fillMaxWidth()
             .combinedClickable(
                 onClick = { if (selectionMode && !isRemote) onSelectToggle() else onPlay() },
-                onLongClick = if (isRemote) null else onLongSelect
+                onLongClick = if (isRemote) null else onLongSelect,
+                onClickLabel = clickLabel,
+                onLongClickLabel = longClickLabel,
             ),
         shape = MaterialTheme.shapes.extraLarge,
         colors = CardDefaults.cardColors(containerColor = containerColor)

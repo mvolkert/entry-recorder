@@ -26,6 +26,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
@@ -51,7 +53,12 @@ internal fun DeleteRecordingDialog(
     val dateStr = galleryDateStr(timestamp)
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.recordings_delete_title)) },
+        title = {
+            Text(
+                stringResource(R.string.recordings_delete_title),
+                modifier = Modifier.semantics { heading() }
+            )
+        },
         text = {
             Column {
                 Text(stringResource(R.string.recordings_delete_body, deviceName))
@@ -89,7 +96,12 @@ internal fun BulkDeleteDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(pluralStringResource(R.plurals.recordings_bulk_delete_title, selectedCount, selectedCount)) },
+        title = {
+            Text(
+                pluralStringResource(R.plurals.recordings_bulk_delete_title, selectedCount, selectedCount),
+                modifier = Modifier.semantics { heading() }
+            )
+        },
         text = {
             Column {
                 Text(stringResource(R.string.recordings_bulk_delete_body))

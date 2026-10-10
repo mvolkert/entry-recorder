@@ -39,6 +39,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
@@ -101,7 +103,9 @@ internal fun SettingsSubscreenScaffold(
         floatingActionButton = floatingActionButton,
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(titleRes)) },
+                title = {
+                    Text(stringResource(titleRes), modifier = Modifier.semantics { heading() })
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(

@@ -31,7 +31,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
@@ -75,14 +76,15 @@ internal fun SettingsStorageCard(
     SettingsCard {
         Text(
             text = stringResource(R.string.settings_section_internal_storage),
-            style = MaterialTheme.typography.titleMedium
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.semantics { heading() }
         )
         Text(
             text = stringResource(
                 R.string.settings_storage_usage,
                 Formatter.formatFileSize(context, internalUsage.totalBytes)
             ),
-            fontWeight = FontWeight.SemiBold
+            style = MaterialTheme.typography.bodyLargeEmphasized
         )
         Text(
             text = stringResource(
@@ -151,7 +153,8 @@ internal fun SettingsStorageCard(
     SettingsCard {
         Text(
             text = stringResource(R.string.settings_section_external_storage),
-            style = MaterialTheme.typography.titleMedium
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.semantics { heading() }
         )
         Text(
             text = stringResource(R.string.settings_external_usage_hint),
@@ -160,7 +163,7 @@ internal fun SettingsStorageCard(
         )
         Text(
             text = externalUsageLabel(context, exportFolderAccess, externalUsageBytes),
-            fontWeight = FontWeight.SemiBold
+            style = MaterialTheme.typography.bodyLargeEmphasized
         )
 
         QuotaStepperRow(
@@ -313,7 +316,8 @@ private fun StepperRow(
     valueClickLabel: String? = null,
 ) {
     val captions: @Composable ColumnScope.() -> Unit = {
-        Text(title, fontWeight = FontWeight.Medium)
+        // Same role the switch rows give their title, so a stepper and a switch read alike.
+        Text(title, style = MaterialTheme.typography.titleMedium)
         Text(
             text = subtitle,
             style = MaterialTheme.typography.bodySmall,
@@ -376,7 +380,7 @@ private fun StepperControls(
         Text(
             value,
             modifier = valueModifier,
-            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.bodyLargeEmphasized,
             maxLines = 2,
             overflow = TextOverflow.MiddleEllipsis
         )
@@ -401,7 +405,7 @@ private fun ExportFolderRow(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Text(stringResource(R.string.settings_export_folder), fontWeight = FontWeight.Medium)
+        Text(stringResource(R.string.settings_export_folder), style = MaterialTheme.typography.titleMedium)
         Text(
             text = stringResource(R.string.settings_export_folder_hint),
             style = MaterialTheme.typography.bodySmall,
@@ -413,8 +417,7 @@ private fun ExportFolderRow(
                     R.string.settings_export_folder_selected,
                     folderName
                 ),
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.bodySmallEmphasized,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -424,9 +427,8 @@ private fun ExportFolderRow(
                         if (access == ExportFolderAccess.MISSING) R.string.settings_export_folder_missing
                         else R.string.settings_export_folder_revoked
                     ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    fontWeight = FontWeight.SemiBold
+                    style = MaterialTheme.typography.bodySmallEmphasized,
+                    color = MaterialTheme.colorScheme.error
                 )
             }
         }

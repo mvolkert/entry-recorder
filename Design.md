@@ -156,9 +156,11 @@ Wrap components (`AppButton`, `AppCard`, `AppSlider`) in a design-system module.
 **Recorded exceptions in this app.** Each lives in exactly one place, each carries a why-comment at that
 place, and each gets re-checked on every Material upgrade.
 
-- `ui/live/LiveCamerasScreen.kt` — the REC capsule sets `fontSize = 9.sp` with `lineHeight = 12.sp`. Dot
-  plus label has to stay shorter than the device-name line, otherwise the header row and the video box
-  reflow every time a recording starts or stops. No type role is that small.
+- `ui/live/LiveCamerasScreen.kt` — the REC capsule sets `fontSize = 9.sp` with `lineHeight = 12.sp` and
+  `fontWeight = Bold`. Dot plus label has to stay shorter than the device-name line, otherwise the header
+  row and the video box reflow every time a recording starts or stops. The smallest role in the scale is
+  `labelSmall` / `labelSmallEmphasized` at 11.sp, so nothing reaches 9.sp at any weight; the weight written
+  here is the Bold `labelSmallEmphasized` itself carries.
 - `ui/components/CelebrationCheck.kt` — one hold constant for the celebration (1.5 s). Its enter and exit
   are `fastSpatialSpec()` / `fastEffectsSpec()`; Material says nothing about how long a finished flow
   should stay on screen before the check dismisses itself.

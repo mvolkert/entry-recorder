@@ -30,6 +30,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import io.github.mvolkert.entryrecorder.R
 
 /**
@@ -66,7 +68,8 @@ internal fun RecordingsTopBar(
                     else -> stringResource(R.string.recordings_selected_count, selectedCount) +
                         // One line, so the two facts are joined by the app's usual middot separator.
                         " · " + stringResource(R.string.recordings_selected_hidden, hiddenSelectedCount)
-                }
+                },
+                modifier = Modifier.semantics { heading() }
             )
         },
         actions = {

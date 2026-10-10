@@ -19,7 +19,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
@@ -153,7 +156,9 @@ private fun PermissionRationaleGate(
     if (acknowledged) return
     AlertDialog(
         onDismissRequest = { acknowledged = true },
-        title = { Text(stringResource(R.string.permission_rationale_title)) },
+        title = {
+            Text(stringResource(R.string.permission_rationale_title), modifier = Modifier.semantics { heading() })
+        },
         text = { Text(stringResource(R.string.permission_rationale_body)) },
         confirmButton = {
             TextButton(onClick = {

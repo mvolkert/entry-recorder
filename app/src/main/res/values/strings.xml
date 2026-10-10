@@ -119,6 +119,9 @@
     <string name="recordings_cd_delete_selected">Delete selected</string>
     <string name="recordings_cd_exit_selection">Exit selection</string>
     <string name="recordings_cd_select_multiple">Select multiple</string>
+    <string name="recordings_cd_select_row">Select</string>
+    <string name="recordings_cd_deselect_row">Deselect</string>
+    <string name="recordings_cd_extend_selection">Extend selection to this recording</string>
     <string name="recordings_cd_search">Search</string>
     <string name="recordings_cd_clear">Clear</string>
     <string name="recordings_cd_thumbnail">Thumbnail</string>

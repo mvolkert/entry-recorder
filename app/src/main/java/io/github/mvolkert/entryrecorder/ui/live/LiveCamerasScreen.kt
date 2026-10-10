@@ -47,6 +47,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -95,7 +97,12 @@ fun LiveCamerasScreen(
         contentWindowInsets = WindowInsets(0),
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.live_title)) }
+                title = {
+                    Text(
+                        stringResource(R.string.live_title),
+                        modifier = Modifier.semantics { heading() }
+                    )
+                }
             )
         }
     ) { paddingValues ->
@@ -233,7 +240,10 @@ fun LiveDeviceCard(
             ) {
                 Text(
                     text = device.name,
-                    style = MaterialTheme.typography.titleMedium
+                    style = MaterialTheme.typography.titleMedium,
+                    // The card is not one tap target (its actions stay separate), so its title is the
+                    // heading that groups it for screen-reader navigation instead of merged semantics.
+                    modifier = Modifier.semantics { heading() }
                 )
 
                 // All card status is grouped on the right: the monitoring pill, then the REC badge.
@@ -258,7 +268,8 @@ fun LiveDeviceCard(
                                 )
                                 Spacer(modifier = Modifier.width(3.dp))
                                 // 9.sp/12.sp sit below labelSmall on purpose: the REC Capsule Size
-                                // Constraint keeps dot+label shorter than the device-name line.
+                                // Constraint keeps dot+label shorter than the device-name line. The weight is
+                                // the Bold labelSmallEmphasized already carries, kept because no role is 9.sp.
                                 Text(
                                     stringResource(R.string.live_rec_badge),
                                     color = onRecordingStatusColor,
