@@ -21,7 +21,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -89,8 +88,6 @@ fun SettingsScreen(
     val backupSubtitle = stringResource(R.string.settings_hub_backup_subtitle)
 
     val scheme = MaterialTheme.colorScheme
-    val appearanceContainer = lerp(scheme.primaryContainer, scheme.tertiaryContainer, 0.5f)
-    val appearanceOnContainer = lerp(scheme.onPrimaryContainer, scheme.onTertiaryContainer, 0.5f)
 
     Scaffold(
         // Top inset handled by TopAppBar; bottom system inset by the host NavigationBar in
@@ -144,8 +141,8 @@ fun SettingsScreen(
                     icon = Icons.Default.Palette,
                     titleRes = R.string.settings_section_appearance,
                     subtitle = appearanceSubtitle,
-                    iconContainerColor = appearanceContainer,
-                    iconContentColor = appearanceOnContainer,
+                    iconContainerColor = scheme.secondaryContainer,
+                    iconContentColor = scheme.onSecondaryContainer,
                     onClick = { onNavigate(ROUTE_SETTINGS_APPEARANCE) }
                 )
             }

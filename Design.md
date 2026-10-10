@@ -80,7 +80,7 @@ An **expressive moment** is a hero card, a decorative shape family, a shared-ele
 **Playful screens:** home, landing, onboarding, empty states, success and completion, media browse, profile. **Balanced screens:** everything else. On settings, dense data, payments, legal, permissions and errors use the low end of Balanced: no hero, no decorative shapes, no celebration.
 
 **Rules**
-- Repeated items (list rows, grid cells) never carry expressive moments. The container does.
+- Repeated items (list rows, grid cells) never carry expressive moments. The container does. Exception: the settings hub's shared `ExpressiveIconBadge` (`ui/components`) is treated as the hub container's single expressive lift, not a per-row moment — the tonal badge family is one recurring decorative choice, so the rows stay within the Balanced budget.
 - One decorative shape family app-wide.
 - With animations off: flat progress, crossfades, no celebration.
 
