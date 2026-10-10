@@ -93,7 +93,9 @@
 
         <!-- Export trigger for external automation (Tasker / adb). Exported by design so other
              apps can fire the custom action; it only enqueues a background export to the user's
-             already-configured SAF folder and returns no data to the caller. -->
+             already-configured SAF folder and returns no data to the caller. The enqueue is
+             unique work, so spamming the broadcast queues serial exports instead of piling up
+             parallel runs. -->
         <receiver
             android:name=".receiver.ExportTriggerReceiver"
             android:enabled="true"
