@@ -14,47 +14,64 @@ Legend: `[x]` done · `[~]` partial / needs validation · `[ ]` open · 🔄 on-
   entry, which validates the range (100 MB…102 400 MB) but deliberately does not demand a multiple of the
   step — shipped values like 10 240 MB are not step-aligned and had to stay editable. The daily pass only starts
   once usage is a **full step over** the limit and deletes oldest-unprotected clips down to one step **below**
-  it — a megabyte of churn no longer triggers a deletion and the next clip does not overflow at once. Internal
-  usage now counts thumbnails next to recordings (`StorageUsage`); thumbs only shrink with their recording, so
-  a quota unreachable from deletable clips logs a warning instead of looping. Room **v16→v17**:
+  it — a megabyte of churn no longer triggers a deletion and the next clip does not overflow at once. That
+  target is measured over **what the pass is allowed to delete** rather than over the whole archive: candidates
+  are unprotected recordings, each credited with its own thumbnail because `deleteRecording` removes both
+  files. Bounding the quota over every owned byte instead would turn a limit the protected half dominates into
+  "delete every unprotected clip, today and again after the next recording". Internal usage counts
+  thumbnails next to recordings (`StorageUsage`). Room **v16→v17**:
   `internalQuotaMb` backfills from `maxStorageUsageMb` and `internalCleanupEnabled` from the old
   `autoCleanupEnabled` (both superseded columns stay declared). The master toggle is gone — each scope owns a
   switch, and the retention pass belongs to the phone's half, so switching "Auto-Clean Phone Storage" off
-  deletes nothing locally. A backup written before v17 restores the defaults rather than Gson's `0`
-  (`normalizedForRestore`), and the v17 backfill copies the legacy limit verbatim instead of clamping it — a
-  limit below the current usage is a deletion request, so clamping would invent one the user never chose.
-  `bytesToFree` is what closes the hole: any quota outside the range frees nothing, which also neutralises the
-  over-cap values the old unbounded stepper could write.
-  Files: `util/CleanupPolicy.kt` (new, pure), `util/StorageUsage.kt` (new),
+  deletes nothing locally. The backfill copies the legacy limit verbatim instead of clamping it — a limit
+  below the current usage is a deletion request, so clamping would invent one the user never chose — which
+  leaves "an out-of-range quota" as a state that has to be lived with: `bytesToFree` frees nothing at all for
+  it, the settings row says the stored limit is unusable instead of pretending to be a cap, and a stepper tap
+  starts from that scope's default rather than from the 100 MB floor (the most destructive limit there is, so
+  one tap on "Increase" would otherwise have emptied the archive). That default is now one
+  `AppSettingsEntity.DEFAULT_*_QUOTA_MB` constant shared by the entity, the migration SQL and the fallback, so
+  the three cannot disagree. `normalizedForRestore` repairs a quota a backup file spells out as `0`.
+  Files: `util/CleanupPolicy.kt` (new, pure), `util/CleanupPlan.kt`, `util/StorageUsage.kt` (new),
   `data/local/entity/AppSettingsEntity.kt`, `data/local/AppDatabase.kt`, `data/local/dao/RecordingDao.kt`,
   `data/repository/IntercomRepository.kt`, `worker/RetentionCleanupWorker.kt`,
   `ui/settings/SettingsStorageCard.kt`, `ui/settings/QuotaMbDialog.kt` (new),
   `ui/settings/SettingsViewModel.kt`, `ui/settings/SettingsStorageScreen.kt`, `res/values/strings.xml`,
-  `app/src/test/java/.../util/CleanupPolicyTest.kt` (new, 9/9)
+  `app/src/test/java/.../util/CleanupPolicyTest.kt` (new, 10/10),
+  `app/src/test/java/.../data/local/entity/AppSettingsRestoreTest.kt` (new, 5/5)
   ⚠️ Build/test/lint green only — an actually over-quota phone storage needs a device run.
 - [~] 🔄 **The export folder has its own quota, opt-in and 100 MB stepped.** Off by default: that folder is
   the archive the sync tools read. When on, the pass measures the **direct children this app wrote**, and a
   file only counts or gets removed if its **whole name** matches a grammar the app actually produces —
-  `REC_<device>_<EVENT>_<stamp>` plus the `_h264` transcode copy. Not a prefix test: the Python server writes
-  byte-identical `REC_…` files and `THUMB_…` images into its own data directory, so pointing the app at a
-  synced copy of that archive would otherwise hand server files to a delete loop. Thumbnails are not claimed
-  at all (they live in the app's files dir and never go through SAF), and `server_rec_<id>` downloads count
-  towards the usage but are never pruned — their protection flag lives on the server, which a background pass
-  has no business calling. Subfolders and the user's own files stay untouched, a protected clip keeps its
-  mirror copy plus its derived `_h264` name, and picks run oldest-recorded-first — the moment comes out of the
-  file name, with the document's `LAST_MODIFIED` only as the fallback for a name that will not parse — until
-  the step-hysteresis target is met. That decision is `CleanupPlan.external`, kept free of `Context` and `Uri`
-  so the destructive rule is unit-tested instead of needing a live provider. The pass runs in its own guard
-  behind a `probeExportFolderAccess` check, so a Nextcloud mount that is offline cannot stop the phone's own
-  cleanup; a document the provider refuses is skipped rather than ending the loop, and external failures are
-  logged but never make the daily schedule retry. Card and hub row name the folder's state ("no folder",
-  "measuring…", "folder needs access") instead of showing a size that cannot be read. Not verifiable here:
-  real provider semantics for `COLUMN_LAST_MODIFIED` and `deleteDocument` support.
+  `REC_<device>_<EVENT>_<stamp>.mkv` or that clip's `_h264.mp4` transcode copy. The extension is pinned, not
+  "any `REC_` file": the Python server writes byte-identical `REC_…` names into its own data directory and
+  picks `.mp4` whenever it has an encoder, so a looser pattern would hand a synced copy of that archive to the
+  delete loop. One case name matching cannot settle is stated in the KDoc rather than fixed — the server's
+  fallback without an encoder writes a raw MJPEG `.mkv` under the very name the app mirrors, and only a record
+  of what the app exported (a row per export) could tell those apart. Thumbnails are not claimed at all (they
+  live in the app's files dir and never go through SAF), and `server_rec_<id>` downloads count towards the
+  usage but are never pruned — their protection flag lives on the server, which a background pass has no
+  business calling. Subfolders and the user's own files stay untouched, a protected clip keeps its mirror copy
+  plus its derived `_h264` name, and picks run oldest-recorded-first — the moment comes out of the file name,
+  with the document's `LAST_MODIFIED` only as the fallback for a name that will not parse — until the target is
+  met, and that target is bounded over the prunable, unprotected files alone for the same reason the internal
+  pass is. `CleanupPlan` is the whole decision (one `select` shared by both passes, `CleanupOutcome` out, no
+  `Context` and no `Uri`), so what ends in `deleteDocument` is unit-tested instead of needing a live provider.
+  A plan cannot come up short by construction, so the worker compares what the provider actually removed
+  against the plan and logs the byte shortfall — the only signal that a switch is on while the folder keeps
+  growing. The pass runs in its own guard behind a `probeExportFolderAccess` check, so a Nextcloud mount that
+  is offline cannot stop the phone's own cleanup; a document the provider refuses is skipped rather than
+  ending the loop, and external failures are logged but never make the daily schedule retry.
+  `COLUMN_SIZE` / `COLUMN_LAST_MODIFIED` are read as optional columns and the measurement flow is guarded,
+  because a `stateIn(viewModelScope…)` stream that throws takes the screen down with it: an unreadable folder
+  is no number, not a crash. Card and hub row describe the folder's state the same way ("measuring…" while the
+  probe is still out, "folder needs access", "no folder") instead of the card claiming it is unreachable
+  before anything has asked. Not verifiable here: real provider semantics for `COLUMN_LAST_MODIFIED` and
+  `deleteDocument` support.
   Files: `util/SafExportName.kt` (new, pure), `util/CleanupPlan.kt` (new, pure), `util/ExportHelper.kt`,
   `worker/RetentionCleanupWorker.kt`, `ui/settings/SettingsStorageCard.kt`, `ui/settings/SettingsViewModel.kt`,
   `ui/settings/SettingsScreen.kt`, `res/values/strings.xml`,
-  `app/src/test/java/.../util/SafExportNameTest.kt` (new, 9/9),
-  `app/src/test/java/.../util/CleanupPlanTest.kt` (new, 9/9)
+  `app/src/test/java/.../util/SafExportNameTest.kt` (new, 10/10),
+  `app/src/test/java/.../util/CleanupPlanTest.kt` (new, 14/14)
   ⚠️ Build/test/lint green only — deletion against a real SAF provider (Nextcloud / Drive) needs a device run.
 - [~] 🔄 **The Settings storage screen adapts to narrow screens.** A stepper used to compete with its own
   caption for width, so two 48 dp buttons plus a localized value could push the label off the edge. On
