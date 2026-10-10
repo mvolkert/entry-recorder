@@ -7,17 +7,70 @@ sorted minimal → architectural. Nothing was silently dropped: 34 open + 7 part
 Legend: `[x]` done · `[~]` partial / needs validation · `[ ]` open · 🔄 on-device gate (blocks closing) ·
 🔭 long-term / not scheduled · 🖥️ server-side scope
 
-Review my Compose UI for Material 3 compliance and cross-screen consistency. Do NOT fix anything yet — produce a prioritized findings report only.
-Scope: all composables under app/src/main/java/.../ui (and any feature folders).
-Check each of these dimensions and report violations with file:line, a short why-it-matters note, and a suggested fix:
-Design tokens vs hardcoded values — any literal dp, sp, Color, fontSize, corner radius, or animation duration that should come from MaterialTheme.colorScheme, .typography, .shapes, .spacing, or motionScheme. Flag custom durations especially.
-Typography — text that uses raw fontSize/fontWeight instead of an M3 TextStyle role; inconsistent heading/body hierarchy across screens.
-Component consistency — compare how cards, buttons, dialogs, and bottom sheets are built screen-to-screen. Flag divergent surfaces (e.g. one screen uses ElevatedCard, another uses Card with a hand-rolled border for the same semantic role), inconsistent touch targets, and icon usage/tinting.
-Color semantics — wrong onX pairings, status/error colors hardcoded instead of derived from the scheme, contrast problems, dark/light (DayNight) breakdowns.
-Layout & spacing rhythm — inconsistent paddings/margins/gutters for equivalent containers; layout that isn't inset/wedge-safe.
-Motion — asymmetric enter/exit transitions, animating with non-token durations, or missing MaterialTheme.motionScheme usage.
-Accessibility/UX — missing content descriptions, non-localized (hardcoded) user-facing strings that belong in strings.xml, state that isn't hoisted through the ViewModel/StateFlow pattern.
-Group findings by severity (High / Medium / Low) and by pattern (any issue repeated across many files should be reported once as a pattern with a count, not 20 separate lines). End with the top 3 highest-leverage fixes. Follow the project's AGENTS.md and existing Material 3 conventions as the source of truth over generic M3 advice.
+
+## Feature
+- [~] 🔄 **Internal cleanup works in 100 MB steps.** The same step (`CleanupPolicy.STEP_MB`) now drives both
+  halves: the quota stepper moves ±100 MB (was ±1024) and tapping the value opens `QuotaMbDialog` for exact
+  entry, which validates the range (100 MB…102 400 MB) but deliberately does not demand a multiple of the
+  step — shipped values like 10 240 MB are not step-aligned and had to stay editable. The daily pass only starts
+  once usage is a **full step over** the limit and deletes oldest-unprotected clips down to one step **below**
+  it — a megabyte of churn no longer triggers a deletion and the next clip does not overflow at once. Internal
+  usage now counts thumbnails next to recordings (`StorageUsage`); thumbs only shrink with their recording, so
+  a quota unreachable from deletable clips logs a warning instead of looping. Room **v16→v17**:
+  `internalQuotaMb` backfills from `maxStorageUsageMb` and `internalCleanupEnabled` from the old
+  `autoCleanupEnabled` (both superseded columns stay declared). The master toggle is gone — each scope owns a
+  switch, and the retention pass belongs to the phone's half, so switching "Auto-Clean Phone Storage" off
+  deletes nothing locally. A backup written before v17 restores the defaults rather than Gson's `0`
+  (`normalizedForRestore`), and the v17 backfill copies the legacy limit verbatim instead of clamping it — a
+  limit below the current usage is a deletion request, so clamping would invent one the user never chose.
+  `bytesToFree` is what closes the hole: any quota outside the range frees nothing, which also neutralises the
+  over-cap values the old unbounded stepper could write.
+  Files: `util/CleanupPolicy.kt` (new, pure), `util/StorageUsage.kt` (new),
+  `data/local/entity/AppSettingsEntity.kt`, `data/local/AppDatabase.kt`, `data/local/dao/RecordingDao.kt`,
+  `data/repository/IntercomRepository.kt`, `worker/RetentionCleanupWorker.kt`,
+  `ui/settings/SettingsStorageCard.kt`, `ui/settings/QuotaMbDialog.kt` (new),
+  `ui/settings/SettingsViewModel.kt`, `ui/settings/SettingsStorageScreen.kt`, `res/values/strings.xml`,
+  `app/src/test/java/.../util/CleanupPolicyTest.kt` (new, 9/9)
+  ⚠️ Build/test/lint green only — an actually over-quota phone storage needs a device run.
+- [~] 🔄 **The export folder has its own quota, opt-in and 100 MB stepped.** Off by default: that folder is
+  the archive the sync tools read. When on, the pass measures the **direct children this app wrote**, and a
+  file only counts or gets removed if its **whole name** matches a grammar the app actually produces —
+  `REC_<device>_<EVENT>_<stamp>` plus the `_h264` transcode copy. Not a prefix test: the Python server writes
+  byte-identical `REC_…` files and `THUMB_…` images into its own data directory, so pointing the app at a
+  synced copy of that archive would otherwise hand server files to a delete loop. Thumbnails are not claimed
+  at all (they live in the app's files dir and never go through SAF), and `server_rec_<id>` downloads count
+  towards the usage but are never pruned — their protection flag lives on the server, which a background pass
+  has no business calling. Subfolders and the user's own files stay untouched, a protected clip keeps its
+  mirror copy plus its derived `_h264` name, and picks run oldest-recorded-first — the moment comes out of the
+  file name, with the document's `LAST_MODIFIED` only as the fallback for a name that will not parse — until
+  the step-hysteresis target is met. That decision is `CleanupPlan.external`, kept free of `Context` and `Uri`
+  so the destructive rule is unit-tested instead of needing a live provider. The pass runs in its own guard
+  behind a `probeExportFolderAccess` check, so a Nextcloud mount that is offline cannot stop the phone's own
+  cleanup; a document the provider refuses is skipped rather than ending the loop, and external failures are
+  logged but never make the daily schedule retry. Card and hub row name the folder's state ("no folder",
+  "measuring…", "folder needs access") instead of showing a size that cannot be read. Not verifiable here:
+  real provider semantics for `COLUMN_LAST_MODIFIED` and `deleteDocument` support.
+  Files: `util/SafExportName.kt` (new, pure), `util/CleanupPlan.kt` (new, pure), `util/ExportHelper.kt`,
+  `worker/RetentionCleanupWorker.kt`, `ui/settings/SettingsStorageCard.kt`, `ui/settings/SettingsViewModel.kt`,
+  `ui/settings/SettingsScreen.kt`, `res/values/strings.xml`,
+  `app/src/test/java/.../util/SafExportNameTest.kt` (new, 9/9),
+  `app/src/test/java/.../util/CleanupPlanTest.kt` (new, 9/9)
+  ⚠️ Build/test/lint green only — deletion against a real SAF provider (Nextcloud / Drive) needs a device run.
+- [~] 🔄 **The Settings storage screen adapts to narrow screens.** A stepper used to compete with its own
+  caption for width, so two 48 dp buttons plus a localized value could push the label off the edge. On
+  `WindowInfo.Compact` (the app's existing facade over the material3 window size class — no new breakpoints)
+  the control now drops to its own right-aligned line, `ExportFolderRow` stacks its choose/remove actions
+  full-width like `FormTwoFieldRow`, a long folder name ellipsizes on one line and a long value gets
+  `maxLines = 2` with middle ellipsis.
+  Files: `ui/settings/SettingsStorageCard.kt`, `ui/settings/SettingsComponents.kt`
+  ⚠️ Build/lint green only — the small-screen layout itself is the thing a device run has to confirm.
+- [~] 🔄 **Hub rows and section cards share one card fill.** The hub row hardcoded
+  `CardDefaults.cardColors(containerColor = surfaceContainerLow)` while the section cards took `Card`'s
+  default, so the two surfaces were never the same colour. One `SettingsCardDefaults.cardColors()`
+  (`surfaceContainerLow` / `onSurface`) is now the only place that choice lives and both read it.
+  Files: `ui/settings/SettingsComponents.kt`
+  ⚠️ Needs eyes on a device: whether the shared fill reads correctly against the screen background in both
+  themes and dynamic colour.
 
 ## Bug
 - [~] Motion/ Noise pull without being toggled → Phase 2 "Gate the 2N status polling on the triggers the user
