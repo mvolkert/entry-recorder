@@ -451,9 +451,15 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         Log.i(tag, "IntercomMonitorService onDestroy")
         serviceScope.cancel()
 
-        for (device in activeDevices.values) {
-            runBlocking {
-                device.stopMonitoring()
+        // All devices are torn down at once under one deadline: this blocks the main thread either way, and
+        // a serial loop made the cost grow with every camera that ignored its cancel request.
+        runBlocking {
+            withTimeoutOrNull(2_000.milliseconds) {
+                coroutineScope {
+                    activeDevices.values.forEach { device ->
+                        launch(Dispatchers.IO) { device.stopMonitoring() }
+                    }
+                }
             }
         }
         activeDevices.clear()

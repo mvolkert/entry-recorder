@@ -16,6 +16,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -37,7 +38,10 @@ class TwoNIPVersoDevice(
 ) : IntercomDevice {
 
     private val tag = "2N_Verso_${deviceEntity.id}"
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    // Owns the reconnect delays and the status poll loop. It is a var because tearing a device down
+    // cancels it for good, and a device that gets watched again has to be given a live one.
+    private var scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val isMonitoring = AtomicBoolean(false)
     private var eventSource: EventSource? = null
     private var pollingJob: Job? = null
@@ -110,6 +114,10 @@ class TwoNIPVersoDevice(
 
     override suspend fun startMonitoring(listener: IntercomEventListener) = withContext(Dispatchers.IO) {
         if (isMonitoring.getAndSet(true)) return@withContext
+
+        // A previous stopMonitoring cancelled the scope, so a device that is watched a second time
+        // would otherwise reconnect and poll into a dead job forever.
+        if (!scope.isActive) scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
         Log.i(tag, "Starting 2N IP Verso monitoring on ${deviceEntity.ipAddress} (FW 2.50+)")
         listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, ConnectionQuality.ONLINE, "Connecting to 2N IP Verso..."))
@@ -443,15 +451,20 @@ class TwoNIPVersoDevice(
         }
     }
 
+    /**
+     * Idempotent and non-suspending on purpose: the service tears devices down concurrently under a
+     * deadline, so a second call must not race the first, and work that is already cancelled has to keep
+     * running to completion instead of being cut short by the deadline itself.
+     */
     override suspend fun stopMonitoring() {
-        withContext(Dispatchers.IO) {
-            isMonitoring.set(false)
-            eventSource?.cancel()
-            eventSource = null
-            pollingJob?.cancel()
-            pollingJob = null
+        if (isMonitoring.getAndSet(false)) {
             Log.i(tag, "2N monitoring stopped")
         }
+        eventSource?.cancel()
+        eventSource = null
+        pollingJob = null
+        // Cancels the poll loop and any pending reconnect along with the scope's own job.
+        scope.cancel()
     }
 
     companion object {

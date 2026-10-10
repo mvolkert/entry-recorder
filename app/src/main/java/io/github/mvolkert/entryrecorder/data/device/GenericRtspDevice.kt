@@ -49,6 +49,10 @@ class GenericRtspDevice(
         listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, ConnectionQuality.ONLINE, "RTSP Ready"))
     }
 
+    /**
+     * Nothing to close and no scope of its own, so stopping is inherently idempotent: the monitor service
+     * may call it twice, or after a deadline already gave up on it, without a second call doing harm.
+     */
     override suspend fun stopMonitoring() {
         // No persistent HTTP event connection to close for generic RTSP
     }
