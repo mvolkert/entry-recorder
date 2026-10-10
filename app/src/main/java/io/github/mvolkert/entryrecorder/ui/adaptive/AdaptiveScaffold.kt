@@ -57,6 +57,7 @@ data class AdaptiveNavItem(
  */
 @Composable
 fun AdaptiveScaffold(
+    modifier: Modifier = Modifier,
     items: List<AdaptiveNavItem>,
     selectedRoute: String?,
     showChrome: Boolean,
@@ -66,7 +67,7 @@ fun AdaptiveScaffold(
 ) {
     val info = LocalWindowInfo.current
     if (info.useRail) {
-        Row(Modifier.fillMaxSize()) {
+        Row(modifier.fillMaxSize()) {
             if (showChrome) {
                 NavigationRail {
                     items.forEach { item ->
@@ -94,6 +95,7 @@ fun AdaptiveScaffold(
         }
     } else {
         Scaffold(
+            modifier = modifier.fillMaxSize(),
             contentWindowInsets = WindowInsets(0),
             // Only the side margins are added by hand; the Scaffold owns the vertical placement.
             snackbarHost = { SnackbarHost(snackbarHost, Modifier.padding(horizontal = Spacing.lg)) },

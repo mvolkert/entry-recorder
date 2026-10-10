@@ -148,16 +148,16 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
         LocalWindowInfo provides windowInfo,
         LocalAppSnackbar provides snackbarHost,
     ) {
-        // While a clip is open its layer is the only thing anybody can reach, so the chrome and the list
-        // behind it leave the accessibility tree as well as the screen.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(
-                    if (playback != null) Modifier.semantics { hideFromAccessibility() } else Modifier
-                )
-        ) {
+        Box(Modifier.fillMaxSize()) {
             AdaptiveScaffold(
+                modifier = if (playback != null) {
+                    // While a clip is open its layer is the only thing anybody can reach, so the chrome and
+                    // the list behind it leave the accessibility tree as well as the screen. The flag is on
+                    // the scaffold rather than the window Box because the player is the Box's other child.
+                    Modifier.semantics { hideFromAccessibility() }
+                } else {
+                    Modifier
+                },
                 items = items,
                 selectedRoute = selectedRoute,
                 showChrome = showChrome,
