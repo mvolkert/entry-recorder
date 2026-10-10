@@ -59,9 +59,10 @@ class MjpegStreamReader(
             requestBuilder.header("Authorization", Credentials.basic(device.username, device.password))
         }
 
+        val request = requestBuilder.build()
         var response: Response? = null
         try {
-            response = httpClient.newCall(requestBuilder.build()).execute()
+            response = httpClient.executeCancellable(request)
             if (!response.isSuccessful) {
                 Log.w(tag, "MJPEG connection unsuccessful: HTTP ${response.code}")
                 return@flow
@@ -84,9 +85,9 @@ class MjpegStreamReader(
             // callers fall back to snapshot polling or surface the error instead of showing nothing.
             throw e
         } finally {
-            try {
-                response?.close()
-            } catch (_: Exception) {}
+            // Closed through closeQuietly so a failed close is logged rather than discarded: that line is
+            // the only trace of a stream that died on the socket instead of ending at the camera's pace.
+            response?.let { closeQuietly(it, request) }
         }
     }.flowOn(Dispatchers.IO)
 
@@ -99,9 +100,10 @@ class MjpegStreamReader(
             requestBuilder.header("Authorization", Credentials.basic(device.username, device.password))
         }
 
+        val request = requestBuilder.build()
         var response: Response? = null
         try {
-            response = httpClient.newCall(requestBuilder.build()).execute()
+            response = httpClient.executeCancellable(request)
             if (!response.isSuccessful) {
                 throw IOException("MJPEG endpoint on ${device.name} answered HTTP ${response.code}")
             }
@@ -119,9 +121,7 @@ class MjpegStreamReader(
             // falls back to snapshot polling, instead of a silently empty recording.
             throw e
         } finally {
-            try {
-                response?.close()
-            } catch (_: Exception) {}
+            response?.let { closeQuietly(it, request) }
         }
     }.flowOn(Dispatchers.IO)
 
@@ -136,9 +136,10 @@ class MjpegStreamReader(
         val requestBuilder = Request.Builder().url(url)
         if (!apiKey.isNullOrBlank()) requestBuilder.header("X-API-Key", apiKey)
 
+        val request = requestBuilder.build()
         var response: Response? = null
         try {
-            response = httpClient.newCall(requestBuilder.build()).execute()
+            response = httpClient.executeCancellable(request)
             if (!response.isSuccessful) {
                 throw IOException("Server live feed for $label answered HTTP ${response.code}")
             }
@@ -163,9 +164,7 @@ class MjpegStreamReader(
             Log.e(tag, "Error reading server live MJPEG for $label", e)
             throw e
         } finally {
-            try {
-                response?.close()
-            } catch (_: Exception) {}
+            response?.let { closeQuietly(it, request) }
         }
     }.flowOn(Dispatchers.IO)
 
@@ -203,6 +202,9 @@ class MjpegStreamReader(
         var inFrame = false
 
         while (true) {
+            // Checked before every read: the read itself cannot be interrupted from this coroutine, but a
+            // cancelled collector must at least stop asking for the next chunk.
+            currentCoroutineContext().ensureActive()
             val read = withContext(Dispatchers.IO) {
                 inputStream.read(chunk)
             }

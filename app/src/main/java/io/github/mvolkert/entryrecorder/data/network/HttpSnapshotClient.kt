@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.util.Log
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -217,30 +218,34 @@ object HttpSnapshotClient {
                 val baseRequest = Request.Builder().url(snapshotUrl)
                     .tag(SnapshotAuth::class.java, SnapshotAuth(device.id, device.username, device.password))
                     .build()
-                val response = httpClient.newCall(withAuthHeader(device, baseRequest)).execute()
-                if (!response.isSuccessful) {
-                    val reason = "HTTP ${response.code}"
-                    Log.w(TAG, "Snapshot fetch failed $reason url=$snapshotUrl attempt=$attempt")
-                    if (response.code == 401 || response.code == 403) {
-                        // Credentials were refused even after the challenge round, so the replayed
-                        // Digest scheme is not what this endpoint wants right now — drop back to Basic.
-                        digestChallenges.remove(device.id)
-                    }
-                    // 5xx and 429 are worth the retry; a 401/403/404 will not fix itself.
-                    val retryable = response.code >= 500 || response.code == 429
-                    if (retryable) FetchOutcome.Retryable else FetchOutcome.Rejected(reason)
-                } else {
-                    val contentType = response.body.contentType()
-                    if (contentType != null && contentType.type != "image" &&
-                        contentType.subtype in ERROR_BODY_SUBTYPES
-                    ) {
-                        val reason = "content type $contentType"
-                        Log.w(TAG, "Snapshot endpoint returned $reason instead of an image url=$snapshotUrl")
-                        FetchOutcome.Rejected(reason)
+                httpClient.withCancellableResponse(withAuthHeader(device, baseRequest)) { response ->
+                    if (!response.isSuccessful) {
+                        val reason = "HTTP ${response.code}"
+                        Log.w(TAG, "Snapshot fetch failed $reason url=$snapshotUrl attempt=$attempt")
+                        if (response.code == 401 || response.code == 403) {
+                            // Credentials were refused even after the challenge round, so the replayed
+                            // Digest scheme is not what this endpoint wants right now — drop back to Basic.
+                            digestChallenges.remove(device.id)
+                        }
+                        // 5xx and 429 are worth the retry; a 401/403/404 will not fix itself.
+                        val retryable = response.code >= 500 || response.code == 429
+                        if (retryable) FetchOutcome.Retryable else FetchOutcome.Rejected(reason)
                     } else {
-                        FetchOutcome.Frame(response.body.bytes())
+                        val contentType = response.body.contentType()
+                        if (contentType != null && contentType.type != "image" &&
+                            contentType.subtype in ERROR_BODY_SUBTYPES
+                        ) {
+                            val reason = "content type $contentType"
+                            Log.w(TAG, "Snapshot endpoint returned $reason instead of an image url=$snapshotUrl")
+                            FetchOutcome.Rejected(reason)
+                        } else {
+                            FetchOutcome.Frame(response.body.bytes())
+                        }
                     }
                 }
+            } catch (e: CancellationException) {
+                // A cancelled poll is not an endpoint that deserves the retry budget or the failure streak.
+                throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Snapshot fetch exception (attempt $attempt) for ${device.name}: ${e.message}")
                 FetchOutcome.Retryable

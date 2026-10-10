@@ -6,7 +6,10 @@ import com.google.gson.annotations.SerializedName
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
+import io.github.mvolkert.entryrecorder.data.network.withCancellableResponse
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -152,13 +155,17 @@ class ServerRecordingClient(
                 .get()
                 .withApiKey(apiKey)
 
-            client.newCall(requestBuilder.build()).execute().use { response ->
+            client.withCancellableResponse(requestBuilder.build()) { response ->
                 if (response.isSuccessful) {
                     Result.success(true)
                 } else {
                     Result.failure(Exception("Server returned HTTP ${response.code}"))
                 }
             }
+        } catch (e: CancellationException) {
+            // A cancelled probe is not a failed probe: swallowing it here would make the settings screen
+            // report "connection failed" for a test the user simply walked away from.
+            throw e
         } catch (e: Exception) {
             Log.e(tag, "Failed to connect to Python server at $serverUrl", e)
             Result.failure(e)
@@ -201,7 +208,7 @@ class ServerRecordingClient(
                 .withApiKey(apiKey)
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            client.withCancellableResponse(request) { response ->
                 if (response.isSuccessful) {
                     val answer = runCatching { gson.fromJson(response.body.string(), ServerStartResponse::class.java) }
                         .getOrNull()
@@ -224,6 +231,8 @@ class ServerRecordingClient(
                     Result.failure(Exception(err))
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(tag, "Server recording request failed for $deviceName", e)
             Result.failure(e)
@@ -262,7 +271,7 @@ class ServerRecordingClient(
                 .post(body)
                 .withApiKey(apiKey)
                 .build()
-            client.newCall(request).execute().use { response ->
+            client.withCancellableResponse(request) { response ->
                 val answer = runCatching { gson.fromJson(response.body.string(), ServerDeviceDto::class.java) }.getOrNull()
                 if (response.isSuccessful && answer != null && answer.id > 0) {
                     Log.i(tag, "Registered device ${device.name} on server as id ${answer.id}")
@@ -271,6 +280,8 @@ class ServerRecordingClient(
                     Result.failure(Exception("HTTP ${response.code}: ${response.message}"))
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(tag, "Registering device ${device.name} on server failed", e)
             Result.failure(e)
@@ -292,13 +303,15 @@ class ServerRecordingClient(
                 .put(body)
                 .withApiKey(apiKey)
                 .build()
-            client.newCall(request).execute().use { response ->
+            client.withCancellableResponse(request) { response ->
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
                     Result.failure(Exception("HTTP ${response.code}: ${response.body.string()}"))
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(tag, "Updating server device $serverDeviceId failed", e)
             Result.failure(e)
@@ -322,7 +335,7 @@ class ServerRecordingClient(
                 .delete(emptyBody)
                 .withApiKey(apiKey)
                 .build()
-            client.newCall(request).execute().use { response ->
+            client.withCancellableResponse(request) { response ->
                 // 404 is fine: the row was already gone, which is the state we wanted.
                 if (response.isSuccessful || response.code == 404) {
                     Result.success(Unit)
@@ -330,6 +343,8 @@ class ServerRecordingClient(
                     Result.failure(Exception("HTTP ${response.code}: ${response.body.string()}"))
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(tag, "Deleting server device $serverDeviceId failed", e)
             Result.failure(e)
@@ -350,7 +365,7 @@ class ServerRecordingClient(
                 .withApiKey(apiKey)
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            client.withCancellableResponse(request) { response ->
                 if (!response.isSuccessful) {
                     Result.failure(Exception("HTTP ${response.code}"))
                 } else {
@@ -358,6 +373,8 @@ class ServerRecordingClient(
                     Result.success(status.activeRecordings.orEmpty().firstOrNull { it.deviceId == deviceId })
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(tag, "Server status probe failed for device $deviceId", e)
             Result.failure(e)
@@ -379,7 +396,7 @@ class ServerRecordingClient(
                 .withApiKey(apiKey)
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            client.withCancellableResponse(request) { response ->
                 if (!response.isSuccessful) {
                     Result.failure(Exception("HTTP ${response.code}: ${response.body.string()}"))
                 } else {
@@ -389,6 +406,8 @@ class ServerRecordingClient(
                     Result.success(answer)
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(tag, "Server stop recording failed for device $deviceId", e)
             Result.failure(e)
@@ -415,7 +434,7 @@ class ServerRecordingClient(
                 .url(url)
                 .get()
                 .withApiKey(apiKey)
-            client.newCall(request.build()).execute().use { response ->
+            client.withCancellableResponse(request.build()) { response ->
                 if (response.isSuccessful) {
                     val body = response.body.string()
                     val type = object : com.google.gson.reflect.TypeToken<List<ServerRecordingDto>>() {}.type
@@ -425,6 +444,8 @@ class ServerRecordingClient(
                     Result.failure(Exception("HTTP ${response.code}: ${response.body.string()}"))
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(tag, "Listing server recordings failed", e)
             Result.failure(e)
@@ -448,13 +469,15 @@ class ServerRecordingClient(
                 .post(emptyBody)
                 .withApiKey(apiKey)
                 .build()
-            client.newCall(request).execute().use { response ->
+            client.withCancellableResponse(request) { response ->
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
                     Result.failure(Exception("HTTP ${response.code}: ${response.body.string()}"))
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(tag, "Protecting server recording $recordingId failed", e)
             Result.failure(e)
@@ -475,7 +498,7 @@ class ServerRecordingClient(
                 .delete(emptyBody)
                 .withApiKey(apiKey)
                 .build()
-            client.newCall(request).execute().use { response ->
+            client.withCancellableResponse(request) { response ->
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
@@ -493,6 +516,10 @@ class ServerRecordingClient(
      * fetches share the Coil/ExoPlayer constraint of not setting the header) into [targetDir]. The file
      * extension comes from the response Content-Type so a `.mkv` export is not mislabelled as `.mp4`.
      * [onProgress] reports 0..100 when the server sends a Content-Length, and is not called otherwise.
+     *
+     * Cancellable end to end: [withCancellableResponse] aborts the underlying call as soon as the caller's
+     * job is cancelled, and the chunk loop checks for cancellation before every read, so a cancelled
+     * export stops pushing bytes instead of finishing the file first.
      */
     suspend fun downloadVideo(
         absoluteUrl: String,
@@ -502,34 +529,40 @@ class ServerRecordingClient(
     ): Result<File> = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder().url(absoluteUrl).get().build()
-            downloadClient.newCall(request).execute().use { response ->
+            downloadClient.withCancellableResponse(request) { response ->
                 val body = response.body
-                if (!response.isSuccessful || body == null) {
-                    return@withContext Result.failure(Exception("HTTP ${response.code}"))
-                }
-                val contentType = response.header("Content-Type").orEmpty()
-                val extension = when {
-                    contentType.contains("matroska", ignoreCase = true) -> "mkv"
-                    else -> "mp4"
-                }
-                targetDir.mkdirs()
-                val dest = File(targetDir, "$baseName.$extension")
-                val total = body.contentLength().takeIf { it > 0 } ?: 0L
-                var written = 0L
-                body.byteStream().use { input ->
-                    dest.outputStream().use { output ->
-                        val buffer = ByteArray(64 * 1024)
-                        while (true) {
-                            val read = input.read(buffer)
-                            if (read <= 0) break
-                            output.write(buffer, 0, read)
-                            written += read
-                            if (total > 0) onProgress((written * 100 / total).toInt().coerceIn(0, 100))
+                if (!response.isSuccessful) {
+                    Result.failure(Exception("HTTP ${response.code}"))
+                } else {
+                    val contentType = response.header("Content-Type").orEmpty()
+                    val extension = when {
+                        contentType.contains("matroska", ignoreCase = true) -> "mkv"
+                        else -> "mp4"
+                    }
+                    targetDir.mkdirs()
+                    val dest = File(targetDir, "$baseName.$extension")
+                    val total = body.contentLength().takeIf { it > 0 } ?: 0L
+                    var written = 0L
+                    body.byteStream().use { input ->
+                        dest.outputStream().use { output ->
+                            val buffer = ByteArray(64 * 1024)
+                            while (true) {
+                                // Checked per chunk: a cancelled run must not keep writing a file that
+                                // nobody asked for anymore, and must not report progress while doing so.
+                                coroutineContext.ensureActive()
+                                val read = input.read(buffer)
+                                if (read <= 0) break
+                                output.write(buffer, 0, read)
+                                written += read
+                                if (total > 0) onProgress((written * 100 / total).toInt().coerceIn(0, 100))
+                            }
                         }
                     }
+                    Result.success(dest)
                 }
-                Result.success(dest)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(tag, "Downloading server video failed", e)
             Result.failure(e)

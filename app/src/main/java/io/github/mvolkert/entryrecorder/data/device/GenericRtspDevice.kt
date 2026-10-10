@@ -6,7 +6,9 @@ import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.domain.device.IntercomDevice
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -23,11 +25,15 @@ class GenericRtspDevice(
 
     override suspend fun testConnection(): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            // Test RTSP socket connectivity
+            // Test RTSP socket connectivity. A plain socket connect cannot be interrupted from another
+            // thread, so the only way to honour a cancelled test is to refuse to start one.
+            coroutineContext.ensureActive()
             Socket().use { socket ->
                 socket.connect(InetSocketAddress(deviceEntity.ipAddress, deviceEntity.rtspPort), 5000)
                 Result.success(true)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(tag, "RTSP connection test failed", e)
             Result.failure(e)

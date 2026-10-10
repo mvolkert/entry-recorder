@@ -7,9 +7,11 @@ import com.google.gson.JsonParser
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.network.DigestAuthenticator
+import io.github.mvolkert.entryrecorder.data.network.withCancellableResponse
 import io.github.mvolkert.entryrecorder.domain.device.IntercomDevice
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -85,19 +87,21 @@ class TwoNIPVersoDevice(
         try {
             val url = "${deviceEntity.httpBaseUrl}/api/system/info"
             val request = Request.Builder().url(url).get().build()
-            client.newCall(request).execute().use { response ->
+            client.withCancellableResponse(request) { response ->
                 if (response.isSuccessful) {
                     Result.success(true)
                 } else {
                     // Try fallback info endpoint
                     val fallbackUrl = "${deviceEntity.httpBaseUrl}/api/info/status"
                     val fallbackReq = Request.Builder().url(fallbackUrl).get().build()
-                    client.newCall(fallbackReq).execute().use { fbResponse ->
+                    client.withCancellableResponse(fallbackReq) { fbResponse ->
                         if (fbResponse.isSuccessful) Result.success(true)
                         else Result.failure(IOException("HTTP ${response.code}: ${response.message}"))
                     }
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(tag, "Connection test failed", e)
             Result.failure(e)
@@ -363,19 +367,19 @@ class TwoNIPVersoDevice(
     private suspend fun pollStatusEndpoint(poller: StatusPoller): StatusPoll {
         return try {
             val request = Request.Builder().url(poller.url).get().build()
-            pollClient.newCall(request).execute().use { response ->
+            pollClient.withCancellableResponse(request) { response ->
                 if (!response.isSuccessful) {
                     if (response.code == HTTP_NOT_FOUND) {
                         Log.i(tag, "${poller.label} status endpoint not served (HTTP 404): ${poller.url}")
-                        return@use StatusPoll.Absent
+                        return@withCancellableResponse StatusPoll.Absent
                     }
                     Log.w(tag, "${poller.label} status poll rejected: HTTP ${response.code} on ${poller.url}")
-                    return@use StatusPoll.Unusable
+                    return@withCancellableResponse StatusPoll.Unusable
                 }
                 val body = response.body.string()
                 if (isInvalidRequestPath(body)) {
                     Log.i(tag, "${poller.label} status endpoint does not exist on this firmware: ${body.take(120)}")
-                    return@use StatusPoll.Absent
+                    return@withCancellableResponse StatusPoll.Absent
                 }
                 val active = runCatching {
                     triState(
@@ -391,6 +395,10 @@ class TwoNIPVersoDevice(
                     StatusPoll.Known(active)
                 }
             }
+        } catch (e: CancellationException) {
+            // The monitoring scope is being torn down: counting that as "the endpoint said nothing" would
+            // keep the poll loop alive through one more pointless round trip.
+            throw e
         } catch (e: Exception) {
             Log.w(tag, "${poller.label} status poll error for ${poller.url}: ${e.message}")
             StatusPoll.Unusable
