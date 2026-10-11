@@ -3,20 +3,14 @@ package io.github.mvolkert.entryrecorder.ui.recordings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -37,14 +31,15 @@ private val EVENT_FILTER_OPTIONS: List<Pair<EventType?, Int>> = listOf(
 )
 
 /**
- * Search field plus the event-type and device filter rows of the Recordings screen. The picked chip
- * steps up to the emphasized label role — weight from the type scale, never a raw `fontWeight` — and
- * the selection ticks, so the filter reads as the playful moment the tab is allowed.
+ * The event-type and device filter rows of the Recordings screen. The picked chip steps up to the
+ * emphasized label role — weight from the type scale, never a raw `fontWeight` — and the selection
+ * ticks, so the filter reads as the playful moment the tab is allowed.
+ *
+ * The query is not here: search is a [RecordingsSearchTrigger] in the band above, because the
+ * state-based Material search bar owns more vertical space than a chip row can share.
  */
 @Composable
 internal fun RecordingsFilterBar(
-    searchQuery: String,
-    onSearchQueryChange: (String) -> Unit,
     selectedEventType: EventType?,
     onEventTypeSelect: (EventType?) -> Unit,
     devices: List<DeviceEntity>,
@@ -54,26 +49,6 @@ internal fun RecordingsFilterBar(
 ) {
     val haptic = LocalHapticFeedback.current
     Column(modifier = modifier) {
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchQueryChange,
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text(stringResource(R.string.recordings_search_placeholder)) },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = stringResource(R.string.recordings_cd_search)) },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { onSearchQueryChange("") }) {
-                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.recordings_cd_clear))
-                    }
-                }
-            },
-            singleLine = true,
-            // Search pill: beta01's Shapes has no `full` token, so CircleShape (like StatusChip).
-            shape = CircleShape
-        )
-
-        Spacer(modifier = Modifier.height(Spacing.sm))
-
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {

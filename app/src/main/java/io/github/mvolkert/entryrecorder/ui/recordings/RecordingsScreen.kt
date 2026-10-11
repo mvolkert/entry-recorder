@@ -17,6 +17,8 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.VideoLibrary
@@ -26,6 +28,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +36,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -52,6 +56,7 @@ import io.github.mvolkert.entryrecorder.ui.components.PlaybackTarget
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeColor
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeOnColor
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -102,6 +107,31 @@ fun RecordingsScreen(
     }
     BackHandler(enabled = selectionMode) { exitSelection() }
 
+    // Search is the Material search band rather than a text-field pill. In material3 beta01 the collapsed
+    // [androidx.compose.material3.SearchBar] wraps its field in an input interceptor that never resolves,
+    // so the trigger only opens the surface and the surface owns the keyboard - see RecordingsSearchBar.kt.
+    val searchBarState = rememberSearchBarState()
+    val textFieldState = rememberTextFieldState(initialText = state.searchQuery)
+    // The ViewModel stays the single source of truth and the bridge runs one way, field up to state: a
+    // filter state that lags a keystroke must never write back and eat the character just typed.
+    LaunchedEffect(Unit) {
+        snapshotFlow { textFieldState.text.toString() }
+            .distinctUntilChanged()
+            .collect { viewModel.setSearchQuery(it) }
+    }
+    val clearSearchQuery: () -> Unit = { textFieldState.clearText() }
+    // The ViewModel's clearFilters also drops the query, and nothing pushes state back down to the field,
+    // so the field follows by hand or it would keep showing the text that just stopped filtering.
+    val clearAllFilters: () -> Unit = {
+        viewModel.clearFilters()
+        clearSearchQuery()
+    }
+    // Multi-select owns the top band, and a surface that covers the window hides the check marks it is
+    // there to show; entering it puts the search away first.
+    LaunchedEffect(selectionMode) {
+        if (selectionMode) searchBarState.animateToCollapsed()
+    }
+
     // Export runs in the ViewModel; its results arrive as one-shot events. This screen supplies only its
     // own Activity context to the share sheet, which is the one step that cannot run from the application.
     LaunchedEffect(Unit) {
@@ -130,6 +160,83 @@ fun RecordingsScreen(
     // that flip - and keeps the rows themselves out of the branch below.
     val listState = rememberLazyListState()
 
+    // Every clip is one row of the same list: no hero above the newest item, so the gallery reads as a
+    // uniform archive and each row keeps the same tap, long-press and menu targets. The rows are hoisted
+    // because the tab list and the expanded search surface render exactly the same filtered clips.
+    // animateItem()'s own defaults are framework springs that ignore the scheme, so all three phases name
+    // the motion scheme's specs (Design.md §4).
+    val motion = MaterialTheme.motionScheme
+    val rows: LazyListScope.() -> Unit = {
+        items(state.items, key = { it.stableKey }) { item ->
+            val localId = (item as? GalleryItem.Local)?.entity?.id
+            RecordingCardItem(
+                modifier = Modifier.animateItem(
+                    fadeInSpec = motion.defaultEffectsSpec(),
+                    placementSpec = motion.defaultSpatialSpec(),
+                    fadeOutSpec = motion.defaultEffectsSpec(),
+                ),
+                item = item,
+                selectionMode = selectionMode,
+                selected = item is GalleryItem.Local && item.entity.id in selectedIds,
+                onSelectToggle = {
+                    (item as? GalleryItem.Local)?.let { viewModel.toggleSelection(it.entity.id) }
+                },
+                onLongSelect = {
+                    localId?.let { id ->
+                        if (selectionMode) {
+                            viewModel.selectRangeTo(id)
+                        } else {
+                            selectionMode = true
+                            viewModel.toggleSelection(id)
+                        }
+                    }
+                },
+                onPlay = {
+                    onRequestPlayback(
+                        when (item) {
+                            is GalleryItem.Local -> PlaybackTarget.LocalFile(item.entity.filePath)
+                            is GalleryItem.Remote -> PlaybackTarget.RemoteUrl(item.videoAbsoluteUrl)
+                        }
+                    )
+                },
+                onDelete = {
+                    when (item) {
+                        is GalleryItem.Local -> recordingToDelete = item.entity
+                        is GalleryItem.Remote -> serverItemToDelete = item
+                    }
+                },
+                onToggleProtect = {
+                    when (item) {
+                        is GalleryItem.Local -> viewModel.toggleProtection(item.entity)
+                        is GalleryItem.Remote -> viewModel.toggleServerProtection(item)
+                    }
+                },
+                onShare = {
+                    when (item) {
+                        is GalleryItem.Local -> viewModel.exportRecording(item.entity, RecordingExportKind.SHARE)
+                        is GalleryItem.Remote -> viewModel.exportServerRecording(item, RecordingExportKind.SHARE)
+                    }
+                },
+                onExportGallery = {
+                    when (item) {
+                        is GalleryItem.Local -> viewModel.exportRecording(item.entity, RecordingExportKind.GALLERY)
+                        is GalleryItem.Remote -> viewModel.exportServerRecording(item, RecordingExportKind.GALLERY)
+                    }
+                },
+                onExportFolder = {
+                    when (item) {
+                        is GalleryItem.Local -> viewModel.exportRecording(item.entity, RecordingExportKind.FOLDER)
+                        is GalleryItem.Remote -> viewModel.exportServerRecording(item, RecordingExportKind.FOLDER)
+                    }
+                },
+                // Raw copies only exist for local clips; server rows already live on the server as H.264.
+                onExportRawFolder = if (item is GalleryItem.Local) {
+                    { viewModel.exportRecording(item.entity, RecordingExportKind.RAW_FOLDER) }
+                } else null
+            )
+        }
+    }
+
     Scaffold(
         // Top inset is consumed by the TopAppBar itself, exactly like the Live and Settings tabs;
         // bottom system inset comes from the host NavigationBar in MainActivity. Nested Scaffold
@@ -154,11 +261,22 @@ fun RecordingsScreen(
                 )
 
                 Column(modifier = Modifier.padding(horizontal = Spacing.lg)) {
+                    // Multi-select hands the band its own actions; a second row of controls there is
+                    // noise, and the search surface would cover the rows being checked anyway.
+                    if (!selectionMode) {
+                        RecordingsSearchTrigger(
+                            searchBarState = searchBarState,
+                            textFieldState = textFieldState,
+                            query = state.searchQuery,
+                            onClearQuery = clearSearchQuery,
+                            onSearch = { scope.launch { searchBarState.animateToCollapsed() } },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(modifier = Modifier.height(Spacing.sm))
+                    }
                     RecordingsStorageLine(totalStorageBytes = state.totalStorageBytes)
                     Spacer(modifier = Modifier.height(Spacing.sm))
                     RecordingsFilterBar(
-                        searchQuery = state.searchQuery,
-                        onSearchQueryChange = { viewModel.setSearchQuery(it) },
                         selectedEventType = state.selectedEventType,
                         onEventTypeSelect = { viewModel.selectEventTypeFilter(it) },
                         devices = state.devices,
@@ -175,139 +293,13 @@ fun RecordingsScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            if (state.isLoading) {
-                LoadingSpot(modifier = Modifier.align(Alignment.Center))
-            } else if (state.items.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        // Nothing found under a filter is a different fact from an empty archive, and it
-                        // needs a different action: the filters are cleared, not the recording workflow.
-                        ExpressiveIconBadge(
-                            icon = if (state.filtersActive) Icons.Default.FilterList else Icons.Default.VideoLibrary,
-                            contentDescription = null,
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                        Spacer(modifier = Modifier.height(Spacing.md))
-                        Text(
-                            text = stringResource(
-                                if (state.filtersActive) R.string.recordings_filtered_empty
-                                else R.string.recordings_empty
-                            ),
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(Spacing.xs))
-                        Text(
-                            text = stringResource(
-                                if (state.filtersActive) R.string.recordings_filtered_empty_hint
-                                else R.string.recordings_empty_hint
-                            ),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (state.filtersActive) {
-                            Spacer(modifier = Modifier.height(Spacing.sm))
-                            TextButton(onClick = { viewModel.clearFilters() }) {
-                                Text(stringResource(R.string.recordings_clear_filters))
-                            }
-                        }
-                    }
-                }
-            } else {
-                // Every clip is one row of the same list: no hero above the newest item, so the gallery
-                // reads as a uniform archive and each row keeps the same tap, long-press and menu targets.
-                // animateItem()'s own defaults are framework springs that ignore the scheme, so all three
-                // phases name the motion scheme's specs (Design.md §4).
-                val motion = MaterialTheme.motionScheme
-                val rows: LazyListScope.() -> Unit = {
-                    items(state.items, key = { it.stableKey }) { item ->
-                        val localId = (item as? GalleryItem.Local)?.entity?.id
-                        RecordingCardItem(
-                            modifier = Modifier.animateItem(
-                                fadeInSpec = motion.defaultEffectsSpec(),
-                                placementSpec = motion.defaultSpatialSpec(),
-                                fadeOutSpec = motion.defaultEffectsSpec(),
-                            ),
-                            item = item,
-                            selectionMode = selectionMode,
-                            selected = item is GalleryItem.Local && item.entity.id in selectedIds,
-                            onSelectToggle = {
-                                (item as? GalleryItem.Local)?.let { viewModel.toggleSelection(it.entity.id) }
-                            },
-                            onLongSelect = {
-                                localId?.let { id ->
-                                    if (selectionMode) {
-                                        viewModel.selectRangeTo(id)
-                                    } else {
-                                        selectionMode = true
-                                        viewModel.toggleSelection(id)
-                                    }
-                                }
-                            },
-                            onPlay = {
-                                onRequestPlayback(
-                                    when (item) {
-                                        is GalleryItem.Local -> PlaybackTarget.LocalFile(item.entity.filePath)
-                                        is GalleryItem.Remote -> PlaybackTarget.RemoteUrl(item.videoAbsoluteUrl)
-                                    }
-                                )
-                            },
-                            onDelete = {
-                                when (item) {
-                                    is GalleryItem.Local -> recordingToDelete = item.entity
-                                    is GalleryItem.Remote -> serverItemToDelete = item
-                                }
-                            },
-                            onToggleProtect = {
-                                when (item) {
-                                    is GalleryItem.Local -> viewModel.toggleProtection(item.entity)
-                                    is GalleryItem.Remote -> viewModel.toggleServerProtection(item)
-                                }
-                            },
-                            onShare = {
-                                when (item) {
-                                    is GalleryItem.Local -> viewModel.exportRecording(item.entity, RecordingExportKind.SHARE)
-                                    is GalleryItem.Remote -> viewModel.exportServerRecording(item, RecordingExportKind.SHARE)
-                                }
-                            },
-                            onExportGallery = {
-                                when (item) {
-                                    is GalleryItem.Local -> viewModel.exportRecording(item.entity, RecordingExportKind.GALLERY)
-                                    is GalleryItem.Remote -> viewModel.exportServerRecording(item, RecordingExportKind.GALLERY)
-                                }
-                            },
-                            onExportFolder = {
-                                when (item) {
-                                    is GalleryItem.Local -> viewModel.exportRecording(item.entity, RecordingExportKind.FOLDER)
-                                    is GalleryItem.Remote -> viewModel.exportServerRecording(item, RecordingExportKind.FOLDER)
-                                }
-                            },
-                            // Raw copies only exist for local clips; server rows already live on the server as H.264.
-                            onExportRawFolder = if (item is GalleryItem.Local) {
-                                { viewModel.exportRecording(item.entity, RecordingExportKind.RAW_FOLDER) }
-                            } else null
-                        )
-                    }
-                }
-                // Pull-to-refresh re-fetches the server list, so the gesture is only offered where there is
-                // something to fetch. The material3 box has no enable flag, so the container itself is chosen
-                // and both branches hand the same [rows] to the same hoisted [listState].
-                if (state.serverModeEnabled) {
-                    PullToRefreshBox(
-                        isRefreshing = state.isServerLoading,
-                        onRefresh = { viewModel.refreshServerRecordings() },
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        GalleryList(listState = listState, content = rows)
-                    }
-                } else {
-                    GalleryList(listState = listState, content = rows)
-                }
-            }
+            RecordingsGallery(
+                state = state,
+                listState = listState,
+                rows = rows,
+                onClearFilters = clearAllFilters,
+                onRefresh = { viewModel.refreshServerRecordings() },
+            )
 
             // One strip for whichever run is going — the transcode/copy percent, the k-of-n batch count or
             // the server download — floating over the top of the list exactly like the celebration check, so
@@ -354,6 +346,27 @@ fun RecordingsScreen(
         }
     }
 
+    // The expanded half of the search band: a surface over the window that owns the keyboard and shows the
+    // same rows, filtered as the query changes. Composed unconditionally - the search bar state gates it
+    // internally - and with its own scroll state, because one LazyListState cannot be attached to this
+    // sheet and the tab list at the same time while the surface animates open.
+    RecordingsSearchSurface(
+        searchBarState = searchBarState,
+        textFieldState = textFieldState,
+        query = state.searchQuery,
+        onClearQuery = clearSearchQuery,
+        onSearch = { scope.launch { searchBarState.animateToCollapsed() } },
+    ) {
+        RecordingsGallery(
+            state = state,
+            listState = rememberLazyListState(),
+            rows = rows,
+            onClearFilters = clearAllFilters,
+            onRefresh = { viewModel.refreshServerRecordings() },
+            modifier = Modifier.weight(1f),
+        )
+    }
+
     recordingToDelete?.let { rec ->
         DeleteRecordingDialog(
             deviceName = rec.deviceName,
@@ -389,6 +402,83 @@ fun RecordingsScreen(
                 selectionMode = false
             }
         )
+    }
+}
+
+/**
+ * The list area of the Recordings tab: a spinner, the empty archive, or the rows. The tab body and the
+ * expanded search surface both render it, so a search never shows a different gallery from the tab.
+ * [listState] comes from the caller - the surface passes its own, see [RecordingsScreen].
+ */
+@Composable
+private fun RecordingsGallery(
+    state: RecordingsUiState,
+    listState: LazyListState,
+    rows: LazyListScope.() -> Unit,
+    onClearFilters: () -> Unit,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier.fillMaxSize()) {
+        if (state.isLoading) {
+            LoadingSpot(modifier = Modifier.align(Alignment.Center))
+        } else if (state.items.isEmpty()) {
+            RecordingsEmptyState(filtersActive = state.filtersActive, onClearFilters = onClearFilters)
+        } else if (state.serverModeEnabled) {
+            // Pull-to-refresh re-fetches the server list, so the gesture is only offered where there is
+            // something to fetch. The material3 box has no enable flag, so the container itself is chosen
+            // and both branches hand the same [rows] to the same [listState].
+            PullToRefreshBox(
+                isRefreshing = state.isServerLoading,
+                onRefresh = onRefresh,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                GalleryList(listState = listState, content = rows)
+            }
+        } else {
+            GalleryList(listState = listState, content = rows)
+        }
+    }
+}
+
+/** Nothing found under a filter is a different fact from an empty archive, and it needs a different action. */
+@Composable
+private fun RecordingsEmptyState(filtersActive: Boolean, onClearFilters: () -> Unit) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            ExpressiveIconBadge(
+                icon = if (filtersActive) Icons.Default.FilterList else Icons.Default.VideoLibrary,
+                contentDescription = null,
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            Spacer(modifier = Modifier.height(Spacing.md))
+            Text(
+                text = stringResource(
+                    if (filtersActive) R.string.recordings_filtered_empty else R.string.recordings_empty
+                ),
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(Spacing.xs))
+            Text(
+                text = stringResource(
+                    if (filtersActive) R.string.recordings_filtered_empty_hint
+                    else R.string.recordings_empty_hint
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (filtersActive) {
+                Spacer(modifier = Modifier.height(Spacing.sm))
+                TextButton(onClick = onClearFilters) {
+                    Text(stringResource(R.string.recordings_clear_filters))
+                }
+            }
+        }
     }
 }
 
