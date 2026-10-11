@@ -250,7 +250,7 @@ fun LiveDeviceCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     MonitorStatusPill(monitorStatus)
                     if (isRecording) {
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(Spacing.sm))
                         // Compact badge: total height stays below the device-name line height, so the
                         // header row (and the card/video layout) never grows or shrinks when it appears.
                         Surface(
@@ -320,7 +320,7 @@ fun LiveDeviceCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(Spacing.sm))
                     TriggerIndicators(
                         device = device,
                         monitorStatus = monitorStatus,

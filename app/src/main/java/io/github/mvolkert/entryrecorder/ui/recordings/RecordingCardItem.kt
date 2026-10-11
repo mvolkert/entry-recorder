@@ -141,11 +141,11 @@ internal fun RecordingCardItem(
         ) {
             if (selectionMode && !isRemote) {
                 Checkbox(checked = selected, onCheckedChange = { onSelectToggle() })
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(Spacing.xs))
             }
             RecordingThumbnail(item = item)
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(Spacing.md))
 
             RecordingDetails(item = item, dateStr = dateStr, sizeStr = sizeStr)
 
@@ -229,7 +229,7 @@ private fun RowScope.RecordingDetails(item: GalleryItem, dateStr: String, sizeSt
     Column(modifier = Modifier.weight(1f)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
             // One badge per trigger the clip covers: a doorbell pressed during a motion recording is the same
             // file, so it shows as RING MOTION rather than hiding one of the two events.
@@ -250,9 +250,10 @@ private fun RowScope.RecordingDetails(item: GalleryItem, dateStr: String, sizeSt
             )
 
             if (item is GalleryItem.Remote) {
+                // outlineVariant is a boundary role, never a fill; one tonal step above the resting card.
                 StatusChip(
                     label = stringResource(R.string.recordings_origin_server),
-                    containerColor = MaterialTheme.colorScheme.outlineVariant,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                     contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

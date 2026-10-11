@@ -18,7 +18,8 @@ fun ProgressLine(
     progress: Float,
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.primary,
-    trackColor: Color = MaterialTheme.colorScheme.secondaryContainer,
+    // Neutral layer: a secondaryContainer track would paint two accent hues on one component.
+    trackColor: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
 ) {
     if (rememberExpressiveMotionEnabled()) {
         LinearWavyProgressIndicator(
