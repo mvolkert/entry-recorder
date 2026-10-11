@@ -20,17 +20,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenuGroup
+import androidx.compose.material3.DropdownMenuPopup
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SelectableDropdownMenuItem
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -91,11 +92,9 @@ internal fun FormEmphasizedSwitchRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    SettingsItemRow(
-        onClick = { onCheckedChange(!checked) },
-        leading = { Text(title, style = MaterialTheme.typography.titleMedium) },
-        trailing = { Switch(checked = checked, onCheckedChange = onCheckedChange) }
-    )
+    SwitchListItem(checked = checked, onCheckedChange = onCheckedChange) {
+        Text(title, style = MaterialTheme.typography.titleMedium)
+    }
 }
 
 /**
@@ -176,15 +175,21 @@ private fun DropdownSingleChoice(
                 .matchParentSize()
                 .clickable { expanded = true },
         )
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEachIndexed { index, option ->
-                DropdownMenuItem(
-                    text = { Text(option) },
-                    onClick = {
-                        onSelect(index)
-                        expanded = false
-                    },
-                )
+        // The menu expresses which option the field currently holds, so its items are the selectable
+        // kind; the popup only positions the surface and the group is what paints it.
+        DropdownMenuPopup(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuGroup(shapes = MenuDefaults.groupShapes()) {
+                options.forEachIndexed { index, option ->
+                    SelectableDropdownMenuItem(
+                        selected = index == selectedIndex,
+                        onClick = {
+                            onSelect(index)
+                            expanded = false
+                        },
+                        text = { Text(option) },
+                        shapes = MenuDefaults.itemShape(index = index, count = options.size),
+                    )
+                }
             }
         }
     }

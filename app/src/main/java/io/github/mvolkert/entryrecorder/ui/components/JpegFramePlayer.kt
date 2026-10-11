@@ -195,7 +195,7 @@ fun JpegFramePlayer(
         } else {
             // Tinted for the scrim like every other glyph here: the scheme's primary is only guaranteed
             // against a light surface, and this indicator sits on black.
-            CircularProgressIndicator(
+            LoadingSpinner(
                 modifier = Modifier.align(Alignment.Center),
                 color = onScrimColor
             )

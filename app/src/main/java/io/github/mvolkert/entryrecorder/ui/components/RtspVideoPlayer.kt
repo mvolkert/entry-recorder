@@ -133,7 +133,7 @@ fun RtspVideoPlayer(
         )
 
         if (isLoading) {
-            CircularProgressIndicator(color = onScrimColor)
+            LoadingSpinner(color = onScrimColor)
         }
 
         errorMessage?.let { msg ->

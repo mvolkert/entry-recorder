@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -23,6 +22,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
+import io.github.mvolkert.entryrecorder.ui.components.LoadingSpinner
 import kotlin.math.roundToInt
 
 /**
@@ -137,7 +137,7 @@ internal fun DeviceFormStreamSection(
                     enabled = !probing,
                 ) {
                     if (probing) {
-                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                        LoadingSpinner(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(stringResource(R.string.device_snapshot_fps_probing))
                     } else {

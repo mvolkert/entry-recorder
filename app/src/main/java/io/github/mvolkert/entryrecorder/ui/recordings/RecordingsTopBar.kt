@@ -13,12 +13,14 @@ import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Upload
-import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenuPopup
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -82,27 +84,27 @@ internal fun RecordingsTopBar(
                         IconButton(onClick = { showExportMenu = true }) {
                             Icon(Icons.Default.Upload, contentDescription = stringResource(R.string.recordings_cd_export_selected))
                         }
-                        DropdownMenu(
+                        // [DropdownMenuPopup] only sizes and positions the surface; the group paints it, and
+                        // an item's shape comes from its index in the group — hence the ordered list below.
+                        DropdownMenuPopup(
                             expanded = showExportMenu,
                             onDismissRequest = { showExportMenu = false }
                         ) {
-                            BatchExportOption(R.string.recordings_share_batch, Icons.Default.Share) {
-                                showExportMenu = false
-                                onExportSelected(RecordingExportKind.SHARE)
-                            }
-                            BatchExportOption(R.string.recordings_save_gallery_menu, Icons.Default.Download) {
-                                showExportMenu = false
-                                onExportSelected(RecordingExportKind.GALLERY)
-                            }
-                            BatchExportOption(R.string.recordings_export_folder_batch, Icons.Default.SaveAlt) {
-                                showExportMenu = false
-                                onExportSelected(RecordingExportKind.FOLDER)
-                            }
-                            // The unconverted copy is the one entry that does not produce a playable file, so
-                            // it gets the open-folder icon instead of a fourth save-shaped one.
-                            BatchExportOption(R.string.recordings_export_raw_folder_batch, Icons.Default.FolderOpen) {
-                                showExportMenu = false
-                                onExportSelected(RecordingExportKind.RAW_FOLDER)
+                            DropdownMenuGroup(shapes = MenuDefaults.groupShapes()) {
+                                BatchExportOptions.forEachIndexed { index, option ->
+                                    DropdownMenuItem(
+                                        onClick = {
+                                            showExportMenu = false
+                                            onExportSelected(option.kind)
+                                        },
+                                        text = { Text(stringResource(option.labelRes)) },
+                                        leadingIcon = { Icon(option.icon, contentDescription = null) },
+                                        shape = MenuDefaults.itemShape(
+                                            index = index,
+                                            count = BatchExportOptions.size
+                                        ).shape,
+                                    )
+                                }
                             }
                         }
                     }
@@ -144,15 +146,34 @@ internal fun RecordingsStorageLine(
     )
 }
 
-@Composable
-private fun BatchExportOption(
-    @StringRes labelRes: Int,
-    icon: ImageVector,
-    onPick: () -> Unit,
-) {
-    DropdownMenuItem(
-        text = { Text(stringResource(labelRes)) },
-        leadingIcon = { Icon(icon, contentDescription = null) },
-        onClick = onPick
-    )
-}
+/** One entry of the batch-export menu. */
+private class BatchExportOption(
+    @StringRes val labelRes: Int,
+    val icon: ImageVector,
+    val kind: RecordingExportKind,
+)
+
+/**
+ * The four export destinations in menu order. The expressive menu gives only the first and the last
+ * item of a group their rounded shape, so the list has to be data the menu can index.
+ */
+private val BatchExportOptions = listOf(
+    BatchExportOption(R.string.recordings_share_batch, Icons.Default.Share, RecordingExportKind.SHARE),
+    BatchExportOption(
+        R.string.recordings_save_gallery_menu,
+        Icons.Default.Download,
+        RecordingExportKind.GALLERY
+    ),
+    BatchExportOption(
+        R.string.recordings_export_folder_batch,
+        Icons.Default.SaveAlt,
+        RecordingExportKind.FOLDER
+    ),
+    // The unconverted copy is the one entry that does not produce a playable file, so
+    // it gets the open-folder icon instead of a fourth save-shaped one.
+    BatchExportOption(
+        R.string.recordings_export_raw_folder_batch,
+        Icons.Default.FolderOpen,
+        RecordingExportKind.RAW_FOLDER
+    ),
+)

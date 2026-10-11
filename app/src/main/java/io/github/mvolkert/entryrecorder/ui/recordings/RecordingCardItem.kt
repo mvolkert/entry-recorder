@@ -1,6 +1,7 @@
 package io.github.mvolkert.entryrecorder.ui.recordings
 
 import android.text.format.Formatter
+import androidx.annotation.StringRes
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -32,12 +33,14 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DividerDefaults
-import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenuPopup
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Text
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.runtime.Composable
@@ -273,6 +276,18 @@ private fun RowScope.RecordingDetails(item: GalleryItem, dateStr: String, sizeSt
     }
 }
 
+/**
+ * One entry of the row's action menu. The expressive menu derives an item's shape from its index and
+ * from how many items the group holds, so the entries have to exist as data before the menu composes —
+ * the raw-folder entry is conditional, so that count is not known any earlier.
+ */
+private class RecordingMenuAction(
+    @StringRes val labelRes: Int,
+    val icon: ImageVector,
+    val destructive: Boolean = false,
+    val onClick: () -> Unit,
+)
+
 @Composable
 internal fun RecordingActionsMenu(
     isProtected: Boolean,
@@ -285,81 +300,92 @@ internal fun RecordingActionsMenu(
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
+    val actions = buildList {
+        add(
+            RecordingMenuAction(
+                labelRes = R.string.recordings_export_folder_menu,
+                icon = Icons.Default.SaveAlt,
+                onClick = onExportFolder,
+            )
+        )
+        // Server rows have no local raw original, so the entry only shows when a callback was passed.
+        if (onExportRawFolder != null) {
+            add(
+                RecordingMenuAction(
+                    labelRes = R.string.recordings_export_raw_folder_menu,
+                    // Same icon as the batch menu's entry for the same thing: the unconverted copy, which
+                    // is the one export that does not produce a playable file.
+                    icon = Icons.Default.FolderOpen,
+                    onClick = onExportRawFolder,
+                )
+            )
+        }
+        add(
+            RecordingMenuAction(
+                labelRes = R.string.recordings_share_menu,
+                icon = Icons.Default.Share,
+                onClick = onShare,
+            )
+        )
+        add(
+            RecordingMenuAction(
+                labelRes = R.string.recordings_save_gallery_menu,
+                icon = Icons.Default.Download,
+                onClick = onExportGallery,
+            )
+        )
+        add(
+            RecordingMenuAction(
+                labelRes = if (isProtected) R.string.recordings_unprotect else R.string.recordings_protect,
+                icon = if (isProtected) Icons.Default.LockOpen else Icons.Default.Lock,
+                onClick = onToggleProtect,
+            )
+        )
+        add(
+            RecordingMenuAction(
+                labelRes = R.string.action_delete,
+                icon = Icons.Default.Delete,
+                destructive = true,
+                onClick = onDelete,
+            )
+        )
+    }
+
     Box {
         IconButton(onClick = { menuExpanded = true }) {
             Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.recordings_cd_options))
         }
 
-        DropdownMenu(
-            expanded = menuExpanded,
-            onDismissRequest = { menuExpanded = false }
-        ) {
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.recordings_export_folder_menu)) },
-                leadingIcon = { Icon(Icons.Default.SaveAlt, contentDescription = null) },
-                onClick = {
-                    menuExpanded = false
-                    onExportFolder()
-                }
-            )
-            // Server rows have no local raw original, so the entry only shows when a callback was passed.
-            if (onExportRawFolder != null) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.recordings_export_raw_folder_menu)) },
-                    // Same icon as the batch menu's entry for the same thing: the unconverted copy, which
-                    // is the one export that does not produce a playable file.
-                    leadingIcon = { Icon(Icons.Default.FolderOpen, contentDescription = null) },
-                    onClick = {
-                        menuExpanded = false
-                        onExportRawFolder()
-                    }
-                )
-            }
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.recordings_share_menu)) },
-                leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
-                onClick = {
-                    menuExpanded = false
-                    onShare()
-                }
-            )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.recordings_save_gallery_menu)) },
-                leadingIcon = { Icon(Icons.Default.Download, contentDescription = null) },
-                onClick = {
-                    menuExpanded = false
-                    onExportGallery()
-                }
-            )
-            DropdownMenuItem(
-                text = {
-                    Text(
-                        stringResource(
-                            if (isProtected) R.string.recordings_unprotect
-                            else R.string.recordings_protect
+        // [DropdownMenuPopup] only sizes and positions the surface; the group is what paints it, so the
+        // two are always paired. Inside the group the items stay transparent until they are touched.
+        DropdownMenuPopup(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+            DropdownMenuGroup(shapes = MenuDefaults.groupShapes()) {
+                val errorTint = MaterialTheme.colorScheme.error
+                actions.forEachIndexed { index, action ->
+                    // The destructive entry keeps its own hairline, in the padding the menu exposes.
+                    if (action.destructive) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(MenuDefaults.HorizontalDividerPadding),
+                            thickness = DividerDefaults.Thickness,
+                            color = DividerDefaults.color,
                         )
+                    }
+                    DropdownMenuItem(
+                        onClick = {
+                            menuExpanded = false
+                            action.onClick()
+                        },
+                        text = { Text(stringResource(action.labelRes)) },
+                        leadingIcon = { Icon(action.icon, contentDescription = null) },
+                        shape = MenuDefaults.itemShape(index = index, count = actions.size).shape,
+                        colors = if (action.destructive) {
+                            MenuDefaults.itemColors(textColor = errorTint, leadingIconColor = errorTint)
+                        } else {
+                            MenuDefaults.itemColors()
+                        },
                     )
-                },
-                leadingIcon = {
-                    Icon(
-                        if (isProtected) Icons.Default.LockOpen else Icons.Default.Lock,
-                        contentDescription = null
-                    )
-                },
-                onClick = {
-                    menuExpanded = false
-                    onToggleProtect()
                 }
-            )
-            HorizontalDivider(Modifier, DividerDefaults.Thickness, DividerDefaults.color)
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error) },
-                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-                onClick = {
-                    menuExpanded = false
-                    onDelete()
-                }
-            )
+            }
         }
     }
 }

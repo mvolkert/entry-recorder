@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.WifiTethering
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -24,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
+import io.github.mvolkert.entryrecorder.ui.components.LoadingSpinner
 
 /**
  * Where recordings are captured: on the phone or on the Python server, plus the server endpoint
@@ -97,7 +97,7 @@ internal fun SettingsEngineCard(
                 enabled = !isTestingServer
             ) {
                 if (isTestingServer) {
-                    CircularProgressIndicator(
+                    LoadingSpinner(
                         modifier = Modifier.size(16.dp),
                         strokeWidth = 2.dp
                     )

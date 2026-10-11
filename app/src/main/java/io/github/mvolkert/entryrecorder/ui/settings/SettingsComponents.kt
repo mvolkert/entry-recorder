@@ -1,18 +1,12 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
 import androidx.annotation.StringRes
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.LocalIndication
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -24,6 +18,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -31,22 +27,23 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.ui.LocalAppSnackbar
 import io.github.mvolkert.entryrecorder.ui.showMessage
 import io.github.mvolkert.entryrecorder.ui.components.ExpressiveIconBadge
+import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -131,8 +128,8 @@ internal fun SettingsSubscreenScaffold(
 
 /**
  * Expressive hub row that navigates into a submenu: the app's one decorative icon badge, title with
- * optional subtitle, extra-rounded card and a bouncy press-scale driven by the motion scheme. No
- * trailing affordance. This is the hub's single playful lift — the submenus it opens stay Balanced.
+ * optional subtitle, and the row morph that [ListItem] gets from its own `shapes`. No trailing
+ * affordance. This is the hub's single playful lift — the submenus it opens stay Balanced.
  */
 @Composable
 internal fun SettingsNavRow(
@@ -144,31 +141,10 @@ internal fun SettingsNavRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.97f else 1f,
-        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec<Float>(),
-        label = "settingsNavRowScale",
-    )
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .clickable(interactionSource = interactionSource, indication = LocalIndication.current, onClick = onClick),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = SettingsCardDefaults.cardColors(),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 76.dp)
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+    ListItem(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        leadingContent = {
             ExpressiveIconBadge(
                 icon = icon,
                 contentDescription = null,
@@ -177,27 +153,35 @@ internal fun SettingsNavRow(
                 size = 48.dp,
                 iconSize = 24.dp,
             )
-            Column(modifier = Modifier.padding(start = 16.dp).weight(1f)) {
-                Text(stringResource(titleRes), style = MaterialTheme.typography.titleMedium)
-                if (subtitle != null) {
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+        },
+        supportingContent = subtitle?.let {
+            {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-        }
+        },
+        // The hub card look: extra-rounded container in the shared settings fill. The pressed and
+        // hovered shapes stay Material's, so the row morphs on touch instead of a hand-rolled scale.
+        shapes = ListItemDefaults.shapes(shape = MaterialTheme.shapes.extraLarge),
+        colors = ListItemDefaults.colors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+        contentPadding = PaddingValues(Spacing.lg),
+    ) {
+        Text(stringResource(titleRes), style = MaterialTheme.typography.titleMedium)
     }
 }
 
 /**
- * Shared shell for every "leading label + pinned trailing control" settings row. The leading column
- * takes all the leftover width (`weight(1f)`), so the Switch/stepper is always flush to the trailing
- * edge on the same line and a long or localized title wraps inside that width instead of pushing the
- * control off the right edge on narrow screens. [onClick] makes the whole row a tap target when set.
+ * Shared shell for every "leading label + pinned trailing control" settings row, built on the
+ * expressive [ListItem]. The component measures the headline against the width the trailing control
+ * leaves, so a long or localized title wraps inside the row instead of pushing a Switch or stepper
+ * off the right edge, and it merges the row into one node for accessibility. [onClick] makes the whole
+ * row a tap target when set.
  */
 @Composable
 internal fun SettingsItemRow(
@@ -205,40 +189,50 @@ internal fun SettingsItemRow(
     trailing: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
-    onClickLabel: String? = null,
 ) {
-    val rowModifier = modifier
-        .fillMaxWidth()
-        .heightIn(min = 48.dp)
-        .then(
-            if (onClick != null) Modifier.clickable(onClickLabel = onClickLabel, onClick = onClick)
-            else Modifier
+    val content: @Composable () -> Unit = { Column(content = leading) }
+    if (onClick == null) {
+        ListItem(
+            modifier = modifier.fillMaxWidth(),
+            trailingContent = trailing,
+            contentPadding = SettingsRowContentPadding,
+            content = content,
         )
-    Row(
-        modifier = rowModifier,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f), content = leading)
-        trailing()
+    } else {
+        ListItem(
+            onClick = onClick,
+            modifier = modifier.fillMaxWidth(),
+            trailingContent = trailing,
+            contentPadding = SettingsRowContentPadding,
+            content = content,
+        )
     }
 }
 
-/** Label on the left, switch on the right. */
+/**
+ * Vertical padding only, set once for every settings row: the cards already supply the 16 dp
+ * horizontal inset, and Material's own 16 dp start/end padding would double it.
+ */
+private val SettingsRowContentPadding = PaddingValues(vertical = Spacing.xs)
+
+/**
+ * Label on the left, switch on the right. The switch carries the row's state rather than being a
+ * second control: it gets no callback, so [ListItem] owns the single tap target, and the role and
+ * checked state move onto the merged row node — otherwise TalkBack offers "Double-tap to activate"
+ * with no hint of what the tap does.
+ */
 @Composable
 internal fun SettingsSwitchRow(
     title: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    SettingsItemRow(
-        onClick = { onCheckedChange(!checked) },
-        leading = { Text(title) },
-        trailing = { Switch(checked = checked, onCheckedChange = onCheckedChange) }
-    )
+    SwitchListItem(checked = checked, onCheckedChange = onCheckedChange) {
+        Text(title)
+    }
 }
 
-/** Same row with a secondary hint line under the title. */
+/** Same row with a secondary hint line under the title, in the list item's own supporting slot. */
 @Composable
 internal fun SettingsSwitchRow(
     title: String,
@@ -246,17 +240,44 @@ internal fun SettingsSwitchRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    SettingsItemRow(
-        onClick = { onCheckedChange(!checked) },
-        leading = {
-            // titleMedium already reads a step heavier than the hint under it; no raw weight needed.
-            Text(title, style = MaterialTheme.typography.titleMedium)
+    SwitchListItem(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        supportingContent = {
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         },
-        trailing = { Switch(checked = checked, onCheckedChange = onCheckedChange) }
+    ) {
+        // titleMedium already reads a step heavier than the hint under it; no raw weight needed.
+        Text(title, style = MaterialTheme.typography.titleMedium)
+    }
+}
+
+/**
+ * The switch row's single implementation, shared with the device form's emphasised variant so a switch
+ * never ends up with two tap targets. [content] is the headline; the row's own tap flips [checked].
+ */
+@Composable
+internal fun SwitchListItem(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    supportingContent: (@Composable () -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
+    ListItem(
+        onClick = { onCheckedChange(!checked) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                role = Role.Switch
+                toggleableState = if (checked) ToggleableState.On else ToggleableState.Off
+            },
+        supportingContent = supportingContent,
+        trailingContent = { Switch(checked = checked, onCheckedChange = null) },
+        contentPadding = SettingsRowContentPadding,
+        content = content,
     )
 }

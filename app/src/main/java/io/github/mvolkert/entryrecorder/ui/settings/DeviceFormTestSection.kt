@@ -10,7 +10,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -24,6 +23,7 @@ import io.github.mvolkert.entryrecorder.data.model.SipMode
 import io.github.mvolkert.entryrecorder.sip.SipCallTiming
 import io.github.mvolkert.entryrecorder.sip.SipMissingField
 import io.github.mvolkert.entryrecorder.sip.SipProbeResult
+import io.github.mvolkert.entryrecorder.ui.components.LoadingSpinner
 import io.github.mvolkert.entryrecorder.ui.components.MorphingIcon
 
 /**
@@ -52,7 +52,7 @@ internal fun DeviceFormTestSection(
         enabled = !connectionRunning
     ) {
         if (connectionRunning) {
-            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            LoadingSpinner(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
             Spacer(modifier = Modifier.width(8.dp))
         }
         Text(stringResource(R.string.device_test_connection))
@@ -79,7 +79,7 @@ internal fun DeviceFormTestSection(
             enabled = sipTest !is SipTestState.Running && !connectionRunning
         ) {
             if (sipTest is SipTestState.Running) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                LoadingSpinner(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 Spacer(modifier = Modifier.width(8.dp))
             }
             Text(stringResource(R.string.device_sip_test_button))

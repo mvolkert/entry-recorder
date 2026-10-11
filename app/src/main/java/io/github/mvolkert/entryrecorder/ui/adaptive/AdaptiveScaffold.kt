@@ -11,14 +11,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ShortNavigationBar
+import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.WideNavigationRail
+import androidx.compose.material3.WideNavigationRailItem
+import androidx.compose.material3.WideNavigationRailValue
+import androidx.compose.material3.rememberWideNavigationRailState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -39,10 +41,10 @@ data class AdaptiveNavItem(
 )
 
 /**
- * Bar/rail container shared by every top-level destination. Compact renders a bottom [NavigationBar]
- * inside a [Scaffold]; Medium and Expanded render a leading [NavigationRail] with the content on the
- * remaining width. When [showChrome] is false (e.g. a fullscreen sibling route such as device edit or any
- * settings submenu) neither bar is drawn and the content fills the window.
+ * Bar/rail container shared by every top-level destination. Compact renders a bottom
+ * [ShortNavigationBar] inside a [Scaffold]; Medium and Expanded render a leading [WideNavigationRail]
+ * with the content on the remaining width. When [showChrome] is false (e.g. a fullscreen sibling route
+ * such as device edit or any settings submenu) neither bar is drawn and the content fills the window.
  *
  * The window size class alone picks the layout and [content] is invoked from exactly one call site per
  * class, with [showChrome] only deciding whether the bar composes. Moving the `content(...)` call into a
@@ -67,17 +69,23 @@ fun AdaptiveScaffold(
 ) {
     val info = LocalWindowInfo.current
     if (info.useRail) {
+        // The rail is hoisted but never expanded: it measured 80 dp before this swap and the app draws no
+        // collapse affordance, so an expanded rail would silently widen the leading column at every
+        // breakpoint the adaptive layout settled on. The item still needs the value, because the icon
+        // sits above the label collapsed and beside it when expanded.
+        val railState = rememberWideNavigationRailState()
+        val railExpanded = railState.currentValue == WideNavigationRailValue.Expanded
         Row(modifier.fillMaxSize()) {
             if (showChrome) {
-                NavigationRail {
+                WideNavigationRail(state = railState) {
                     items.forEach { item ->
                         val selected = item.route == selectedRoute
-                        NavigationRailItem(
+                        WideNavigationRailItem(
                             selected = selected,
                             onClick = { onNavigate(item) },
                             icon = { AdaptiveIcon(item = item, selected = selected) },
                             label = { Text(stringResource(item.labelRes)) },
-                            alwaysShowLabel = true,
+                            railExpanded = railExpanded,
                         )
                     }
                 }
@@ -101,10 +109,10 @@ fun AdaptiveScaffold(
             snackbarHost = { SnackbarHost(snackbarHost, Modifier.padding(horizontal = Spacing.lg)) },
             bottomBar = {
                 if (showChrome) {
-                    NavigationBar {
+                    ShortNavigationBar {
                         items.forEach { item ->
                             val selected = item.route == selectedRoute
-                            NavigationBarItem(
+                            ShortNavigationBarItem(
                                 selected = selected,
                                 onClick = { onNavigate(item) },
                                 icon = { AdaptiveIcon(item = item, selected = selected) },

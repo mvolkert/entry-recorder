@@ -18,7 +18,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -365,7 +364,7 @@ fun LiveStreamPlayer(
         }
 
         if (isLoading) {
-            CircularProgressIndicator(color = onScrimColor)
+            LoadingSpinner(color = onScrimColor)
         }
 
         errorMessage?.let { msg ->
