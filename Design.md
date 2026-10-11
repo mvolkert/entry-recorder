@@ -139,6 +139,23 @@ The whole card is one click target. Never nest cards or give every card the hero
 | Long task | `LinearWavyProgressIndicator`, `CircularWavyProgressIndicator`. Flat indicators in dense lists |
 | Sheets | `rememberBottomSheetState`, `ModalBottomSheet` |
 
+**Adopted in this app.** Settings rows are expressive `ListItem`s (title in the `content` lambda, subtitle in
+`supportingContent`, icon in `leadingContent`; switch rows keep the `Switch` as `trailingContent = { Switch(checked,
+onCheckedChange = null) }` and let `ListItem(onClick)` own the tap and the merged semantics). Menus are
+`DropdownMenuPopup` + `DropdownMenuGroup` with `DropdownMenuItem`, and `SelectableDropdownMenuItem` where the menu
+expresses a current choice (export kind, enum picker). Navigation is `ShortNavigationBar` (Compact) and
+`WideNavigationRail` (Medium/Expanded) inside the existing `Scaffold` and its `WindowInfo` breakpoint rules. Every
+spinner routes through `LoadingSpot`, which picks `CircularWavyProgressIndicator` (indeterminate overload) versus the
+flat one on `rememberExpressiveMotionEnabled()`, the same way `ProgressLine` decides its bars. Recordings search is
+the state-based `SearchBar`: a collapsed trigger in the top band plus an `ExpandedFullScreenSearchBar` surface that
+renders the same filtered rows — see §7.
+
+**Deliberately not adopted, with the reason.** `SegmentedListItem` — settings cards render detached rows and the
+segmented shapes require a connected `ListItemShapes` group (§7). `ContainedLoadingIndicator` — no natural host in
+this app; do not graft one in for parity. `NavigationSuiteScaffold`, carousels, `FloatingActionButtonMenu`,
+`Tooltip`, `Badge`, `ModalBottomSheet` — outside the agreed drop-in scope of the remediation; the nav suites are used
+directly instead of the scaffold.
+
 ## 6. Accessibility
 
 - Contrast 4.5:1 for text and 3:1 for icons and boundaries, in light, dark and high contrast. Vivid color must still pass.
@@ -180,8 +197,16 @@ place, and each gets re-checked on every Material upgrade.
   the strip's token bottom clearance. The expressive handle is a 4x44 dp pill whose touch bounds reach the
   slider's own edge, and gesture navigation reports a bottom inset of near zero, so neither the system bar
   nor a `Spacing` step on its own keeps the timeline off the screen edge.
+- `ui/recordings/RecordingsSearchBar.kt` — the search surface split. In `material3:1.5.0-beta01` the collapsed
+  state-based `SearchBar` wraps its input field in `DisableSoftKeyboard`, an `InterceptPlatformTextInput` that never
+  resolves, so the field can be read and tapped but not typed into. The trigger therefore sits in the Recordings top
+  band and only opens; keyboard, cursor and editing live in the `ExpandedFullScreenSearchBar` sheet, which renders the
+  same filtered rows as the tab list. Re-check on every Material upgrade whether the collapsed bar takes input.
+- `ui/settings/SettingsComponents.kt` — plain `ListItem` rows instead of the §5 recipe table's `SegmentedListItem`
+  for uniform list rows: settings cards render detached rows, and `SegmentedListItem`'s segmented `shapes` only mean
+  something inside a connected group.
 - Shape gap in the pinned material3 — `MaterialTheme.shapes` has no `full` token, so `CircleShape` renders
-  every stadium pill (`StatusChip`, `CelebrationCheck`, the search field). Swap to the token when it lands.
+  every stadium pill (`StatusChip`, `CelebrationCheck`) and the REC capsule. Swap to the token when it lands.
 - `ui/components` holds the wrappers section 7 asks for: `StatusChip`, `RecordFab`, `LoadingSpot`,
   `ProgressLine`, `ExpressiveIconBadge`, `CelebrationCheck`, `MorphingIcon`. They own the expressive
   opt-ins, the single `MaterialShapes.Cookie9Sided` decorative family and the animations-off gate
