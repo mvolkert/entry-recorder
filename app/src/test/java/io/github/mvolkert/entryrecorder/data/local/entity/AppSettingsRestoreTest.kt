@@ -69,4 +69,13 @@ class AppSettingsRestoreTest {
         assertFalse(optedOut.internalCleanupEnabled)
         assertFalse(optedOut.externalCleanupEnabled)
     }
+
+    @Test
+    fun `a backup file that predates dynamic color keeps the curated accents`() {
+        // Pins the opt-in default for add-material-you-dynamic-color: a file written before the flag
+        // existed must not wake wallpaper colours on its own, and Gson's primitive default is the only
+        // thing guaranteeing that — one flipped switch would override accents the user chose.
+        val restored = Gson().fromJson("{}", AppSettingsEntity::class.java)
+        assertFalse(restored.themeUseDynamicColor)
+    }
 }
