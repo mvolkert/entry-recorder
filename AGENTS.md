@@ -20,6 +20,13 @@ Run from the project root. On Windows use `gradlew.bat`. Unqualified tasks run o
 - APK: `./gradlew assembleDebug`
 - Also run `ktlintCheck` or `detekt` if configured.
 
+# Planning & Specs (OpenSpec)
+- OpenSpec drives planned and behavioural work. Read `openspec/config.yaml` for project context and constraints before proposing.
+- Workflow via Qoder commands: `/opsx:propose` (create a change + artifacts), `/opsx:apply` (implement), `/opsx:archive` (finalize and update `openspec/specs/`).
+- `README.md` is a human-facing overview only; `openspec/specs/` is the as-built behaviour SOT. `2Do.md` is a scratch pad for throwaway ideas and one-off bug fixes only.
+- Deferred/backlog work lives as OpenSpec changes under `openspec/changes/` too (use `skip_specs: true` where there is no behaviour delta yet). `docs/engineering-journal.md` is a frozen pre-OpenSpec history snapshot (read-only).
+- Do not start implementation in the same step as a proposal; wait for an explicit apply request.
+
 # Ask First
 - Adding or upgrading dependencies, or bumping Gradle, Kotlin, AGP, or Compose.
 - Changing manifest permissions, services, or exported components.

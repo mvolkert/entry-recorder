@@ -1,0 +1,36 @@
+schema: spec-driven
+
+# Project context: only constraints an agent cannot infer by reading the code.
+context: |
+  Documentation roles (do not duplicate):
+    - README.md is the as-built feature/overview spec sheet. It is human-facing and
+      is NOT auto-edited by OpenSpec; update it manually when shipped behaviour changes.
+    - openspec/specs/ holds behaviour truth, built incrementally via change -> archive.
+    - openspec/changes/ holds active proposals. 2Do.md is a scratch pad for throwaway
+      ideas and one-off bug fixes only; planned or behavioural work goes through OpenSpec.
+  Fixed design intent (decided, do not revisit):
+    - Primary camera (2N IP Verso) supports snapshot/MJPEG pulling only; the app is built
+      around snapshot capture. Missing RTSP/H.264 capture is not a bug for the main use case.
+    - Dual-container: MKV is the private crash-resilient raw-MJPEG capture buffer on the
+      phone; fragmented MP4 is the playable deliverable for encoded H.264 (server encode +
+      phone export transcode).
+    - Cheap capture, lazy encoding: never re-encode at record time; H.264 transcode happens
+      only on explicit export/share.
+    - Capture writes a forward-only FileOutputStream in filesDir/recordings; playable output
+      reaches SAF only via export. (WON'T DO: SAF live capture.)
+  Verification convention:
+    - Compile/test/lint green is NOT done. Many changes need an on-device gate against real
+      hardware (Verso camera, PBX/Fritz!Box SIP, live Python server). Express those gates as
+      acceptance criteria in design.md/tasks.md; do not mark a change complete until they pass.
+    - Room schema changes need an over-real-data upgrade check; server changes need a live-server check.
+  Language: write OpenSpec artifacts (specs, proposals, design, tasks) in English - they are the
+    machine-read SOT for agents. README may keep a human-facing German overview.
+
+# Per-artifact rules
+rules:
+  proposal:
+    - State explicitly what is out of scope.
+    - Name any on-device / live-server verification the change needs.
+  tasks:
+    - Include the Gradle verification commands (compileDebugKotlin, testDebugUnitTest, lintDebug) relevant to the change.
+    - Split work so each task is verifiable on its own.
