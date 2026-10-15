@@ -44,6 +44,9 @@ data class DeviceEntity(
     val recordOnMotionOnDevice: Boolean = false,
     // Sensitivity of that in-app analyzer; only consulted while recordOnMotionOnDevice is true.
     val motionSensitivity: MotionSensitivity = MotionSensitivity.BALANCED,
+    // How many recent frames the analyzer's pre-roll ring keeps and prepends when a motion clip starts.
+    // Default reproduces the fixed constant shipped before this setting existed.
+    val motionPreRollFrames: Int = DEFAULT_MOTION_PRE_ROLL_FRAMES,
     val motionPostRecordSeconds: Int = 20,
     val noisePostRecordSeconds: Int = 20,
     val ringRecordSeconds: Int = 60,
@@ -142,6 +145,14 @@ data class DeviceEntity(
         get() = SNAPSHOT_FPS_HARD_MAX
 
     /**
+     * Pre-roll ring size actually used by the analyzer: [motionPreRollFrames] clamped into the supported
+     * range. The ceiling is a heap bound — the ring holds full JPEG frames on a 24/7 loop — not a
+     * per-device-type guess, mirroring how [effectiveSnapshotFps] works.
+     */
+    val effectiveMotionPreRollFrames: Int
+        get() = motionPreRollFrames.coerceIn(MOTION_PRE_ROLL_FRAMES_MIN, MOTION_PRE_ROLL_FRAMES_MAX)
+
+    /**
      * Diagnostic form of the row. Replaces the data-class `toString()`, which would print the HTTP and the
      * SIP password in clear wherever an entity is interpolated into a log, so this masks both credentials
      * and stays safe even if some future log site prints the device.
@@ -156,6 +167,7 @@ data class DeviceEntity(
         append(", sipServerPort=$sipServerPort, sipUser=$sipUser, sipPassword=${sipPassword?.let { REDACTED }}")
         append(", recordOnMotion=$recordOnMotion, recordOnRing=$recordOnRing, recordOnNoise=$recordOnNoise")
         append(", recordOnMotionOnDevice=$recordOnMotionOnDevice, motionSensitivity=$motionSensitivity")
+        append(", motionPreRollFrames=$motionPreRollFrames")
         append(", motionPostRecordSeconds=$motionPostRecordSeconds, noisePostRecordSeconds=$noisePostRecordSeconds")
         append(", ringRecordSeconds=$ringRecordSeconds")
         append(", wakeOnRing=$wakeOnRing, soundOnRing=$soundOnRing, vibrateOnRing=$vibrateOnRing")
@@ -171,6 +183,13 @@ data class DeviceEntity(
         // HTTP round trip, so no snapshot endpoint can deliver it. Per-camera capability is measured in
         // the device form rather than guessed from the type (a 2N once forced this down to a static 6).
         const val SNAPSHOT_FPS_HARD_MAX = 30
+
+        // Pre-roll ring: the default is the analyzer's original fixed size, so devices saved before the
+        // setting existed keep capturing exactly as before. The ceiling bounds the heap the 24/7
+        // analyzer loop holds in full-res JPEGs (each frame is a camera snapshot).
+        const val DEFAULT_MOTION_PRE_ROLL_FRAMES = 6
+        const val MOTION_PRE_ROLL_FRAMES_MIN = 1
+        const val MOTION_PRE_ROLL_FRAMES_MAX = 30
 
         // The 2N MJPEG server push accepts an fps param in 1–10 (2N Streaming manual); the configured
         // snapshot rate is clamped into it when the stream URL is derived.

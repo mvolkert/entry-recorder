@@ -19,6 +19,7 @@ import io.github.mvolkert.entryrecorder.data.local.dao.AppSettingsDao
 import io.github.mvolkert.entryrecorder.data.local.dao.DeviceDao
 import io.github.mvolkert.entryrecorder.data.local.dao.RecordingDao
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
+import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.ui.theme.AndroidThemeModeStore
 import io.github.mvolkert.entryrecorder.ui.theme.ThemeModeStore
 import io.github.mvolkert.entryrecorder.util.AndroidExportGateway
@@ -399,6 +400,17 @@ private val APP_DATABASE_MIGRATIONS: Array<Migration> = arrayOf(
             db.execSQL(
                 "UPDATE app_settings SET internalQuotaMb = maxStorageUsageMb, " +
                     "internalCleanupEnabled = autoCleanupEnabled"
+            )
+        }
+    },
+
+    // v17 -> v18: per-device motion pre-roll frame count. Default 6 reproduces the analyzer's fixed
+    // ring size, so every existing device keeps prepending exactly as many approach frames as before.
+    object : Migration(17, 18) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE devices ADD COLUMN motionPreRollFrames INTEGER NOT NULL DEFAULT " +
+                    DeviceEntity.DEFAULT_MOTION_PRE_ROLL_FRAMES
             )
         }
     },

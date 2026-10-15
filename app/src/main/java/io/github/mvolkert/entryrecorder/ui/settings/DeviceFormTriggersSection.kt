@@ -119,6 +119,21 @@ internal fun DeviceFormTriggersSection(form: DeviceFormState) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            // The pre-roll ring belongs to the analyzer, so it is edited where the analyzer is configured;
+            // save clamps the typed count into the supported range like the snapshot rate.
+            OutlinedTextField(
+                value = form.motionPreRollFrames,
+                onValueChange = { form.motionPreRollFrames = it },
+                label = { Text(stringResource(R.string.device_motion_preroll_label)) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            )
+            Text(
+                stringResource(R.string.device_motion_preroll_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

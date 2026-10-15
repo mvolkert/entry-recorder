@@ -54,6 +54,9 @@ class OnDeviceMotionAnalyzer(
      */
     private val tuning = motionTuningFor(deviceEntity.motionSensitivity)
 
+    /** Ring size for [bufferPreRoll]: the device's configured pre-roll count, clamped to the sane range. */
+    private val preRollCapacity = deviceEntity.effectiveMotionPreRollFrames
+
     // Adaptive idle polling: back off while the scene is static to save CPU/network, but snap
     // straight back to the fast base interval the moment any change is seen, so detection stays
     // responsive (this app runs on a dedicated detection-first device).
@@ -220,8 +223,8 @@ class OnDeviceMotionAnalyzer(
         val bytes = snapshotClient.fetchSnapshotBytes(deviceEntity) ?: return null
         val decoded = decodeDownscaled(bytes) ?: return null
         // The ring exists to prepend the approach frames of a *new* trigger. While a local recording is
-        // running those frames are already going to disk, so holding six more full-res JPEGs per poll only
-        // costs heap and GC on a 24/7 loop; the ring refills as soon as the recording stops.
+        // running those frames are already going to disk, so holding a ring of full-res JPEGs per poll
+        // only costs heap and GC on a 24/7 loop; the ring refills as soon as the recording stops.
         if (!isRecording()) bufferPreRoll(bytes)
         val scaled = if (decoded.width == ANALYSIS_WIDTH && decoded.height == ANALYSIS_HEIGHT) {
             decoded
@@ -261,11 +264,11 @@ class OnDeviceMotionAnalyzer(
         )
     }
 
-    /** Keeps the last [PRE_ROLL_FRAMES] captured JPEGs, oldest evicted first. */
+    /** Keeps the last [preRollCapacity] captured JPEGs, oldest evicted first. */
     private fun bufferPreRoll(jpeg: ByteArray) {
         synchronized(preRoll) {
             preRoll.addLast(PreRollFrame(System.currentTimeMillis(), jpeg))
-            while (preRoll.size > PRE_ROLL_FRAMES) preRoll.removeFirst()
+            while (preRoll.size > preRollCapacity) preRoll.removeFirst()
         }
     }
 
@@ -286,7 +289,6 @@ class OnDeviceMotionAnalyzer(
         // Well below every preset's trigger bar: any real movement only snaps polling back to the
         // preset's base interval, it never triggers a recording on its own.
         private const val ACTIVITY_HINT_RATIO = 0.01f
-        private const val PRE_ROLL_FRAMES = 6
     }
 }
 

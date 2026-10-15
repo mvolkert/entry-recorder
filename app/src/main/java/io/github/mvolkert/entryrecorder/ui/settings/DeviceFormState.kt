@@ -56,6 +56,9 @@ class DeviceFormState(
     var recordOnNoise by mutableStateOf((initial?.recordOnNoise ?: true) && supportsCameraEvents(deviceType))
     var recordOnMotionOnDevice by mutableStateOf(initial?.recordOnMotionOnDevice ?: false)
     var motionSensitivity by mutableStateOf(initial?.motionSensitivity ?: MotionSensitivity.BALANCED)
+    var motionPreRollFrames by mutableStateOf(
+        (initial?.motionPreRollFrames ?: DeviceEntity.DEFAULT_MOTION_PRE_ROLL_FRAMES).toString()
+    )
 
     // Per-device alert & lockscreen behavior (moved off the global app settings).
     var wakeOnRing by mutableStateOf(initial?.wakeOnRing ?: true)
@@ -174,6 +177,11 @@ class DeviceFormState(
             recordOnNoise = if (cameraEventsDeliverable) recordOnNoise else false,
             recordOnMotionOnDevice = recordOnMotionOnDevice,
             motionSensitivity = motionSensitivity,
+            // Parsed and clamped on save exactly like the snapshot rate: unparseable input falls back to
+            // the shipped default, out-of-range input is clamped into the analyzer's supported range.
+            motionPreRollFrames = (motionPreRollFrames.toIntOrNull()
+                ?: DeviceEntity.DEFAULT_MOTION_PRE_ROLL_FRAMES)
+                .coerceIn(DeviceEntity.MOTION_PRE_ROLL_FRAMES_MIN, DeviceEntity.MOTION_PRE_ROLL_FRAMES_MAX),
             wakeOnRing = wakeOnRing,
             soundOnRing = soundOnRing,
             vibrateOnRing = vibrateOnRing,
