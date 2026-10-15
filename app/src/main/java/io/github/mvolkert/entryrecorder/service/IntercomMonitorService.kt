@@ -52,6 +52,11 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     private val lastRingHandledAt = ConcurrentHashMap<Long, Long>()
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    // True while at least one monitored device opts into holding the locks through idle periods.
+    private var continuousLockHold = false
+    // Safety-net release for clips the recorder ends on its own duration deadline: the service never
+    // sees those stops, so without it a trigger's lock would outlive the recording it was taken for.
+    private var lockSafetyRelease: Job? = null
 
     @Inject lateinit var repository: IntercomRepository
     @Inject lateinit var recorder: RecordingController
@@ -81,7 +86,8 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             startForeground(NotificationHelper.NOTIFICATION_ID_SERVICE, serviceNotification)
         }
 
-        acquireWakeAndWifiLocks()
+        // The locks stay unheld while monitoring is idle — a trigger or a keepLocksHeld device acquires
+        // them below — so nothing is taken here at service start.
 
         // Initialize SIP engine
         sipManager.initialize()
@@ -181,6 +187,11 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             activeMotionAnalyzers.remove(id)?.stop()
         }
 
+        // Lock policy follows the device list: one keepLocksHeld device wins and holds through idle;
+        // when the last of them goes away, anything still held is released once nothing records.
+        continuousLockHold = enabledDevices.any { it.keepLocksHeld }
+        if (continuousLockHold) acquireLocks() else releaseLocksIfIdle()
+
         // Re-adopt any server recordings that were running when the process died, so a reboot still shows
         // REC and auto-stops a job this client started. Idempotent, so the repeated device-list emissions
         // from the Flow above never stack a second watcher on a job already tracked live.
@@ -226,6 +237,8 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     // 1. Start Recording if configured, or fold the ring into the clip that is already running.
                     // This deliberately does not cancel the device's pending post-record stop: that timer belongs
                     // to the motion/noise clip, and stopRecording refuses to end a clip filed under RING.
+                    // An active ring holds the CPU and radio awake for its full clip plus the stop margin.
+                    holdLocksFor(device.ringRecordSeconds * 1000L + TRIGGER_LOCK_MARGIN_MS)
                     if (device.recordOnRing) {
                         recorder.startRecording(
                             device = device,
@@ -346,12 +359,14 @@ class IntercomMonitorService : Service(), IntercomEventListener {
 
         cancelPostRecordStop(device.id)
         if (record) {
+            val maxDurationSeconds = postRecordSecondsFor(device, eventType) + TRIGGER_RECORD_HEADROOM_SECONDS
             recorder.startRecording(
                 device = device,
                 eventType = eventType,
-                maxDurationSeconds = postRecordSecondsFor(device, eventType) + TRIGGER_RECORD_HEADROOM_SECONDS,
+                maxDurationSeconds = maxDurationSeconds,
                 preRoll = preRollFrames()
             )
+            holdLocksFor(maxDurationSeconds * 1000L + TRIGGER_LOCK_MARGIN_MS)
         }
 
         val wake = when (eventType) {
@@ -427,6 +442,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             delay((seconds * 1000L).milliseconds)
             pendingPostRecordStops.remove(device.id)
             recorder.stopRecording(device.id, eventType)
+            releaseLocksIfIdle()
         }
     }
 
@@ -435,18 +451,21 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         pendingPostRecordStops.remove(deviceId)?.cancel()
     }
 
-    private fun acquireWakeAndWifiLocks() {
+    /**
+     * Takes the CPU and Wi-Fi locks for as long the monitored work needs them. Acquiring an already-held
+     * lock is a no-op, so overlapping triggers share one pair and a single [releaseLocks] ends it.
+     */
+    private fun acquireLocks() {
         try {
             val powerManager = getSystemService(POWER_SERVICE) as PowerManager
-            wakeLock = powerManager.newWakeLock(
+            val wake = wakeLock ?: powerManager.newWakeLock(
                 PowerManager.PARTIAL_WAKE_LOCK,
                 "EntryRecorder::MonitorWakeLock"
-            ).apply {
-                acquire(24 * 60 * 60 * 1000L) // 24h
-            }
+            ).also { wakeLock = it }
+            if (!wake.isHeld) wake.acquire()
 
             val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
-            wifiLock = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val wifi = wifiLock ?: (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 // API 29+ exposes a tag-only factory; the int-mode overload is deprecated.
                 wifiManager.createWifiLock("EntryRecorder::MonitorWifiLock")
             } else {
@@ -455,11 +474,40 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     WifiManager.WIFI_MODE_FULL_HIGH_PERF,
                     "EntryRecorder::MonitorWifiLock"
                 )
-            }.apply {
-                acquire()
-            }
+            }).also { wifiLock = it }
+            if (!wifi.isHeld) wifi.acquire()
         } catch (e: Exception) {
             Log.w(tag, "Could not acquire Wake/WiFi locks", e)
+        }
+    }
+
+    /** Holds the locks for at least [durationMs], then releases them if nothing else needs them. */
+    private fun holdLocksFor(durationMs: Long) {
+        acquireLocks()
+        lockSafetyRelease?.cancel()
+        lockSafetyRelease = serviceScope.launch {
+            delay(durationMs.milliseconds)
+            lockSafetyRelease = null
+            releaseLocksIfIdle()
+        }
+    }
+
+    /** Drops a trigger's locks once no device records, no post-record timer is pending and nobody opted into holding them through idle. */
+    private fun releaseLocksIfIdle() {
+        if (continuousLockHold) return
+        if (pendingPostRecordStops.isNotEmpty()) return
+        if (activeDevices.keys.any { recorder.isLocallyRecording(it) }) return
+        releaseLocks()
+    }
+
+    private fun releaseLocks() {
+        try {
+            wakeLock?.let { if (it.isHeld) it.release() }
+            wifiLock?.let { if (it.isHeld) it.release() }
+        } catch (e: Exception) {
+            // A lock left held after release keeps the CPU or radio awake with nobody to let it go,
+            // so a failed release has to be visible even though there is nothing left to handle it.
+            Log.w(tag, "Failed to release the wake/WiFi locks", e)
         }
     }
 
@@ -487,14 +535,8 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         activeMotionAnalyzers.clear()
         monitorStatusRegistry.clear()
 
-        try {
-            wakeLock?.let { if (it.isHeld) it.release() }
-            wifiLock?.let { if (it.isHeld) it.release() }
-        } catch (e: Exception) {
-            // A lock left held after onDestroy keeps the CPU or radio awake with no service to release it,
-            // so this has to be visible even though there is nobody left to handle it.
-            Log.w(tag, "Failed to release the wake/WiFi locks", e)
-        }
+        lockSafetyRelease?.cancel()
+        releaseLocks()
 
         pendingPostRecordStops.clear()
         lastRingHandledAt.clear()
@@ -517,6 +559,10 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         // Trigger recordings run to the post-record buffer plus this headroom: the *Ended event is what
         // normally stops them, so the timer only has to outlive a missing end event.
         private const val TRIGGER_RECORD_HEADROOM_SECONDS = 30
+
+        // A trigger's lock is held for the full clip deadline plus this margin, so a finalising stop
+        // never races the safety release and drops the CPU mid-write.
+        private const val TRIGGER_LOCK_MARGIN_MS = 15_000L
 
         fun start(context: Context) {
             val intent = Intent(context, IntercomMonitorService::class.java)

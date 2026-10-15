@@ -209,6 +209,8 @@
     <string name="settings_vibrate_ring">Vibrate on Doorbell Ring</string>
     <string name="settings_wake_motion">Wake Screen on Motion Detection</string>
     <string name="settings_wake_noise">Wake Screen on Noise Detection</string>
+    <string name="device_keep_locks_label">Keep awake while idle</string>
+    <string name="device_keep_locks_hint">Holds the CPU and Wi-Fi awake the whole time this device is monitored, so a ring is never delayed by device sleep. Costs battery; by default the locks are only held during a recording or ring.</string>
     <string name="settings_section_backup">Backup &amp; Restore</string>
     <string name="settings_backup_hint">Export or import your app settings and configured devices as a single file. Recordings are not included. The file stores device/SIP credentials in plain text, so keep it somewhere private.</string>
     <string name="settings_backup_export">Export backup</string>

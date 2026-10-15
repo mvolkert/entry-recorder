@@ -66,6 +66,7 @@ class DeviceFormState(
     var vibrateOnRing by mutableStateOf(initial?.vibrateOnRing ?: true)
     var wakeOnMotion by mutableStateOf(initial?.wakeOnMotion ?: true)
     var wakeOnNoise by mutableStateOf(initial?.wakeOnNoise ?: true)
+    var keepLocksHeld by mutableStateOf(initial?.keepLocksHeld ?: false)
 
     /**
      * Which detector starts a motion recording. Backed by the two existing booleans so no entity or
@@ -187,6 +188,7 @@ class DeviceFormState(
             vibrateOnRing = vibrateOnRing,
             wakeOnMotion = wakeOnMotion,
             wakeOnNoise = wakeOnNoise,
+            keepLocksHeld = keepLocksHeld,
             ringRecordSeconds = ringRecordSeconds.toIntOrNull() ?: 60,
             motionPostRecordSeconds = motionPostRecordSeconds.toIntOrNull() ?: 20,
             noisePostRecordSeconds = noisePostRecordSeconds.toIntOrNull() ?: 20,

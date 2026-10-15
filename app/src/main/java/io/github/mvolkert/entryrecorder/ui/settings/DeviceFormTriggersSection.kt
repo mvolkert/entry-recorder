@@ -176,6 +176,14 @@ internal fun DeviceFormAlertsSection(form: DeviceFormState) {
             reason = stringResource(R.string.device_events_transport_unavailable_reason),
         )
     }
+    // Lock scoping is a deployment choice, not an event capability: idle monitoring holds no lock
+    // unless this device opts in, so the row is always editable.
+    SettingsSwitchRow(
+        title = stringResource(R.string.device_keep_locks_label),
+        subtitle = stringResource(R.string.device_keep_locks_hint),
+        checked = form.keepLocksHeld,
+        onCheckedChange = { form.keepLocksHeld = it }
+    )
 }
 
 /** Per-event lengths plus the master enable switch the monitor service checks before arming a device. */

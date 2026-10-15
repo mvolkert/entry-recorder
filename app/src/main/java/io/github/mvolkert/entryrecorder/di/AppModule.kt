@@ -414,4 +414,13 @@ private val APP_DATABASE_MIGRATIONS: Array<Migration> = arrayOf(
             )
         }
     },
+
+    // v18 -> v19: opt-in per-device hold of the wake/wifi locks while idle monitoring. Default 0 is the
+    // new battery-friendly behaviour: the locks now only cover active recordings and rings. Existing
+    // detection-first installs that relied on the always-held locks turn it on per device once.
+    object : Migration(18, 19) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE devices ADD COLUMN keepLocksHeld INTEGER NOT NULL DEFAULT 0")
+        }
+    },
 )

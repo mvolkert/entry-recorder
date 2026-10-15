@@ -63,6 +63,13 @@ data class DeviceEntity(
     val vibrateOnRing: Boolean = true,
     val wakeOnMotion: Boolean = true,
     val wakeOnNoise: Boolean = true,
+    /**
+     * Keep the CPU and Wi-Fi locks held for the whole time this device is monitored, not just during an
+     * active recording or ring. Off by default: idle monitoring then holds no lock and pays the battery
+     * price only while something is actually being captured. On is the detection-first deployment — a
+     * dedicated device that must never delay a wake because the radio was asleep.
+     */
+    val keepLocksHeld: Boolean = false,
     val isEnabled: Boolean = true,
     /**
      * Row id of this device on the Python server, assigned when the app registers it via
@@ -171,7 +178,7 @@ data class DeviceEntity(
         append(", motionPostRecordSeconds=$motionPostRecordSeconds, noisePostRecordSeconds=$noisePostRecordSeconds")
         append(", ringRecordSeconds=$ringRecordSeconds")
         append(", wakeOnRing=$wakeOnRing, soundOnRing=$soundOnRing, vibrateOnRing=$vibrateOnRing")
-        append(", wakeOnMotion=$wakeOnMotion, wakeOnNoise=$wakeOnNoise")
+        append(", wakeOnMotion=$wakeOnMotion, wakeOnNoise=$wakeOnNoise, keepLocksHeld=$keepLocksHeld")
         append(", serverDeviceId=$serverDeviceId)")
     }
 
