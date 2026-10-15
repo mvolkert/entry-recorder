@@ -21,12 +21,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import okhttp3.sse.EventSource
-import okhttp3.sse.EventSourceListener
-import okhttp3.sse.EventSources
+import okhttp3.MediaType.Companion.toMediaType
 import java.io.IOException
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -34,11 +34,15 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
- * The 2N IP Verso's own HTTP surface: an SSE event stream with a status-polling fallback.
+ * The 2N IP Verso's real event mechanism: the **Logging API**.
  *
  * Constructed per device by [IntercomDeviceFactory] rather than by Hilt, because a device instance belongs
  * to one `DeviceEntity`. The two OkHttp profiles and the IO dispatcher come from the graph, so every
  * watched camera shares one connection pool instead of each opening its own.
+ *
+ * The device has no SSE on this firmware (the `/api/event` endpoints answer `invalid request path`), so events are
+ * obtained by subscribing a temporary log channel, draining it on a poll interval, and re-subscribing
+ * before its duration lapses.
  */
 class TwoNIPVersoDevice(
     override val deviceEntity: DeviceEntity,
@@ -54,14 +58,22 @@ class TwoNIPVersoDevice(
     // reconnect loop running, while stopMonitoring can still cancel this device on its own.
     private val parentJob: Job = parentScope.coroutineContext[Job] ?: SupervisorJob()
 
-    // Owns the reconnect delays and the status poll loop, and is created only when something is actually
-    // launched into it: an instance built just to answer testConnection — which is what the device form's
-    // connection probe does — must not leave a child Job attached to the application scope that nothing will
-    // ever cancel. It is a var because tearing a device down cancels it for good.
+    // Owns the subscribe/pull loop, and is created only when something is actually launched into it: an
+    // instance built just to answer testConnection — which is what the device form's connection probe does —
+    // must not leave a child Job attached to the application scope that nothing will ever cancel. It is a
+    // var because tearing a device down cancels it for good.
     private var scope: CoroutineScope? = null
     private val isMonitoring = AtomicBoolean(false)
-    private var eventSource: EventSource? = null
-    private var pollingJob: Job? = null
+
+    // The Logging API channel this device currently holds, and when it must be re-acquired. A pull does not
+    // extend the channel, so the loop re-subscribes before [channelExpiresAtMs] instead of after a lapse.
+    @Volatile
+    private var channelId: String? = null
+    private var channelExpiresAtMs = 0L
+
+    // Whether the current failure has already been surfaced, so a stubborn endpoint is reported once rather
+    // than re-flooded into the UI on every retry.
+    private var transportReportedDown = false
 
     private fun newScope() = CoroutineScope(ioDispatcher + SupervisorJob(parentJob))
 
@@ -73,19 +85,20 @@ class TwoNIPVersoDevice(
         scope?.takeIf { it.isActive } ?: newScope().also { scope = it }
 
     // Digest / Basic authentication support, bound to this device's credentials. Derived from the shared
-    // stream profile so the connection pool is common but the timeouts stay this device's own.
+    // stream profile so the connection pool is common but the timeouts stay this device's own. There is no
+    // long-lived stream anymore, so the read timeout is finite: a silent request must fail, not park.
     private val client: OkHttpClient by lazy {
         eventStreamClient.newBuilder()
             .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(0, TimeUnit.MILLISECONDS) // Indefinite for SSE stream
+            .readTimeout(20, TimeUnit.SECONDS)
             .writeTimeout(10, TimeUnit.SECONDS)
             .authenticator(DigestAuthenticator(deviceEntity.username, deviceEntity.password))
             .retryOnConnectionFailure(true)
             .build()
     }
 
-    // The status polls share the authenticated transport but must never inherit the SSE stream's
-    // indefinite read timeout: one silent endpoint would otherwise park the whole fallback loop.
+    // The drains share the authenticated transport but keep the short snapshot timeout, so one slow pull
+    // cannot hold the loop longer than a snapshot would have.
     private val pollClient: OkHttpClient by lazy {
         snapshotPollClient.newBuilder()
             .authenticator(DigestAuthenticator(deviceEntity.username, deviceEntity.password))
@@ -101,9 +114,10 @@ class TwoNIPVersoDevice(
         get() = deviceEntity.recordOnNoise || deviceEntity.wakeOnNoise
 
     /**
-     * Event classes the device is asked for, one rule shared by the SSE subscription and the polling
-     * fallback so a transport swap inherits the gate instead of re-learning it. A ring is always wanted:
-     * the button is the whole point of the device and it has no pollable status endpoint.
+     * Event classes the subscribe filter asks the device for. The same one rule that gated the old poll now
+     * gates the Logging subscription, so a transport swap inherits the gate instead of re-learning it: motion
+     * only while a motion trigger is on, noise only while a noise trigger is on. Ring and call-state are
+     * always listed so a subscription opened for camera reasons still routes a doorbell press it drains.
      */
     private fun requestedEventNames(): List<String> = buildList {
         add("KeyPressed")
@@ -140,310 +154,304 @@ class TwoNIPVersoDevice(
     override suspend fun startMonitoring(listener: IntercomEventListener) = withContext(ioDispatcher) {
         if (isMonitoring.getAndSet(true)) return@withContext
 
-        Log.i(tag, "Starting 2N IP Verso monitoring on ${deviceEntity.ipAddress} (FW 2.50+)")
-        listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, ConnectionQuality.ONLINE, "Connecting to 2N IP Verso..."))
+        Log.i(tag, "Starting 2N IP Verso monitoring on ${deviceEntity.ipAddress} (FW 2.50+, Logging API)")
 
-        // Try SSE Event Stream first (/api/event/subscribe)
-        startSseEventListener(listener)
+        // The Logging subscription exists to carry camera-reported motion and noise, the two events with no
+        // on-device fallback. A ring needs no HTTP subscription at all: it arrives over the SIP INVITE, and
+        // in-app motion analysis rides the snapshot path. So, exactly as the old poll gate, ask for nothing
+        // when nothing is consumed — and report no connection state, since there is no path to be down.
+        if (!motionEventRequested && !noiseEventRequested) {
+            Log.i(tag, "Logging API subscription not started — no camera motion/noise trigger requested")
+            return@withContext
+        }
+
+        listener.onEvent(
+            IntercomEvent.ConnectionState(
+                deviceEntity,
+                ConnectionQuality.ONLINE,
+                "Connecting to 2N IP Verso (Logging API)...",
+            )
+        )
+        startLoggingPollLoop(requestedEventNames(), listener)
     }
 
-    private fun startSseEventListener(listener: IntercomEventListener) {
-        val sseUrl = "${deviceEntity.httpBaseUrl}/api/event/subscribe?events=${requestedEventNames().joinToString(",")}"
-        val request = Request.Builder()
-            .url(sseUrl)
-            .header("Accept", "text/event-stream")
-            .build()
+    /**
+     * Hold one log channel, drain it on an interval, and re-subscribe before its duration lapses.
+     *
+     * The whole transport runs on the monitor session's scope, so [stopMonitoring] cancelling that scope is
+     * enough to stop it; the loop also stops itself once [isMonitoring] is cleared.
+     */
+    private fun startLoggingPollLoop(eventNames: List<String>, listener: IntercomEventListener) {
+        channelId = null
+        channelExpiresAtMs = 0L
 
-        val factory = EventSources.createFactory(client)
-        eventSource = factory.newEventSource(request, object : EventSourceListener() {
-            override fun onOpen(eventSource: EventSource, response: Response) {
-                Log.d(tag, "SSE Event Stream opened with 2N Verso")
-                listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, ConnectionQuality.ONLINE, "Connected"))
-            }
-
-            override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
-                Log.d(tag, "2N Event received: type=$type data=$data")
-                handleRaw2NEvent(data, listener)
-            }
-
-            override fun onClosed(eventSource: EventSource) {
-                Log.w(tag, "SSE Event Stream closed by 2N Verso.")
-                if (isMonitoring.get()) {
-                    listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, ConnectionQuality.DEGRADED, "Stream closed, retrying..."))
-                    scheduleReconnect(listener)
-                }
-            }
-
-            override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
-                Log.w(tag, "SSE Failure (${response?.code}): ${t?.message}. Checking the camera triggers for a polling fallback.")
-                if (isMonitoring.get()) {
-                    startPollingFallback(listener)
-                }
-            }
-        })
-    }
-
-    private fun handleRaw2NEvent(data: String, listener: IntercomEventListener) {
-        try {
-            val json = JsonParser.parseString(data).asJsonObject
-            val eventsArray = if (json.has("events") && json.get("events").isJsonArray) {
-                json.getAsJsonArray("events")
-            } else if (json.has("event") && json.get("event").isJsonObject) {
-                listOf(json.getAsJsonObject("event"))
-            } else {
-                listOf(json)
-            }
-
-            for (element in eventsArray) {
-                val eventObj = element.asJsonObject
-                val eventType = eventObj.get("event")?.asString ?: eventObj.get("type")?.asString ?: ""
-                val params = eventObj.getAsJsonObject("params") ?: JsonObject()
-
-                when (eventType) {
-                    "MotionDetected" -> {
-                        // A missing or unrecognised `state` must not become "no motion": the previous decode
-                        // (`?.asBoolean ?: (asString == "active")`) fabricated a MotionEnded for every payload
-                        // it did not understand, so an unexpected field shape killed the trigger silently.
-                        when (triState(params.get("state")) ?: triState(params.get("active"))) {
-                            true -> listener.onEvent(IntercomEvent.MotionStarted(deviceEntity))
-                            false -> listener.onEvent(IntercomEvent.MotionEnded(deviceEntity))
-                            null -> Log.w(tag, "MotionDetected without a usable state field: ${data.take(160)}")
+        monitoringScope().launch {
+            var subscribeFailures = 0
+            while (isActive && isMonitoring.get()) {
+                // Re-acquire the channel before it expires: a pull never extends it, so an expired id would
+                // only ever answer "no such channel".
+                if (channelId == null || System.currentTimeMillis() >= channelExpiresAtMs) {
+                    when (val sub = subscribe(eventNames)) {
+                        is SubscribeResult.Ok -> {
+                            channelId = sub.channelId
+                            channelExpiresAtMs = System.currentTimeMillis() +
+                                (LOG_CHANNEL_DURATION_S - LOG_RESUBSCRIBE_MARGIN_S) * 1000L
+                            subscribeFailures = 0
+                            reportRecovered(listener)
                         }
-                    }
-                    "NoiseDetected" -> {
-                        // `active` is the field name the status endpoints of this API use, so accept it as an
-                        // alternative spelling of the same boolean instead of guessing a new one.
-                        when (triState(params.get("state")) ?: triState(params.get("active"))) {
-                            true -> listener.onEvent(IntercomEvent.NoiseStarted(deviceEntity))
-                            false -> listener.onEvent(IntercomEvent.NoiseEnded(deviceEntity))
-                            null -> Log.w(tag, "NoiseDetected without a usable state field: ${data.take(160)}")
-                        }
-                    }
-                    "KeyPressed" -> {
-                        // Reported for every key of the device and for both edges of a press. Only the known
-                        // release/hold edges are dropped: the press action string is not documented in this
-                        // repo, so an unknown action still rings and duplicates of one press are collapsed by
-                        // the monitor service's per-device ring debounce.
-                        val action = params.get("action")?.takeIf { it.isJsonPrimitive }?.asString
-                            ?.lowercase(Locale.US).orEmpty()
-                        if (action in KEY_RELEASE_ACTIONS) {
-                            Log.d(tag, "KeyPressed action=$action ignored (not a press edge)")
-                        } else {
-                            listener.onEvent(IntercomEvent.DoorbellRung(deviceEntity, callerNumber = "Doorbell Button"))
-                        }
-                    }
-                    "CallStateChanged" -> {
-                        val state = params.get("state")?.asString ?: ""
-                        val direction = params.get("direction")?.asString ?: ""
-                        Log.d(tag, "2N CallStateChanged: state=$state direction=$direction")
-                        // "dialing" is kept on purpose: a doorbell press makes the intercom dial this phone,
-                        // so from the device's point of view the ringing call is *outgoing*. Filtering by
-                        // direction would therefore discard the primary ring path; the debounce upstream is
-                        // what makes the overlap with KeyPressed harmless.
-                        if (state.equals("incoming", ignoreCase = true) || state.equals("ringing", ignoreCase = true) || state.equals("dialing", ignoreCase = true)) {
-                            listener.onEvent(IntercomEvent.DoorbellRung(deviceEntity, callerNumber = params.get("peer")?.asString))
+
+                        is SubscribeResult.Failed -> {
+                            channelId = null
+                            subscribeFailures++
+                            reportSubscribeFailure(sub, subscribeFailures, listener)
+                            delay(if (sub.permanent) DEAD_ENDPOINT_REPROBE_MS else LOG_SUBSCRIBE_RETRY_MS)
+                            continue
                         }
                     }
                 }
+
+                val id = channelId ?: continue
+                when (pull(id, listener)) {
+                    PullResult.Drained -> Unit
+                    // The channel went away between the expiry check and this pull: drop it so the next
+                    // iteration re-subscribes rather than draining a dead id forever.
+                    PullResult.Gone -> channelId = null
+                    PullResult.Retryable -> Unit
+                }
+
+                delay(LOG_PULL_INTERVAL_MS.milliseconds)
             }
-        } catch (e: Exception) {
-            Log.e(tag, "Failed to parse 2N event: $data", e)
         }
     }
 
-    private fun startPollingFallback(listener: IntercomEventListener) {
-        pollingJob?.cancel()
+    /** Result of opening a Logging API channel. */
+    private sealed interface SubscribeResult {
+        data class Ok(val channelId: String) : SubscribeResult
+        data class Failed(val httpStatus: Int?, val code2N: Int?, val permanent: Boolean) : SubscribeResult
+    }
 
-        val wantsMotion = motionEventRequested
-        val wantsNoise = noiseEventRequested
-        if (!wantsMotion && !wantsNoise) {
-            // Neither camera trigger is asked for, so there is nothing to poll and nothing is degraded:
-            // rings arrive over the SIP INVITE and in-app motion analysis rides the snapshot path.
-            Log.i(tag, "HTTP event polling not started — no camera motion/noise trigger requested")
+    /** Result of one channel drain. */
+    private enum class PullResult { Drained, Gone, Retryable }
+
+    /**
+     * POST the subscribe endpoint with the requested filter and return the channel id from `result.id`.
+     *
+     * The verb and body shape are provisional until task 3.2/3.3 confirm them against real hardware; the
+     * documented form is `POST /api/log/subscribe?filter=…&include=new&duration=…`.
+     */
+    private suspend fun subscribe(eventNames: List<String>): SubscribeResult = try {
+        val filter = eventNames.joinToString(",")
+        val url = "${deviceEntity.httpBaseUrl}/api/log/subscribe" +
+            "?filter=$filter&include=new&duration=$LOG_CHANNEL_DURATION_S"
+        val request = Request.Builder()
+            .url(url)
+            .post(ByteArray(0).toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        client.withCancellableResponse(request) { response ->
+            val body = response.body.string()
+            val root = parseObjectOrNull(body)
+            if (!response.isSuccessful || root == null) {
+                val code = extract2NErrorCode(root)
+                return@withCancellableResponse SubscribeResult.Failed(response.code, code, permanent = isPermanentReject(response.code, code))
+            }
+            val id = root.getAsJsonObjectOrNull("result")
+                ?.get("id")?.takeIf { it.isJsonPrimitive }?.asString
+            if (id.isNullOrBlank()) {
+                val code = extract2NErrorCode(root)
+                SubscribeResult.Failed(response.code, code, permanent = isPermanentReject(response.code, code))
+            } else {
+                SubscribeResult.Ok(id)
+            }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(tag, "Logging subscribe error: ${e.message}")
+        SubscribeResult.Failed(null, null, permanent = false)
+    }
+
+    /** Drain the channel's queue and route each log entry through the shared decode. */
+    private suspend fun pull(channel: String, listener: IntercomEventListener): PullResult = try {
+        val url = "${deviceEntity.httpBaseUrl}/api/log/pull?channel=$channel"
+        val request = Request.Builder().url(url).get().build()
+        pollClient.withCancellableResponse(request) { response ->
+            val body = response.body.string()
+            if (response.code == HTTP_NOT_FOUND || isInvalidRequestPath(body)) {
+                return@withCancellableResponse PullResult.Gone
+            }
+            if (!response.isSuccessful) return@withCancellableResponse PullResult.Retryable
+            val root = parseObjectOrNull(body) ?: return@withCancellableResponse PullResult.Retryable
+            dispatch2NEvents(root, listener)
+            PullResult.Drained
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(tag, "Logging pull error: ${e.message}")
+        PullResult.Retryable
+    }
+
+    /** Release the channel. Best-effort and non-blocking: teardown must not wait on the device. */
+    private fun fireUnsubscribe(channel: String) {
+        val url = "${deviceEntity.httpBaseUrl}/api/log/unsubscribe"
+        val body = JsonObject().apply { addProperty("id", channel) }.toString()
+            .toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder().url(url).post(body).build()
+        try {
+            client.newCall(request).enqueue(
+                object : Callback {
+                    override fun onFailure(call: okhttp3.Call, e: IOException) {
+                        Log.d(tag, "Logging unsubscribe skipped: ${e.message}")
+                    }
+
+                    override fun onResponse(call: okhttp3.Call, response: Response) {
+                        response.close()
+                    }
+                }
+            )
+        } catch (e: Exception) {
+            Log.d(tag, "Logging unsubscribe could not be issued: ${e.message}")
+        }
+    }
+
+    private fun reportSubscribeFailure(failed: SubscribeResult.Failed, attempt: Int, listener: IntercomEventListener) {
+        val message = when (failed.code2N) {
+            ERROR_CODE_INVALID_CONNECTION_TYPE ->
+                "2N Logging API needs HTTPS (device refused the HTTP connection, code $ERROR_CODE_INVALID_CONNECTION_TYPE)"
+            ERROR_CODE_UNAUTHORIZED ->
+                "2N Logging API denied: enable the Logging service for this API user (code $ERROR_CODE_UNAUTHORIZED)"
+            ERROR_CODE_INVALID_REQUEST_PATH ->
+                "2N Logging API is not served on this firmware (code $ERROR_CODE_INVALID_REQUEST_PATH)"
+            else ->
+                "2N Logging API unavailable (HTTP ${failed.httpStatus ?: '-'}, attempt $attempt)"
+        }
+        Log.w(tag, message)
+        if (!transportReportedDown) {
+            transportReportedDown = true
+            listener.onEvent(
+                IntercomEvent.ConnectionState(deviceEntity, ConnectionQuality.OFFLINE, message)
+            )
+        }
+    }
+
+    private fun reportRecovered(listener: IntercomEventListener) {
+        if (transportReportedDown) {
+            transportReportedDown = false
+            listener.onEvent(
+                IntercomEvent.ConnectionState(deviceEntity, ConnectionQuality.ONLINE, "Connected")
+            )
+        }
+    }
+
+    /**
+     * Fan a Logging API response out to [decodeEventObject].
+     *
+     * The `pull` envelope is provisional (see the Open Question in the change design): the entries array is
+     * looked for under `result`/`data` and the usual 2N names, and an unrecognised shape is logged rather
+     * than silently dropped, so the hardware gate can read the real path straight out of logcat.
+     */
+    private fun dispatch2NEvents(root: JsonObject, listener: IntercomEventListener) {
+        val entries = extractEventElements(root)
+        if (entries.isEmpty()) {
+            Log.d(tag, "No event array in 2N Logging payload: ${root.toString().take(160)}")
             return
         }
-        val polledLabels = listOfNotNull("motion".takeIf { wantsMotion }, "noise".takeIf { wantsNoise })
-            .joinToString("/")
-
-        pollingJob = monitoringScope().launch {
-            Log.i(tag, "Starting 2N HTTP polling fallback loop ($polledLabels)")
-            // The fallback can only read boolean status endpoints; a doorbell ring has no pollable
-            // endpoint here, so say so instead of letting the user assume the doorbell is broken.
-            listener.onEvent(
-                IntercomEvent.ConnectionState(
-                    deviceEntity,
-                    quality = ConnectionQuality.DEGRADED,
-                    message = "SSE event stream unavailable, polling $polledLabels status only. " +
-                        "Doorbell rings are not delivered in this mode."
-                )
-            )
-
-            val pollers = buildList {
-                if (wantsMotion) add(
-                    StatusPoller(
-                        label = "Motion",
-                        url = "${deviceEntity.httpBaseUrl}/api/motion/status",
-                        started = { IntercomEvent.MotionStarted(it) },
-                        ended = { IntercomEvent.MotionEnded(it) },
-                    )
-                )
-                if (wantsNoise) add(
-                    StatusPoller(
-                        label = "Noise",
-                        url = "${deviceEntity.httpBaseUrl}/api/noise/status",
-                        started = { IntercomEvent.NoiseStarted(it) },
-                        ended = { IntercomEvent.NoiseEnded(it) },
-                    )
-                )
-            }
-            var deadReported = false
-
-            while (isActive && isMonitoring.get()) {
-                val now = System.currentTimeMillis()
-                var polledAny = false
-                for (poller in pollers) {
-                    if (!poller.dueAt(now)) continue
-                    polledAny = true
-                    when (val outcome = pollStatusEndpoint(poller)) {
-                        is StatusPoll.Known -> {
-                            poller.deadStreak = 0
-                            poller.absent = false
-                            poller.nextProbeAtMs = 0L
-                            val edge = when {
-                                outcome.active && !poller.lastActive -> poller.started(deviceEntity)
-                                !outcome.active && poller.lastActive -> poller.ended(deviceEntity)
-                                else -> null
-                            }
-                            poller.lastActive = outcome.active
-                            edge?.let(listener::onEvent)
-                        }
-
-                        StatusPoll.Unusable -> poller.deadStreak++
-
-                        // A `code 2 invalid request path` answer is permanent for this firmware, so
-                        // re-asking every 1.5 s is pure load on the serial endpoint: back off to a slow
-                        // re-probe instead. Lowering the log level would not be a fix — the request is the cost.
-                        StatusPoll.Absent -> {
-                            poller.absent = true
-                            poller.nextProbeAtMs = now + DEAD_ENDPOINT_REPROBE_MS
-                        }
-                    }
-                }
-
-                val allGone = pollers.isNotEmpty() && pollers.all { it.gone() }
-                if (allGone && !deadReported) {
-                    deadReported = true
-                    val endpointsWord = if (pollers.size == 1) "endpoint has" else "endpoints have"
-                    listener.onEvent(
-                        IntercomEvent.ConnectionState(
-                            deviceEntity,
-                            quality = ConnectionQuality.OFFLINE,
-                            message = "${pollers.joinToString("/") { it.label.lowercase(Locale.US) }} status " +
-                                "$endpointsWord returned no usable data — wrong path, denied auth or camera " +
-                                "detection disabled"
-                        )
-                    )
-                } else if (deadReported && !allGone) {
-                    // The recovery edge matters as much as the failure one: without it the device would
-                    // stay reported offline in the UI long after the endpoints started answering again.
-                    deadReported = false
-                    listener.onEvent(
-                        IntercomEvent.ConnectionState(
-                            deviceEntity,
-                            quality = ConnectionQuality.DEGRADED,
-                            message = "Polled status endpoints answering again ($polledLabels)"
-                        )
-                    )
-                }
-
-                delay((if (polledAny) POLL_INTERVAL_MS else DEAD_ENDPOINT_REPROBE_MS).milliseconds)
-            }
+        for (element in entries) {
+            element.takeIf { it.isJsonObject }?.asJsonObject?.let { decodeEventObject(it, listener) }
         }
     }
 
-    /** Outcome of one status-endpoint read, keeping "the device says no" apart from "we learned nothing". */
-    private sealed interface StatusPoll {
-        data class Known(val active: Boolean) : StatusPoll
-        /** HTTP error, unreachable, or a payload without `result.active` — no information, may recover. */
-        data object Unusable : StatusPoll
-
-        /** The endpoint does not exist on this firmware; asking again quickly changes nothing. */
-        data object Absent : StatusPoll
+    private fun extractEventElements(root: JsonObject): List<JsonElement> {
+        val scopes = listOfNotNull(
+            root,
+            root.getAsJsonObjectOrNull("result"),
+            root.getAsJsonObjectOrNull("data"),
+        )
+        for (obj in scopes) {
+            for (key in EVENT_ARRAY_KEYS) {
+                val el = obj.get(key)
+                if (el != null && el.isJsonArray) return el.asJsonArray.asList()
+            }
+        }
+        // A single event object (the shape the old SSE delivered) still decodes, so the reused handler works
+        // for both transports.
+        val single = root.getAsJsonObjectOrNull("event")
+            ?: if (root.has("event") || root.has("type")) root else null
+        return listOfNotNull(single)
     }
 
-    /**
-     * Per-endpoint bookkeeping so the motion and noise paths share one polling implementation. Exists
-     * only for a trigger the user asked for, which is what keeps an unrequested endpoint out of both the
-     * request load and the connection report.
-     */
-    private class StatusPoller(
-        val label: String,
-        val url: String,
-        val started: (DeviceEntity) -> IntercomEvent,
-        val ended: (DeviceEntity) -> IntercomEvent,
-    ) {
-        var lastActive = false
-        var nextProbeAtMs = 0L
-        var deadStreak = 0
-        var absent = false
+    private fun decodeEventObject(eventObj: JsonObject, listener: IntercomEventListener) {
+        val eventType = eventObj.get("event")?.takeIf { it.isJsonPrimitive }?.asString
+            ?: eventObj.get("type")?.takeIf { it.isJsonPrimitive }?.asString ?: ""
+        val params = eventObj.getAsJsonObjectOrNull("params") ?: JsonObject()
 
-        fun dueAt(now: Long): Boolean = now >= nextProbeAtMs
-
-        fun gone(): Boolean = absent || deadStreak >= DEAD_POLLS_ALERT
-    }
-
-    /** Reads a 2N status endpoint; [StatusPoll.Unusable] means "no information", never "inactive". */
-    private suspend fun pollStatusEndpoint(poller: StatusPoller): StatusPoll {
-        return try {
-            val request = Request.Builder().url(poller.url).get().build()
-            pollClient.withCancellableResponse(request) { response ->
-                if (!response.isSuccessful) {
-                    if (response.code == HTTP_NOT_FOUND) {
-                        Log.i(tag, "${poller.label} status endpoint not served (HTTP 404): ${poller.url}")
-                        return@withCancellableResponse StatusPoll.Absent
-                    }
-                    Log.w(tag, "${poller.label} status poll rejected: HTTP ${response.code} on ${poller.url}")
-                    return@withCancellableResponse StatusPoll.Unusable
+        when (eventType) {
+            "MotionDetected" -> {
+                // A missing or unrecognised `state` must not become "no motion": the previous decode
+                // (`?.asBoolean ?: (asString == "active")`) fabricated a MotionEnded for every payload
+                // it did not understand, so an unexpected field shape killed the trigger silently.
+                when (triState(params.get("state")) ?: triState(params.get("active"))) {
+                    true -> listener.onEvent(IntercomEvent.MotionStarted(deviceEntity))
+                    false -> listener.onEvent(IntercomEvent.MotionEnded(deviceEntity))
+                    null -> Log.w(tag, "MotionDetected without a usable state field: ${eventObj.toString().take(160)}")
                 }
-                val body = response.body.string()
-                if (isInvalidRequestPath(body)) {
-                    Log.i(tag, "${poller.label} status endpoint does not exist on this firmware: ${body.take(120)}")
-                    return@withCancellableResponse StatusPoll.Absent
+            }
+            "NoiseDetected" -> {
+                // `active` is the field name the status endpoints of this API use, so accept it as an
+                // alternative spelling of the same boolean instead of guessing a new one.
+                when (triState(params.get("state")) ?: triState(params.get("active"))) {
+                    true -> listener.onEvent(IntercomEvent.NoiseStarted(deviceEntity))
+                    false -> listener.onEvent(IntercomEvent.NoiseEnded(deviceEntity))
+                    null -> Log.w(tag, "NoiseDetected without a usable state field: ${eventObj.toString().take(160)}")
                 }
-                val active = runCatching {
-                    triState(
-                        JsonParser.parseString(body).asJsonObject
-                            .getAsJsonObject("result")
-                            ?.get("active")
-                    )
-                }.getOrNull()
-                if (active == null) {
-                    Log.w(tag, "${poller.label} status poll returned no result.active from ${poller.url}: ${body.take(160)}")
-                    StatusPoll.Unusable
+            }
+            "KeyPressed" -> {
+                // Reported for every key of the device and for both edges of a press. Only the known
+                // release/hold edges are dropped: the press action string is not documented in this
+                // repo, so an unknown action still rings and duplicates of one press are collapsed by
+                // the monitor service's per-device ring debounce.
+                val action = params.get("action")?.takeIf { it.isJsonPrimitive }?.asString
+                    ?.lowercase(Locale.US).orEmpty()
+                if (action in KEY_RELEASE_ACTIONS) {
+                    Log.d(tag, "KeyPressed action=$action ignored (not a press edge)")
                 } else {
-                    StatusPoll.Known(active)
+                    listener.onEvent(IntercomEvent.DoorbellRung(deviceEntity, callerNumber = "Doorbell Button"))
                 }
             }
-        } catch (e: CancellationException) {
-            // The monitoring scope is being torn down: counting that as "the endpoint said nothing" would
-            // keep the poll loop alive through one more pointless round trip.
-            throw e
-        } catch (e: Exception) {
-            Log.w(tag, "${poller.label} status poll error for ${poller.url}: ${e.message}")
-            StatusPoll.Unusable
+            "CallStateChanged" -> {
+                val state = params.get("state")?.asString ?: ""
+                val direction = params.get("direction")?.asString ?: ""
+                Log.d(tag, "2N CallStateChanged: state=$state direction=$direction")
+                // "dialing" is kept on purpose: a doorbell press makes the intercom dial this phone,
+                // so from the device's point of view the ringing call is *outgoing*. Filtering by
+                // direction would therefore discard the primary ring path; the debounce upstream is
+                // what makes the overlap with KeyPressed harmless.
+                if (state.equals("incoming", ignoreCase = true) || state.equals("ringing", ignoreCase = true) || state.equals("dialing", ignoreCase = true)) {
+                    listener.onEvent(IntercomEvent.DoorbellRung(deviceEntity, callerNumber = params.get("peer")?.asString))
+                }
+            }
         }
     }
 
     /**
-     * 2N answers a path this firmware does not serve with HTTP 200 +
-     * `{"success":false,"error":{"code":2,"description":"invalid request path"}}` instead of a 404.
+     * 2N answers a path this firmware does not serve, or a request it rejects, with HTTP 200 +
+     * `{"success":false,"error":{"code":N,"description":"..."}}` instead of an error status.
      */
-    private fun isInvalidRequestPath(body: String): Boolean = runCatching {
-        val root = JsonParser.parseString(body).asJsonObject
-        if (root.get("success")?.takeIf { it.isJsonPrimitive }?.asBoolean != false) return@runCatching false
-        root.get("error")?.takeIf { it.isJsonObject }?.asJsonObject
-            ?.get("code")?.takeIf { it.isJsonPrimitive }?.asInt == ERROR_CODE_INVALID_REQUEST_PATH
-    }.getOrDefault(false)
+    private fun isInvalidRequestPath(body: String): Boolean =
+        extract2NErrorCode(parseObjectOrNull(body)) == ERROR_CODE_INVALID_REQUEST_PATH
+
+    /** The 2N `error.code` for a request it refused, or null if the body carries none. */
+    private fun extract2NErrorCode(root: JsonObject?): Int? = root
+        ?.getAsJsonObjectOrNull("error")
+        ?.get("code")?.takeIf { it.isJsonPrimitive }?.asInt
+
+    /**
+     * A reject that will keep happening, so the loop should back off long and report once: an unregistered
+     * path (code 2), a wrong connection type (code 7), or denied auth (code 9) are configuration, not blips.
+     */
+    private fun isPermanentReject(httpStatus: Int, code2N: Int?): Boolean =
+        code2N in setOf(ERROR_CODE_INVALID_REQUEST_PATH, ERROR_CODE_INVALID_CONNECTION_TYPE, ERROR_CODE_UNAUTHORIZED) ||
+            httpStatus == HTTP_NOT_FOUND
 
     /**
      * Converts a 2N boolean-ish field: real booleans, the truthy/falsy words this firmware family uses
@@ -463,15 +471,6 @@ class TwoNIPVersoDevice(
         }
     }
 
-    private fun scheduleReconnect(listener: IntercomEventListener) {
-        monitoringScope().launch {
-            delay(5000.milliseconds)
-            if (isMonitoring.get()) {
-                startSseEventListener(listener)
-            }
-        }
-    }
-
     /**
      * Idempotent and non-suspending on purpose: the service tears devices down concurrently under a
      * deadline, so a second call must not race the first, and work that is already cancelled has to keep
@@ -481,15 +480,20 @@ class TwoNIPVersoDevice(
         if (isMonitoring.getAndSet(false)) {
             Log.i(tag, "2N monitoring stopped")
         }
-        eventSource?.cancel()
-        eventSource = null
-        pollingJob = null
-        // Cancels the poll loop and any pending reconnect along with the scope's own job. Dropped
-        // afterwards so the cancelled job leaves the application scope's children; a device that is watched
-        // again gets a fresh one from monitoringScope().
+        val channel = channelId
+        channelId = null
+        if (channel != null) fireUnsubscribe(channel)
+        // Cancels the pull loop along with the scope's own job. Dropped afterwards so the cancelled job
+        // leaves the application scope's children; a device that is watched again gets a fresh one.
         scope?.cancel()
         scope = null
     }
+
+    private fun parseObjectOrNull(body: String): JsonObject? =
+        runCatching { JsonParser.parseString(body).asJsonObject }.getOrNull()
+
+    private fun JsonObject.getAsJsonObjectOrNull(key: String): JsonObject? =
+        get(key)?.takeIf { it.isJsonObject }?.asJsonObject
 
     companion object {
         // Wording this firmware family uses for boolean-ish event/status fields; anything else is treated as
@@ -497,24 +501,35 @@ class TwoNIPVersoDevice(
         private val TRUE_WORDS = setOf("active", "true", "on", "yes", "start", "detected", "moving")
         private val FALSE_WORDS = setOf("inactive", "false", "off", "no", "stop", "idle", "clear", "none")
 
-        // KeyPressed edges that are NOT a doorbell press; the press itself is the default, see handleRaw2NEvent.
+        // KeyPressed edges that are NOT a doorbell press; the press itself is the default, see decodeEventObject.
         private val KEY_RELEASE_ACTIONS = setOf("released", "release", "up", "long", "hold", "held", "double")
 
-        // Report dead status endpoints once this many polls in a row, then stay quiet until recovery.
-        private const val DEAD_POLLS_ALERT = 4
+        // Where the drained log entries may sit in the pull body; checked in order until one is an array.
+        private val EVENT_ARRAY_KEYS = listOf("log", "logs", "entries", "events", "items")
 
-        // Status polls are cheap when they answer, so an endpoint that works is asked often …
-        private const val POLL_INTERVAL_MS = 1500L
+        private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
-        // … while one that answered "invalid request path" — a permanent verdict for this firmware — only
-        // gets a slow re-probe instead of ≈40 requests an hour that can never return anything.
+        // Subscribe for a fixed window and re-acquire this many seconds before it lapses, so a pull never
+        // races the device's own channel expiry.
+        private const val LOG_CHANNEL_DURATION_S = 90L
+        private const val LOG_RESUBSCRIBE_MARGIN_S = 15L
+
+        // Drain often enough to feel live but well under the Verso's ≈5.9 req/s serial ceiling.
+        private const val LOG_PULL_INTERVAL_MS = 2000L
+
+        // Backoff when the Logging API refuses the account or transport (code 7/9): a configuration gate, not
+        // a blip, so retry slowly and let the operator fix it.
+        private const val LOG_SUBSCRIBE_RETRY_MS = 10_000L
+
+        // … while an endpoint that answered "invalid request path" — a permanent verdict for this firmware —
+        // only gets a slow re-probe instead of ≈40 requests an hour that can never return anything.
         private const val DEAD_ENDPOINT_REPROBE_MS = 5 * 60 * 1000L
 
-        // 2N's `error.code` for a path the device does not serve; it comes back with HTTP 200.
+        // 2N `error.code` values seen on this firmware family.
         private const val ERROR_CODE_INVALID_REQUEST_PATH = 2
+        private const val ERROR_CODE_INVALID_CONNECTION_TYPE = 7
+        private const val ERROR_CODE_UNAUTHORIZED = 9
 
         private const val HTTP_NOT_FOUND = 404
     }
 }
-
-
