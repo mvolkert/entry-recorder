@@ -60,6 +60,7 @@ import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
+import io.github.mvolkert.entryrecorder.data.model.supportsCameraEvents
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
 import io.github.mvolkert.entryrecorder.ui.components.CelebrationCheck
@@ -416,10 +417,15 @@ private fun TriggerIndicators(
     val eventsDown = eventQuality == ConnectionQuality.DEGRADED || eventQuality == ConnectionQuality.OFFLINE
     val eventTint = if (monitored && !eventsDown) normal else faded
     val baseTint = if (monitored) normal else faded
+    // A transport that cannot deliver camera events must not light their glyph, even before the
+    // monitor reports anything about it. Ring keeps the event-driven tint: the doorbell also has the
+    // SIP INVITE source, so a silent HTTP transport does not make the ring icon lie.
+    val cameraEventsDown = eventsDown || !supportsCameraEvents(device.deviceType)
+    val cameraEventTint = if (monitored && !cameraEventsDown) normal else faded
     val motionNow = monitorStatus == MonitorStatus.MOTION
     // Camera-reported motion depends on the event stream; in-app motion does not.
     val walkUsesEvents = device.recordOnMotion && !device.recordOnMotionOnDevice
-    val walkTint = if (walkUsesEvents) eventTint else baseTint
+    val walkTint = if (walkUsesEvents) cameraEventTint else baseTint
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (device.isEnabled && device.recordOnRing) {
             Spacer(modifier = Modifier.width(8.dp))
@@ -447,7 +453,7 @@ private fun TriggerIndicators(
                 imageVector = Icons.AutoMirrored.Filled.VolumeUp,
                 contentDescription = stringResource(R.string.live_cd_noise),
                 modifier = Modifier.size(16.dp),
-                tint = eventTint
+                tint = cameraEventTint
             )
         }
     }

@@ -257,6 +257,35 @@ internal fun SettingsSwitchRow(
 }
 
 /**
+ * A trigger row that the device's event transport cannot deliver. Named so the user finds the option
+ * they were looking for, and explains why it cannot be turned on instead of pretending the choice does
+ * not exist. The row is deliberately not clickable and the switch is drawn disabled, so there is no
+ * false affordance for a control nothing can honour.
+ */
+@Composable
+internal fun SettingsSwitchUnavailableRow(
+    title: String,
+    reason: String,
+) {
+    ListItem(
+        modifier = Modifier.fillMaxWidth(),
+        supportingContent = {
+            Text(
+                text = reason,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        },
+        trailingContent = {
+            Switch(checked = false, onCheckedChange = null, enabled = false)
+        },
+        contentPadding = SettingsRowContentPadding,
+    ) {
+        Text(title, style = MaterialTheme.typography.titleMedium)
+    }
+}
+
+/**
  * The switch row's single implementation, shared with the device form's emphasised variant so a switch
  * never ends up with two tap targets. [content] is the headline; the row's own tap flips [checked].
  */

@@ -8,6 +8,7 @@ import io.github.mvolkert.entryrecorder.data.model.DeviceType
 import io.github.mvolkert.entryrecorder.data.model.MotionSensitivity
 import io.github.mvolkert.entryrecorder.data.model.SipMode
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
+import io.github.mvolkert.entryrecorder.data.model.supportsCameraEvents
 
 /** Motion detector that arms a recording, presented as a single choice in the device form. */
 internal enum class MotionSource { OFF, CAMERA, APP }
@@ -46,9 +47,13 @@ class DeviceFormState(
     var sipUser by mutableStateOf(initial?.sipUser ?: "")
     var sipPassword by mutableStateOf(initial?.sipPassword ?: "")
 
-    var recordOnMotion by mutableStateOf(initial?.recordOnMotion ?: true)
+    // A new device starts with the transport's honest defaults: motion/noise stay off until the
+    // capability helper reports them deliverable, so a fresh Verso row never asks for events it will
+    // not receive. Legacy rows with the previously-baked-in `true` load through the same gate and get
+    // coerced to false on open — matching what the transport can actually deliver.
+    var recordOnMotion by mutableStateOf((initial?.recordOnMotion ?: true) && supportsCameraEvents(deviceType))
     var recordOnRing by mutableStateOf(initial?.recordOnRing ?: true)
-    var recordOnNoise by mutableStateOf(initial?.recordOnNoise ?: true)
+    var recordOnNoise by mutableStateOf((initial?.recordOnNoise ?: true) && supportsCameraEvents(deviceType))
     var recordOnMotionOnDevice by mutableStateOf(initial?.recordOnMotionOnDevice ?: false)
     var motionSensitivity by mutableStateOf(initial?.motionSensitivity ?: MotionSensitivity.BALANCED)
 
@@ -139,6 +144,7 @@ class DeviceFormState(
     fun buildDevice(): DeviceEntity {
         val trimmedName = name.trim()
         val trimmedIp = ipAddress.trim()
+        val cameraEventsDeliverable = supportsCameraEvents(deviceType)
         val base = initial ?: DeviceEntity(name = trimmedName, ipAddress = trimmedIp)
         return base.copy(
             name = trimmedName,
@@ -163,9 +169,9 @@ class DeviceFormState(
             sipServerPort = sipServerPort.toIntOrNull() ?: 5060,
             sipUser = if (sipUser.isNotBlank()) sipUser.trim() else null,
             sipPassword = if (sipPassword.isNotBlank()) sipPassword.trim() else null,
-            recordOnMotion = if (deviceType == DeviceType.GENERIC_RTSP_ONVIF) false else recordOnMotion,
+            recordOnMotion = if (cameraEventsDeliverable) recordOnMotion else false,
             recordOnRing = recordOnRing,
-            recordOnNoise = recordOnNoise,
+            recordOnNoise = if (cameraEventsDeliverable) recordOnNoise else false,
             recordOnMotionOnDevice = recordOnMotionOnDevice,
             motionSensitivity = motionSensitivity,
             wakeOnRing = wakeOnRing,

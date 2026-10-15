@@ -323,6 +323,7 @@
     <string name="device_motion_source_camera">From camera (built-in detection)</string>
     <string name="device_motion_source_app">Analyzed in-app (video stream)</string>
     <string name="device_motion_source_hint">In-app analysis reads the video stream itself and works even when the camera cannot detect motion. "From camera" relies on the device reporting motion events.</string>
+    <string name="device_events_transport_unavailable_reason">Not delivered by this camera\'s event transport on the current firmware</string>
     <string name="device_motion_sensitivity_label">Motion sensitivity</string>
     <string name="device_motion_sensitivity_sensitive">Sensitive (catch quick passes)</string>
     <string name="device_motion_sensitivity_balanced">Balanced (default)</string>

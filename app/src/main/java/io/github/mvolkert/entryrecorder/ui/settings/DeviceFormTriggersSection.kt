@@ -15,32 +15,42 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
-import io.github.mvolkert.entryrecorder.data.model.DeviceType
 import io.github.mvolkert.entryrecorder.data.model.MotionSensitivity
+import io.github.mvolkert.entryrecorder.data.model.supportsCameraEvents
 
 /** Which events start a recording on this device. */
 @Composable
 internal fun DeviceFormTriggersSection(form: DeviceFormState) {
     FormSectionLabel(R.string.device_triggers_section)
+    val cameraEventsDeliverable = supportsCameraEvents(form.deviceType)
+    val unavailableReason = stringResource(R.string.device_events_transport_unavailable_reason)
     SettingsSwitchRow(
         title = stringResource(R.string.device_trigger_ring),
         subtitle = stringResource(R.string.device_trigger_ring_hint),
         checked = form.recordOnRing,
         onCheckedChange = { form.recordOnRing = it }
     )
-    SettingsSwitchRow(
-        title = stringResource(R.string.device_trigger_noise),
-        subtitle = stringResource(R.string.device_trigger_noise_hint),
-        checked = form.recordOnNoise,
-        onCheckedChange = { form.recordOnNoise = it }
-    )
+    if (cameraEventsDeliverable) {
+        SettingsSwitchRow(
+            title = stringResource(R.string.device_trigger_noise),
+            subtitle = stringResource(R.string.device_trigger_noise_hint),
+            checked = form.recordOnNoise,
+            onCheckedChange = { form.recordOnNoise = it }
+        )
+    } else {
+        SettingsSwitchUnavailableRow(
+            title = stringResource(R.string.device_trigger_noise),
+            reason = unavailableReason,
+        )
+    }
 
     // Motion source is one exhaustive choice, not two look-alike switches that could both be on.
-    // Generic RTSP/ONVIF cameras expose no event bus, so "From camera" motion cannot exist there and
-    // is not offered.
+    // The camera option is offered only when the transport can actually deliver MotionDetected; when
+    // it cannot, the option is still named below the picker so the user sees what they are missing
+    // and why, rather than a control that silently refuses to appear.
     val sources = buildList {
         add(MotionSource.OFF)
-        if (form.deviceType == DeviceType.TWO_N_VERSO) add(MotionSource.CAMERA)
+        if (cameraEventsDeliverable) add(MotionSource.CAMERA)
         add(MotionSource.APP)
     }
     FormSingleChoice(
@@ -62,6 +72,12 @@ internal fun DeviceFormTriggersSection(form: DeviceFormState) {
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
+    if (!cameraEventsDeliverable) {
+        SettingsSwitchUnavailableRow(
+            title = stringResource(R.string.device_motion_source_camera),
+            reason = unavailableReason,
+        )
+    }
 
     // Sensitivity only steers the in-app analyzer; the camera's own motion events ignore these numbers,
     // so the picker appears only once "Analyzed in-app" is the chosen source.
@@ -111,6 +127,7 @@ internal fun DeviceFormTriggersSection(form: DeviceFormState) {
 @Composable
 internal fun DeviceFormAlertsSection(form: DeviceFormState) {
     FormSectionLabel(R.string.settings_section_alerts)
+    val cameraEventsDeliverable = supportsCameraEvents(form.deviceType)
     SettingsSwitchRow(
         title = stringResource(R.string.settings_wake_ring),
         subtitle = stringResource(R.string.settings_wake_ring_summary),
@@ -132,11 +149,18 @@ internal fun DeviceFormAlertsSection(form: DeviceFormState) {
         checked = form.wakeOnMotion,
         onCheckedChange = { form.wakeOnMotion = it }
     )
-    SettingsSwitchRow(
-        title = stringResource(R.string.settings_wake_noise),
-        checked = form.wakeOnNoise,
-        onCheckedChange = { form.wakeOnNoise = it }
-    )
+    if (cameraEventsDeliverable) {
+        SettingsSwitchRow(
+            title = stringResource(R.string.settings_wake_noise),
+            checked = form.wakeOnNoise,
+            onCheckedChange = { form.wakeOnNoise = it }
+        )
+    } else {
+        SettingsSwitchUnavailableRow(
+            title = stringResource(R.string.settings_wake_noise),
+            reason = stringResource(R.string.device_events_transport_unavailable_reason),
+        )
+    }
 }
 
 /** Per-event lengths plus the master enable switch the monitor service checks before arming a device. */
