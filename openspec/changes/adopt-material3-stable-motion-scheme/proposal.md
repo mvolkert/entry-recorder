@@ -8,11 +8,12 @@ NPE guard is a workaround for an upstream bug. No app behaviour changes.
 
 ## What Changes
 
-- When material3 1.5.0 (stable `motionScheme`) ships: revert `gradle/libs.versions.toml` `composeBom` from
-  the `2025.09.22` beta back to `2025.09.00`, delete the `MotionScheme.kt` seam, and switch all motion sites
-  to `MaterialTheme.motionScheme` directly (AGENTS requires zero custom durations).
-- When the Media3/RTSP `stop()`-on-unprepared NPE (b/433552411) is fixed upstream: remove the defensive
-  `runCatching` guard (grep the tag) and delete the `Media3RtspStopNpeRegressionTest` canary.
+- Adopted by owner decision: the material3 `1.5.0-beta01` override stays and `MaterialTheme.motionScheme`
+  is used directly on the beta — no `MotionScheme.kt` seam exists and every motion site already reads the
+  theme scheme (AGENTS requires zero custom durations). When 1.5.0 ships stable, drop the override so the
+  BOM controls material3 again.
+- When the Media3/RTSP `stop()`-on-unprepared NPE is fixed upstream: remove the targeted uncaught-exception
+  guard `setupExoPlayerCrashProtection` in `EntryRecorderApp`.
 
 ## Capabilities
 
@@ -20,5 +21,5 @@ NPE guard is a workaround for an upstream bug. No app behaviour changes.
 
 ## Impact
 
-- Files: `gradle/libs.versions.toml`, `ui/theme/MotionScheme.kt`, motion call sites, `video/VideoTwoWayPlayer`
-  guard, RTSP reset test.
+- Files: `gradle/libs.versions.toml`, motion call sites (all already on `MaterialTheme.motionScheme`),
+  `EntryRecorderApp` RTSP crash guard.
