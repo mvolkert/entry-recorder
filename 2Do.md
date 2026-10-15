@@ -9,6 +9,8 @@ Legend: `[x]` done · `[~]` partial / needs validation · `[ ]` open · 🔄 on-
 
 
 ## Feature
+- [] Auto Boot toggle
+- [] Set individual frames amount on motion detected or a buffer
 - [~] 🔄 **Internal cleanup works in 100 MB steps.** The same step (`CleanupPolicy.STEP_MB`) now drives both
   halves: the quota stepper moves ±100 MB (was ±1024) and tapping the value opens `QuotaMbDialog` for exact
   entry, which validates the range (100 MB…102 400 MB) but deliberately does not demand a multiple of the
