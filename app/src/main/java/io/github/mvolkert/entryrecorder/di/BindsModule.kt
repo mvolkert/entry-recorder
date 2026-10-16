@@ -6,6 +6,8 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import io.github.mvolkert.entryrecorder.data.server.ServerClient
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
+import io.github.mvolkert.entryrecorder.data.alert.ServerRelayMotionAlertTransport
+import io.github.mvolkert.entryrecorder.domain.alert.MotionAlertTransport
 import io.github.mvolkert.entryrecorder.domain.call.CallScreenLauncher
 import io.github.mvolkert.entryrecorder.sip.SipCallManager
 import io.github.mvolkert.entryrecorder.sip.SipRegistrar
@@ -47,4 +49,8 @@ abstract class BindsModule {
     @Binds
     @Singleton
     abstract fun bindCallScreenLauncher(impl: IncomingCallLauncher): CallScreenLauncher
+
+    @Binds
+    @Singleton
+    abstract fun bindMotionAlertTransport(impl: ServerRelayMotionAlertTransport): MotionAlertTransport
 }

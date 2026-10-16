@@ -94,4 +94,17 @@ interface ServerClient {
         baseName: String,
         onProgress: (percent: Int) -> Unit = {}
     ): Result<File>
+
+    /**
+     * Relays a detected-motion alert for [deviceName] to [recipient] through the server
+     * (`POST /api/alerts/relay`, change `add-motion-notification-to-other-phone`). The server is the relay so
+     * it works behind NAT with no new client library; delivery to the other phone itself is the on-device gate.
+     */
+    suspend fun relayMotionAlert(
+        serverUrl: String,
+        apiKey: String?,
+        recipient: String,
+        deviceName: String,
+        timestampMs: Long
+    ): Result<Unit>
 }

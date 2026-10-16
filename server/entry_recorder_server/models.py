@@ -23,6 +23,13 @@ class StartRecordingRequest(BaseModel):
 class StopRecordingRequest(BaseModel):
     device_id: int = Field(..., description="Device ID whose recording to stop")
 
+class MotionAlertRequest(BaseModel):
+    """Body of `POST /api/alerts/relay` (change `add-motion-notification-to-other-phone`): one detected-motion
+    event to relay to a configured remote phone behind NAT, so the client needs no new push dependency."""
+    recipient: str = Field(..., description="Identifier of the remote phone to reach")
+    device_name: str = Field(..., description="Camera that detected the motion")
+    timestamp_ms: int = Field(..., description="Epoch milliseconds of the detection")
+
 class RecordingResponse(BaseModel):
     id: int
     device_id: int

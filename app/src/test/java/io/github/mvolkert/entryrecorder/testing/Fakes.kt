@@ -162,6 +162,7 @@ class FakeServerClient : ServerClient {
     var setProtectedResult: Result<Unit> = Result.success(Unit)
     var deleteRecordingResult: Result<Unit> = Result.success(Unit)
     var downloadResult: Result<File> = Result.success(File("downloaded.mkv"))
+    var relayMotionAlertResult: Result<Unit> = Result.success(Unit)
 
     val testConnectionCalls = mutableListOf<Pair<String, String?>>()
     val registerCalls = mutableListOf<Device>()
@@ -171,6 +172,7 @@ class FakeServerClient : ServerClient {
     val setProtectedCalls = mutableListOf<Triple<Long, Boolean, String>>()
     val deleteRecordingCalls = mutableListOf<Long>()
     val downloadCalls = mutableListOf<String>()
+    val relayMotionAlertCalls = mutableListOf<RelayMotionAlertCall>()
 
     override suspend fun testConnection(serverUrl: String, apiKey: String?): Result<Boolean> {
         testConnectionCalls += serverUrl to apiKey
@@ -264,7 +266,27 @@ class FakeServerClient : ServerClient {
         downloadCalls += absoluteUrl
         return downloadResult
     }
+
+    override suspend fun relayMotionAlert(
+        serverUrl: String,
+        apiKey: String?,
+        recipient: String,
+        deviceName: String,
+        timestampMs: Long
+    ): Result<Unit> {
+        relayMotionAlertCalls += RelayMotionAlertCall(serverUrl, apiKey, recipient, deviceName, timestampMs)
+        return relayMotionAlertResult
+    }
 }
+
+/** One recorded `relayMotionAlert` call, so a test can assert the transport forwarded every field intact. */
+data class RelayMotionAlertCall(
+    val serverUrl: String,
+    val apiKey: String?,
+    val recipient: String,
+    val deviceName: String,
+    val timestampMs: Long,
+)
 
 /**
  * The transcode seam: [transcodeToH264] returns a real temp file, and setting [blockTranscode] makes it

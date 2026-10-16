@@ -124,6 +124,17 @@ data class ServerRecordingDto(
     @SerializedName("thumbnail_url") val thumbnailUrl: String?
 )
 
+/**
+ * Body of `POST /api/alerts/relay` (server `MotionAlertRequest`). Relays one detected-motion event to the
+ * [recipient] the monitoring phone configured; the server fans it out to that phone (change
+ * `add-motion-notification-to-other-phone`).
+ */
+private data class MotionAlertPayload(
+    @SerializedName("recipient") val recipient: String,
+    @SerializedName("device_name") val deviceName: String,
+    @SerializedName("timestamp_ms") val timestampMs: Long,
+)
+
 @Singleton
 class ServerRecordingClient @Inject constructor(
     @ControlClient private val client: OkHttpClient,
@@ -565,6 +576,46 @@ class ServerRecordingClient @Inject constructor(
             throw e
         } catch (e: Exception) {
             Log.e(tag, "Downloading server video failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * `POST /api/alerts/relay` (change `add-motion-notification-to-other-phone`): hand the server a motion
+     * alert for [deviceName] addressed to [recipient]. Fire-and-report: a failure is returned, never thrown
+     * (cancellation aside), so the monitor loop keeps running when the relay endpoint is unreachable.
+     */
+    override suspend fun relayMotionAlert(
+        serverUrl: String,
+        apiKey: String?,
+        recipient: String,
+        deviceName: String,
+        timestampMs: Long
+    ): Result<Unit> = withContext(ioDispatcher) {
+        try {
+            val base = normalizeUrl(serverUrl)
+            val payload = MotionAlertPayload(
+                recipient = recipient,
+                deviceName = deviceName,
+                timestampMs = timestampMs,
+            )
+            val body = gson.toJson(payload).toRequestBody("application/json".toMediaType())
+            val request = Request.Builder()
+                .url("$base/api/alerts/relay")
+                .post(body)
+                .withApiKey(apiKey)
+                .build()
+            client.withCancellableResponse(request) { response ->
+                if (response.isSuccessful) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(Exception("HTTP ${response.code}: ${response.body.string()}"))
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(tag, "Relaying motion alert to $recipient for $deviceName failed", e)
             Result.failure(e)
         }
     }

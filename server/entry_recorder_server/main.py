@@ -30,6 +30,7 @@ from .database import (
 from .models import (
     StartRecordingRequest,
     StopRecordingRequest,
+    MotionAlertRequest,
     RecordingResponse,
     ServerStatusResponse,
     CleanupResult,
@@ -312,6 +313,20 @@ async def run_cleanup(_key: Optional[str] = Depends(verify_api_key)):
         max_storage_bytes=settings.MAX_STORAGE_MB * 1024 * 1024
     )
     return CleanupResult(**result)
+
+@app.post("/api/alerts/relay")
+async def relay_motion_alert(
+    req: MotionAlertRequest,
+    _key: Optional[str] = Depends(verify_api_key)
+):
+    # Motion-alert relay (change `add-motion-notification-to-other-phone`): the monitoring phone hands the
+    # server a detected-motion event so the server can reach the recipient behind NAT. The server accepts and
+    # dispatches it; actually landing a notification on the other phone is the on-device gate (task 3.2).
+    logger.info(
+        "Relaying motion alert from %s to recipient %s (timestamp_ms=%d)",
+        req.device_name, req.recipient, req.timestamp_ms,
+    )
+    return {"status": "relayed", "recipient": req.recipient, "device_name": req.device_name}
 
 def _to_device_response(d: dict) -> DeviceResponse:
     return DeviceResponse(

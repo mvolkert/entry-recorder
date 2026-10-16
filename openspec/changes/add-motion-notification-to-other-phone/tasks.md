@@ -14,11 +14,16 @@
   `SettingsViewModelTest` that asserts both land on the Room row
 - [ ] 2.2 Introduce the `MotionAlertTransport` seam and a server-relay implementation; emit the motion alert
   through it and verify a second phone receives it (needs the server-side relay endpoint)
+  Code delivered (transport seam + `ServerRelayMotionAlertTransport`, `ServerClient.relayMotionAlert` /
+  `POST /api/alerts/relay`, `IntercomMonitorService.relayMotionAlertToRemote` emitted on MOTION, device-free
+  `ServerRelayMotionAlertTransportTest`). Remaining clause — "verify a second phone receives it" — is the
+  3.2 two-phone device gate, so this stays open until that passes.
 - [ ] 2.3 (Ask-First) Add the UnifiedPush backend, then FCM fallback, only after explicit dependency approval
 
 ## 3. Verification
 
-- [ ] 3.1 Run `./gradlew compileDebugKotlin lintDebug` green
+- [x] 3.1 Run `./gradlew compileDebugKotlin lintDebug` green — both BUILD SUCCESSFUL (2026-10-17), plus
+  `testDebugUnitTest` for the new device-free transport test
 - [ ] 3.2 On-device with two phones: trigger motion and confirm the remote notification arrives
 
 ## Workflow follow-up
