@@ -459,6 +459,19 @@ private val APP_DATABASE_MIGRATIONS: Array<Migration> = arrayOf(
             )
         }
     },
+
+    // v21 -> v22: the remote motion alert (change `add-motion-notification-to-other-phone`). Both columns
+    // default off/empty, so an upgraded install relays nothing until the user opts in and names a recipient.
+    object : Migration(21, 22) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE app_settings ADD COLUMN motionAlertEnabled INTEGER NOT NULL DEFAULT 0"
+            )
+            db.execSQL(
+                "ALTER TABLE app_settings ADD COLUMN motionAlertRecipient TEXT NOT NULL DEFAULT ''"
+            )
+        }
+    },
 )
 
 /**

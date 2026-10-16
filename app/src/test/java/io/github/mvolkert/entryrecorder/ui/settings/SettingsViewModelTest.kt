@@ -168,6 +168,15 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `configuring the remote motion alert persists the flag and recipient`() = runViewModelTest {
+        vm.updateSettings(AppSettings(motionAlertEnabled = true, motionAlertRecipient = "kitchen-phone"))
+        advanceUntilIdle()
+
+        assertEquals(true, settingsDao.current?.motionAlertEnabled, "the switch persists to the Room row")
+        assertEquals("kitchen-phone", settingsDao.current?.motionAlertRecipient, "and so does the recipient")
+    }
+
+    @Test
     fun `deleting a registered device drops the server row and the local one`() = runViewModelTest {
         enterServerMode()
         val device = testDevice(id = 1L, serverDeviceId = 55L)

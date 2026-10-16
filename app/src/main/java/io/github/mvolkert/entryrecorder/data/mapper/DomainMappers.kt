@@ -150,6 +150,8 @@ fun AppSettingsEntity.toDomain(): AppSettings = AppSettings(
     themeMode = themeMode,
     themeUseDynamicColor = themeUseDynamicColor,
     autoBootEnabled = autoBootEnabled,
+    motionAlertEnabled = motionAlertEnabled,
+    motionAlertRecipient = motionAlertRecipient,
 )
 
 /** The entity's declared-but-unread legacy columns take their table defaults through the data-class defaults. */
@@ -171,4 +173,6 @@ fun AppSettings.toEntity(): AppSettingsEntity = AppSettingsEntity(
     themeMode = themeMode,
     themeUseDynamicColor = themeUseDynamicColor,
     autoBootEnabled = autoBootEnabled,
+    motionAlertEnabled = motionAlertEnabled,
+    motionAlertRecipient = motionAlertRecipient,
 )

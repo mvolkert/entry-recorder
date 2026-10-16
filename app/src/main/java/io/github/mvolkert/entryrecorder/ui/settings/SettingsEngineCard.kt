@@ -118,5 +118,22 @@ internal fun SettingsEngineCard(
             checked = settings.autoBootEnabled,
             onCheckedChange = { onSettingsChange(settings.copy(autoBootEnabled = it)) },
         )
+
+        Spacer(modifier = Modifier.height(8.dp))
+        SettingsSwitchRow(
+            title = stringResource(R.string.settings_motion_alert_title),
+            subtitle = stringResource(R.string.settings_motion_alert_subtitle),
+            checked = settings.motionAlertEnabled,
+            onCheckedChange = { onSettingsChange(settings.copy(motionAlertEnabled = it)) },
+        )
+        if (settings.motionAlertEnabled) {
+            OutlinedTextField(
+                value = settings.motionAlertRecipient,
+                onValueChange = { onSettingsChange(settings.copy(motionAlertRecipient = it)) },
+                label = { Text(stringResource(R.string.settings_motion_alert_recipient_label)) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+        }
     }
 }

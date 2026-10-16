@@ -26,6 +26,10 @@ data class AppSettings(
     val themeMode: Int = 0,
     val themeUseDynamicColor: Boolean = false,
     val autoBootEnabled: Boolean = true,
+    // Remote motion alert (change `add-motion-notification-to-other-phone`): when enabled and a recipient is
+    // set, a detected motion event is relayed through the Python server to one other phone. Off by default.
+    val motionAlertEnabled: Boolean = false,
+    val motionAlertRecipient: String = "",
 ) {
     companion object {
         /**

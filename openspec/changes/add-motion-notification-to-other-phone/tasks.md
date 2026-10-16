@@ -8,7 +8,10 @@
 
 ## 2. Implement (server relay first — no new dependency)
 
-- [ ] 2.1 Add a remote-recipient setting and verify it persists
+- [x] 2.1 Remote-recipient setting added and verified to persist: `motionAlertEnabled` + `motionAlertRecipient`
+  on `AppSettings`/`AppSettingsEntity` (Room v22, real `Migration(21, 22)`, exported `22.json`), mapped in
+  `DomainMappers`, editable in `SettingsEngineCard` (switch + recipient field), pinned by a
+  `SettingsViewModelTest` that asserts both land on the Room row
 - [ ] 2.2 Introduce the `MotionAlertTransport` seam and a server-relay implementation; emit the motion alert
   through it and verify a second phone receives it (needs the server-side relay endpoint)
 - [ ] 2.3 (Ask-First) Add the UnifiedPush backend, then FCM fallback, only after explicit dependency approval

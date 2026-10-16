@@ -73,7 +73,12 @@ data class AppSettingsEntity(
     // Whether BootReceiver restarts the monitor foreground service after a reboot. Default true preserves
     // the unconditional autostart existing installs had; MIGRATION_20_21 seeds it so an upgrade keeps that
     // behaviour, and the value is mirrored into AutoBootPrefs for the boot-time read.
-    val autoBootEnabled: Boolean = true
+    val autoBootEnabled: Boolean = true,
+    // Remote motion alert (change `add-motion-notification-to-other-phone`): relay a detected motion event
+    // through the Python server to one other phone. MIGRATION_21_22 adds both off/empty, so an upgraded
+    // install behaves exactly as before until the user opts in.
+    val motionAlertEnabled: Boolean = false,
+    val motionAlertRecipient: String = ""
 ) {
     companion object {
         /**
