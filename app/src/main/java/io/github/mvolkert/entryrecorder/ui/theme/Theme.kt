@@ -30,6 +30,7 @@ import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
 import io.github.mvolkert.entryrecorder.data.model.SipMode
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
+import io.github.mvolkert.entryrecorder.data.model.eventTypeLabelRes
 
 /**
  * User-selectable color mode. Stored as the enum ordinal in [io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity.themeMode];
@@ -279,12 +280,18 @@ private val statusMotion = StatusColor(Color(0xFF4FC3F7), Color(0xFF00293B))
 private val statusNoise = StatusColor(Color(0xFFCE93D8), Color(0xFF33103A))
 private val statusManual = StatusColor(Color(0xFF81C784), Color(0xFF0F2E12))
 
+// A neutral blue-grey for a trigger label this app does not recognise, so an unknown row still reads as a
+// badge rather than borrowing a real trigger's hue. Contrast-checked against black and its dark foreground
+// by StatusPaletteContrastTest like every other pairing here.
+private val statusUnknown = StatusColor(Color(0xFF90A4AE), Color(0xFF263238))
+
 /** The single trigger-badge palette, replacing the two divergent inline EventType maps. */
 fun statusColorFor(eventType: EventType): StatusColor = when (eventType) {
     EventType.RING -> statusRing
     EventType.MOTION -> statusMotion
     EventType.NOISE -> statusNoise
     EventType.MANUAL -> statusManual
+    EventType.UNKNOWN -> statusUnknown
 }
 
 /** Badge fill for a trigger type; also readable as on-scrim header text. */
@@ -349,17 +356,9 @@ object Spacing {
 
 /**
  * Localized label for a trigger badge — the single place an [EventType] becomes UI text, shared by the
- * recording list and the call header so both read identically (never the raw enum name). The resource
- * id is exposed too so non-composable callers (e.g. the share-sheet ViewModel) resolve the same string.
+ * recording list and the call header so both read identically (never the raw enum name). The resource id
+ * mapping lives in the data layer so non-composable callers (e.g. the export gateway) resolve it too.
  */
-@StringRes
-fun eventTypeLabelRes(eventType: EventType): Int = when (eventType) {
-    EventType.MOTION -> R.string.event_type_motion
-    EventType.RING -> R.string.event_type_ring
-    EventType.NOISE -> R.string.event_type_noise
-    EventType.MANUAL -> R.string.event_type_manual
-}
-
 @Composable
 fun eventTypeLabel(eventType: EventType): String = stringResource(eventTypeLabelRes(eventType))
 

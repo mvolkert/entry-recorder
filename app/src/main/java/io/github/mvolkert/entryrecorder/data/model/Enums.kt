@@ -34,7 +34,15 @@ enum class EventType {
     MOTION,
     RING,
     NOISE,
-    MANUAL
+    MANUAL,
+
+    /**
+     * A label this app has no constant for — currently only a server row whose `eventType` string does not
+     * match one of the four above. Rows fall here instead of being silently re-labelled MANUAL, so an
+     * unrecognised trigger is shown honestly (and the server's raw string stays on the row for inspection).
+     * Never produced by the device event path, so the trigger/recording policies below have no work for it.
+     */
+    UNKNOWN
 }
 
 enum class RecordingMode {

@@ -61,6 +61,7 @@ internal fun IncomingCallHeader(
                         EventType.MOTION -> R.string.incoming_header_motion
                         EventType.NOISE -> R.string.incoming_header_noise
                         EventType.MANUAL -> R.string.incoming_header_manual
+                        EventType.UNKNOWN -> R.string.incoming_header_unknown
                     }
                 )
                 Text(
