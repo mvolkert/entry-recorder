@@ -1,6 +1,7 @@
 package io.github.mvolkert.entryrecorder.sip
 
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 
 /**
  * The two things the settings screen needs from the SIP stack, as a JVM-only contract:
@@ -13,6 +14,6 @@ interface SipRegistrar {
     /** True while the monitor service holds a Linphone core, i.e. a live registration a probe would duplicate. */
     val hasActiveCore: Boolean
 
-    /** One-shot registration attempt against [device]'s configured registrar. See [SipCallManager.probeRegistration]. */
-    suspend fun probeRegistration(device: DeviceEntity): SipProbeResult
+    /** One-shot registration attempt against [Device]'s configured registrar. See [SipCallManager.probeRegistration]. */
+    suspend fun probeRegistration(device: Device): SipProbeResult
 }

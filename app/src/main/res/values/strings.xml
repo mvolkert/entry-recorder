@@ -373,6 +373,7 @@
     <string name="incoming_header_motion">👁 Motion Detected</string>
     <string name="incoming_header_noise">🔊 Noise Detected</string>
     <string name="incoming_header_manual">⏺ Manual Recording</string>
+    <string name="incoming_header_unknown">❓ Unrecognized Event</string>
     <string name="incoming_device_fallback">Intercom</string>
     <string name="incoming_cd_dismiss">Dismiss</string>
     <string name="incoming_cd_mute">Mute Microphone</string>
@@ -441,6 +442,7 @@
     <string name="event_type_ring">Ring</string>
     <string name="event_type_noise">Noise</string>
     <string name="event_type_manual">Manual</string>
+    <string name="event_type_unknown">Unknown</string>
     <string name="sip_mode_peer_to_peer">Peer-to-peer</string>
     <string name="sip_mode_pbx_registrar">PBX</string>
     <string name="sip_mode_disabled">Disabled</string>

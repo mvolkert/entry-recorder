@@ -4,11 +4,15 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.di.ControlClient
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -55,7 +59,7 @@ class MjpegStreamReader @Inject constructor(
     /**
      * Reads continuous MJPEG multipart stream from device.mjpegUrl and yields decoded Bitmaps.
      */
-    fun streamBitmaps(device: DeviceEntity): Flow<Bitmap> = flow {
+    fun streamBitmaps(device: Device): Flow<Bitmap> = flow {
         val requestBuilder = Request.Builder().url(device.mjpegUrl)
         if (device.username.isNotBlank() || device.password.isNotBlank()) {
             requestBuilder.header("Authorization", Credentials.basic(device.username, device.password))
@@ -108,7 +112,7 @@ class MjpegStreamReader @Inject constructor(
     /**
      * Reads continuous MJPEG stream and yields raw JPEG byte chunks (ideal for direct disk muxing).
      */
-    fun streamRawJpeg(device: DeviceEntity): Flow<ByteArray> = flow {
+    fun streamRawJpeg(device: Device): Flow<ByteArray> = flow {
         val requestBuilder = Request.Builder().url(device.mjpegUrl)
         if (device.username.isNotBlank() || device.password.isNotBlank()) {
             requestBuilder.header("Authorization", Credentials.basic(device.username, device.password))
@@ -199,7 +203,7 @@ class MjpegStreamReader @Inject constructor(
      * body for JPEG markers yields zero frames, which reads as a dead camera — so the wrong shape is
      * reported as what it is instead of streaming nothing.
      */
-    private fun requireMjpegContentType(response: Response, device: DeviceEntity) {
+    private fun requireMjpegContentType(response: Response, device: Device) {
         val contentType = response.body.contentType()?.toString().orEmpty()
         val mainType = contentType.substringBefore(';').trim().lowercase(Locale.US)
         if (mainType.startsWith("multipart") || mainType.startsWith("image")) return
@@ -212,8 +216,7 @@ class MjpegStreamReader @Inject constructor(
 
     /**
      * Efficiently scans a multipart stream for JPEG SOI (0xFF, 0xD8) and EOI (0xFF, 0xD9) markers.
-     * Reads in chunks (not byte-by-byte) and invokes the suspend [onFrame] directly, so it no longer
-     * calls runBlocking per frame inside the collector (which could block the IO dispatcher).
+     * Reads in chunks (not byte-by-byte) and invokes the suspend [onFrame] directly.
      */
     private suspend fun readMjpegStream(
         inputStream: InputStream,
@@ -226,11 +229,10 @@ class MjpegStreamReader @Inject constructor(
 
         while (true) {
             // Checked before every read: the read itself cannot be interrupted from this coroutine, but a
-            // cancelled collector must at least stop asking for the next chunk.
+            // cancelled collector must at least stop asking for the next chunk. The blocking read runs on
+            // the collector's dispatcher already (every caller ends with flowOn(ioDispatcher)).
             currentCoroutineContext().ensureActive()
-            val read = withContext(ioDispatcher) {
-                inputStream.read(chunk)
-            }
+            val read = inputStream.read(chunk)
             if (read == -1) break
 
             var i = 0

@@ -5,13 +5,22 @@ import android.graphics.BitmapFactory
 import android.util.Log
 import androidx.core.graphics.scale
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.ConnectionCapability
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.MotionSensitivity
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
@@ -23,7 +32,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * use, so auth, timeouts and failure reporting behave identically wherever the camera is polled.
  */
 class OnDeviceMotionAnalyzer(
-    val deviceEntity: DeviceEntity,
+    val device: Device,
     private val listener: IntercomEventListener,
     private val snapshotClient: HttpSnapshotClient,
     private val ioDispatcher: CoroutineDispatcher,
@@ -52,10 +61,10 @@ class OnDeviceMotionAnalyzer(
      * [MotionSensitivity]. BALANCED equals the analyzer's original fixed constants, so a device that
      * never touched the setting behaves as before.
      */
-    private val tuning = motionTuningFor(deviceEntity.motionSensitivity)
+    private val tuning = motionTuningFor(device.motionSensitivity)
 
     /** Ring size for [bufferPreRoll]: the device's configured pre-roll count, clamped to the sane range. */
-    private val preRollCapacity = deviceEntity.effectiveMotionPreRollFrames
+    private val preRollCapacity = device.effectiveMotionPreRollFrames
 
     // Adaptive idle polling: back off while the scene is static to save CPU/network, but snap
     // straight back to the fast base interval the moment any change is seen, so detection stays
@@ -77,9 +86,9 @@ class OnDeviceMotionAnalyzer(
     fun start() {
         if (job?.isActive == true) return
         resetState()
-        reportedQuality = snapshotClient.snapshotQuality(deviceEntity.id)
+        reportedQuality = snapshotClient.snapshotQuality(device.id)
         lastReportAtMs = System.currentTimeMillis()
-        Log.i(tag, "Analyzing ${deviceEntity.name} at ${deviceEntity.snapshotUrl}")
+        Log.i(tag, "Analyzing ${device.name} at ${device.snapshotUrl}")
         job = scope.launch { runLoop() }
     }
 
@@ -113,7 +122,7 @@ class OnDeviceMotionAnalyzer(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(tag, "Frame grab/analysis failed for ${deviceEntity.name}: ${e.message}")
+                Log.w(tag, "Frame grab/analysis failed for ${device.name}: ${e.message}")
             }
             pollsSinceReport++
             reportHealthIfDue()
@@ -137,15 +146,15 @@ class OnDeviceMotionAnalyzer(
      * that stopped serving frames visible in the UI instead of only in logcat.
      */
     private fun reportConnectionEdge() {
-        val quality = snapshotClient.snapshotQuality(deviceEntity.id)
+        val quality = snapshotClient.snapshotQuality(device.id)
         if (quality == reportedQuality) return
         reportedQuality = quality
-        val failures = snapshotClient.consecutiveFailures(deviceEntity.id)
+        val failures = snapshotClient.consecutiveFailures(device.id)
         val message = if (quality == ConnectionQuality.ONLINE)
             "Snapshot frames recovered after $failures missed polls"
         else "Snapshot endpoint delivered no frame for $failures polls in a row"
         listener.onEvent(
-            IntercomEvent.ConnectionState(deviceEntity, quality, message, ConnectionCapability.SNAPSHOT)
+            IntercomEvent.ConnectionState(device, quality, message, ConnectionCapability.SNAPSHOT)
         )
     }
 
@@ -158,22 +167,22 @@ class OnDeviceMotionAnalyzer(
 
         // Measured versus configured rate: the endpoint's serial ceiling means the configured value is
         // a wish, not a guarantee, and "no continuous observation" has to stop being a silent lie.
-        val achievedFps = snapshotClient.achievedFps(deviceEntity.id)
+        val achievedFps = snapshotClient.achievedFps(device.id)
 
         if (pollsSinceReport > 0 && framesSinceReport == 0) {
             Log.w(
                 tag,
-                "No analysis frames from ${deviceEntity.name}: $pollsSinceReport polls, 0 usable JPEGs " +
+                "No analysis frames from ${device.name}: $pollsSinceReport polls, 0 usable JPEGs " +
                     "in ${elapsedMs / 1000}s — endpoint not serving images (check the HttpSnapshotClient log lines)"
             )
         } else {
             Log.i(
                 tag,
-                "Motion analysis on ${deviceEntity.name}: $framesSinceReport/$pollsSinceReport frames, " +
+                "Motion analysis on ${device.name}: $framesSinceReport/$pollsSinceReport frames, " +
                     "peak change ${(peakChangedRatio * 100).toInt()}% of ${ANALYSIS_WIDTH}x$ANALYSIS_HEIGHT " +
                     "(needs ${(tuning.ratioThreshold * 100).toInt()}% on ${tuning.requiredMotionFrames} in a row, " +
-                    "${deviceEntity.motionSensitivity}), " +
-                    "poll ${currentPollMs}ms, %.1f fps achieved (configured ${deviceEntity.effectiveSnapshotFps})".format(achievedFps)
+                    "${device.motionSensitivity}), " +
+                    "poll ${currentPollMs}ms, %.1f fps achieved (configured ${device.effectiveSnapshotFps})".format(achievedFps)
             )
         }
         pollsSinceReport = 0
@@ -210,17 +219,17 @@ class OnDeviceMotionAnalyzer(
 
         if (!isMotionActive && consecutiveMotionFrames >= tuning.requiredMotionFrames) {
             isMotionActive = true
-            Log.i(tag, "Motion start on ${deviceEntity.name}: ${(changedRatio * 100).toInt()}% changed pixels")
-            listener.onEvent(IntercomEvent.MotionOnDeviceStarted(deviceEntity))
+            Log.i(tag, "Motion start on ${device.name}: ${(changedRatio * 100).toInt()}% changed pixels")
+            listener.onEvent(IntercomEvent.MotionOnDeviceStarted(device))
         } else if (isMotionActive && consecutiveClearFrames >= tuning.requiredClearFrames) {
             isMotionActive = false
-            Log.i(tag, "Motion end on ${deviceEntity.name}")
-            listener.onEvent(IntercomEvent.MotionOnDeviceEnded(deviceEntity))
+            Log.i(tag, "Motion end on ${device.name}")
+            listener.onEvent(IntercomEvent.MotionOnDeviceEnded(device))
         }
     }
 
     private suspend fun fetchGrayscaleFrame(): IntArray? {
-        val bytes = snapshotClient.fetchSnapshotBytes(deviceEntity) ?: return null
+        val bytes = snapshotClient.fetchSnapshotBytes(device) ?: return null
         val decoded = decodeDownscaled(bytes) ?: return null
         // The ring exists to prepend the approach frames of a *new* trigger. While a local recording is
         // running those frames are already going to disk, so holding a ring of full-res JPEGs per poll

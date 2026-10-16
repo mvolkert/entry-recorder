@@ -55,6 +55,7 @@ import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import androidx.media3.ui.PlayerView
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
@@ -72,7 +73,7 @@ import kotlin.time.Duration.Companion.milliseconds
 @OptIn(UnstableApi::class)
 @Composable
 fun LiveStreamPlayer(
-    device: DeviceEntity,
+    device: Device,
     mjpegReader: MjpegStreamReader,
     snapshotClient: HttpSnapshotClient,
     modifier: Modifier = Modifier,

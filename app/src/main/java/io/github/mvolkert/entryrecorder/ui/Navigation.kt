@@ -2,6 +2,7 @@ package io.github.mvolkert.entryrecorder.ui
 
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -33,6 +34,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
+import androidx.navigation.NamedNavArgument
+import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -85,6 +88,9 @@ private const val ROUTE_TABS = "tabs"
 // Editing a device is a settings-detail fullscreen route, reached from the Devices submenu.
 private const val ROUTE_DEVICE_EDIT = "settings/device/{deviceId}"
 private const val ARG_DEVICE_ID = "deviceId"
+
+/** The only correct way to build a device-edit route; keeps call sites aligned with [ROUTE_DEVICE_EDIT]. */
+private fun deviceEditRoute(deviceId: Long): String = "settings/device/$deviceId"
 
 /**
  * Root composable. Owns the [androidx.navigation.NavHostController] and the hoisted pager state (kept
@@ -142,6 +148,26 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
     val detailPopExit: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> ExitTransition = {
         slideOutHorizontally(animationSpec = slideSpec, targetOffsetX = { it / 4 }) +
             fadeOut(animationSpec = fadeSpec)
+    }
+    // One builder for every settings-detail destination: same transitions, same width cap. The content
+    // lambda carries the destination's AnimatedVisibilityScope, so callers keep using this@settingsDetail.
+    fun NavGraphBuilder.settingsDetail(
+        route: String,
+        arguments: List<NamedNavArgument> = emptyList(),
+        content: @Composable AnimatedVisibilityScope.(androidx.navigation.NavBackStackEntry) -> Unit,
+    ) {
+        composable(
+            route = route,
+            arguments = arguments,
+            enterTransition = detailEnter,
+            exitTransition = detailExit,
+            popEnterTransition = detailPopEnter,
+            popExitTransition = detailPopExit,
+        ) { entry ->
+            Box(Modifier.appContentMaxWidth()) {
+                content(entry)
+            }
+        }
     }
 
     CompositionLocalProvider(
@@ -205,98 +231,52 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
                             }
                         }
                     }
-                    composable(
-                        route = ROUTE_SETTINGS_DEVICES,
-                        enterTransition = detailEnter,
-                        exitTransition = detailExit,
-                        popEnterTransition = detailPopEnter,
-                        popExitTransition = detailPopExit,
-                    ) {
-                        Box(Modifier.appContentMaxWidth()) {
-                            SettingsDevicesScreen(
-                                viewModel = settingsViewModel,
-                                onBack = { navController.popBackStack() },
-                                onEditDevice = { id -> navController.navigate("settings/device/$id") },
-                                onAddDevice = { navController.navigate("settings/device/$NEW_DEVICE_ID") },
-                                sharedTransitionScope = this@SharedTransitionLayout,
-                                animatedVisibilityScope = this@composable,
-                            )
-                        }
+                    settingsDetail(ROUTE_SETTINGS_DEVICES) {
+                        SettingsDevicesScreen(
+                            viewModel = settingsViewModel,
+                            onBack = { navController.popBackStack() },
+                            onEditDevice = { id -> navController.navigate(deviceEditRoute(id)) },
+                            onAddDevice = { navController.navigate(deviceEditRoute(NEW_DEVICE_ID)) },
+                            sharedTransitionScope = this@SharedTransitionLayout,
+                            animatedVisibilityScope = this@settingsDetail,
+                        )
                     }
-                    composable(
-                        route = ROUTE_SETTINGS_ENGINE,
-                        enterTransition = detailEnter,
-                        exitTransition = detailExit,
-                        popEnterTransition = detailPopEnter,
-                        popExitTransition = detailPopExit,
-                    ) {
-                        Box(Modifier.appContentMaxWidth()) {
-                            SettingsEngineScreen(
-                                viewModel = settingsViewModel,
-                                onBack = { navController.popBackStack() },
-                            )
-                        }
+                    settingsDetail(ROUTE_SETTINGS_ENGINE) {
+                        SettingsEngineScreen(
+                            viewModel = settingsViewModel,
+                            onBack = { navController.popBackStack() },
+                        )
                     }
-                    composable(
-                        route = ROUTE_SETTINGS_STORAGE,
-                        enterTransition = detailEnter,
-                        exitTransition = detailExit,
-                        popEnterTransition = detailPopEnter,
-                        popExitTransition = detailPopExit,
-                    ) {
-                        Box(Modifier.appContentMaxWidth()) {
-                            SettingsStorageScreen(
-                                viewModel = settingsViewModel,
-                                onBack = { navController.popBackStack() },
-                            )
-                        }
+                    settingsDetail(ROUTE_SETTINGS_STORAGE) {
+                        SettingsStorageScreen(
+                            viewModel = settingsViewModel,
+                            onBack = { navController.popBackStack() },
+                        )
                     }
-                    composable(
-                        route = ROUTE_SETTINGS_APPEARANCE,
-                        enterTransition = detailEnter,
-                        exitTransition = detailExit,
-                        popEnterTransition = detailPopEnter,
-                        popExitTransition = detailPopExit,
-                    ) {
-                        Box(Modifier.appContentMaxWidth()) {
-                            SettingsAppearanceScreen(
-                                viewModel = settingsViewModel,
-                                onBack = { navController.popBackStack() },
-                            )
-                        }
+                    settingsDetail(ROUTE_SETTINGS_APPEARANCE) {
+                        SettingsAppearanceScreen(
+                            viewModel = settingsViewModel,
+                            onBack = { navController.popBackStack() },
+                        )
                     }
-                    composable(
-                        route = ROUTE_SETTINGS_BACKUP,
-                        enterTransition = detailEnter,
-                        exitTransition = detailExit,
-                        popEnterTransition = detailPopEnter,
-                        popExitTransition = detailPopExit,
-                    ) {
-                        Box(Modifier.appContentMaxWidth()) {
-                            SettingsBackupScreen(
-                                viewModel = settingsViewModel,
-                                onBack = { navController.popBackStack() },
-                            )
-                        }
+                    settingsDetail(ROUTE_SETTINGS_BACKUP) {
+                        SettingsBackupScreen(
+                            viewModel = settingsViewModel,
+                            onBack = { navController.popBackStack() },
+                        )
                     }
-                    composable(
+                    settingsDetail(
                         route = ROUTE_DEVICE_EDIT,
                         arguments = listOf(navArgument(ARG_DEVICE_ID) { type = NavType.LongType }),
-                        enterTransition = detailEnter,
-                        exitTransition = detailExit,
-                        popEnterTransition = detailPopEnter,
-                        popExitTransition = detailPopExit,
                     ) { entry ->
                         val deviceId = entry.arguments?.getLong(ARG_DEVICE_ID) ?: NEW_DEVICE_ID
-                        Box(Modifier.appContentMaxWidth()) {
-                            DeviceEditScreen(
-                                viewModel = settingsViewModel,
-                                deviceId = deviceId,
-                                onDone = { navController.popBackStack() },
-                                sharedTransitionScope = this@SharedTransitionLayout,
-                                animatedVisibilityScope = this@composable,
-                            )
-                        }
+                        DeviceEditScreen(
+                            viewModel = settingsViewModel,
+                            deviceId = deviceId,
+                            onDone = { navController.popBackStack() },
+                            sharedTransitionScope = this@SharedTransitionLayout,
+                            animatedVisibilityScope = this@settingsDetail,
+                        )
                     }
                 }
                 }

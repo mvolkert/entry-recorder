@@ -7,7 +7,9 @@ import android.media.AudioManager
 import android.os.Build
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
+import io.github.mvolkert.entryrecorder.di.ApplicationScope
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.SipMode
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
@@ -18,7 +20,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -79,13 +80,15 @@ sealed interface SipProbeResult {
 @Singleton
 class SipCallManager @Inject constructor(
     @ApplicationContext private val app: Context,
+    // Process-lifetime scope from the graph, so tests can drive this class with their own dispatcher
+    // instead of a self-built Dispatchers.Default.
+    @ApplicationScope private val scope: CoroutineScope,
 ) : SipRegistrar {
 
     private val tag = "SipCallManager"
     private var core: Core? = null
     private var currentCall: Call? = null
     private val audioManager = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var idleResetJob: Job? = null
 
     // Probes share one Linphone Factory and one port space, so they run one at a time on rotating ports.
@@ -225,16 +228,15 @@ class SipCallManager @Inject constructor(
     }
 
     /**
-     * Points the monitor's core at [device]'s SIP setup, retiring whatever that core had registered first.
+     * Points the monitor's core at [Device]'s SIP setup, retiring whatever that core had registered first.
      *
      * Suspend because every call below mutates a core whose loop the SDK schedules on the main thread, and
      * Linphone's API is not thread-safe; this used to run on the service's IO dispatcher.
+     *
+     * The Core ProxyConfig APIs below are deprecated in Linphone 5.x; the migration to the Account API is
+     * tracked as the `migrate-linphone-account-api` OpenSpec change.
      */
-    // TODO(sip): Core ProxyConfig APIs below (createProxyConfig/edit/done/addProxyConfig/
-    //   defaultProxyConfig/removeProxyConfig + address/register setters) and Factory.setDebugMode are
-    //   deprecated in Linphone 5.x in favor of the Account API. Migration deferred pending real
-    //   device/PBX validation (2Do Phase 2).
-    suspend fun configureDeviceSip(device: DeviceEntity) {
+    suspend fun configureDeviceSip(device: Device) {
         withContext(Dispatchers.Main.immediate) {
             val c = core ?: return@withContext
 
@@ -316,7 +318,7 @@ class SipCallManager @Inject constructor(
      * The answer is reported, then the core is shut down on a later main loop message; see the teardown below
      * for why stopping it from inside the registration callback kills the process.
      */
-    override suspend fun probeRegistration(device: DeviceEntity): SipProbeResult = probeLock.withLock {
+    override suspend fun probeRegistration(device: Device): SipProbeResult = probeLock.withLock {
         if (device.sipMode != SipMode.PBX_REGISTRAR) {
             return@withLock SipProbeResult.MissingFields(SipMissingField.CALLING_MODE)
         }

@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.video
 
-import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import io.github.mvolkert.entryrecorder.domain.model.Recording
 import java.io.File
 
 /**
@@ -22,7 +22,7 @@ interface H264Transcoder {
      * @throws IllegalStateException if there are no frames or the platform encoder is unavailable.
      */
     suspend fun transcodeToH264(
-        recording: RecordingEntity,
+        recording: Recording,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
     ): File
 }
