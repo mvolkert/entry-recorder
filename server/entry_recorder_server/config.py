@@ -57,6 +57,11 @@ class Settings(BaseSettings):
 
     HOST: str = "0.0.0.0"
     PORT: int = 8000
+    # WAN TLS posture (change `harden-network-transport`): when both paths are set the server serves HTTPS
+    # with the operator's certificate chain; when either is absent it stays on cleartext HTTP, which is the
+    # default for local/LAN deployments. Certificates are supplied by the deployment, never shipped here.
+    SSL_CERTFILE: str = os.environ.get("SSL_CERTFILE", "")
+    SSL_KEYFILE: str = os.environ.get("SSL_KEYFILE", "")
     DATA_DIR: Path = Path(os.environ.get("DATA_DIR", "./data"))
     API_KEY: str = os.environ.get("API_KEY", "")  # Optional API key for security
     RETENTION_DAYS: int = 14

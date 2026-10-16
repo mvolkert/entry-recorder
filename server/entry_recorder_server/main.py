@@ -429,6 +429,26 @@ async def live_mjpeg(
         raise HTTPException(status_code=500, detail=str(e))
 
 def run_server():
+    # WAN TLS posture (change `harden-network-transport`): serve HTTPS when the deployment supplies a
+    # certificate chain, otherwise stay on cleartext HTTP for local/LAN use. Never silently half-configure
+    # TLS: if only one of the two paths is set, fall back to cleartext and warn rather than crash on startup.
+    certfile = settings.SSL_CERTFILE
+    keyfile = settings.SSL_KEYFILE
+    if certfile and keyfile:
+        logger.info("Serving over HTTPS (cert=%s, key=%s)", certfile, keyfile)
+        uvicorn.run(
+            app,
+            host=settings.HOST,
+            port=settings.PORT,
+            reload=False,
+            ssl_certfile=certfile,
+            ssl_keyfile=keyfile,
+        )
+        return
+    if certfile or keyfile:
+        logger.warning(
+            "TLS requested but only one of SSL_CERTFILE/SSL_KEYFILE is set; serving cleartext HTTP instead."
+        )
     uvicorn.run(
         app,
         host=settings.HOST,

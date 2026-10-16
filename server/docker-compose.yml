@@ -14,3 +14,10 @@ services:
       - PORT=8000
       - RETENTION_DAYS=14
       - MAX_STORAGE_MB=20480
+      # WAN TLS (optional): mount a certificate chain + key and point these at them to serve HTTPS.
+      # Left unset the server stays on cleartext HTTP for local/LAN deployments.
+      # - SSL_CERTFILE=/app/tls/fullchain.pem
+      # - SSL_KEYFILE=/app/tls/privkey.pem
+    # volumes:
+    #   - ./data:/app/data
+    #   - ./tls:/app/tls:ro
