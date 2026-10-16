@@ -1,49 +1,46 @@
 package io.github.mvolkert.entryrecorder.ui.recordings
 
-import android.content.Context
 import androidx.annotation.PluralsRes
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.mvolkert.entryrecorder.R
-import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
-import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
-import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
-import io.github.mvolkert.entryrecorder.data.local.entity.triggerTypes
+import io.github.mvolkert.entryrecorder.domain.model.AppSettings
+import io.github.mvolkert.entryrecorder.domain.model.Device
+import io.github.mvolkert.entryrecorder.domain.model.Recording
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.data.repository.RecordingDeleteResult
 import io.github.mvolkert.entryrecorder.data.server.ServerClient
+import io.github.mvolkert.entryrecorder.data.server.ServerMediaUrls
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingDto
-import io.github.mvolkert.entryrecorder.di.IoDispatcher
-import io.github.mvolkert.entryrecorder.ui.theme.eventTypeLabelRes
-import io.github.mvolkert.entryrecorder.util.AppStorageDirs
-import io.github.mvolkert.entryrecorder.util.ExportGateway
+import io.github.mvolkert.entryrecorder.util.ExportContext
+import io.github.mvolkert.entryrecorder.util.ExportMetadata
+import io.github.mvolkert.entryrecorder.util.ExportRunner
+import io.github.mvolkert.entryrecorder.util.RecordingExportKind
+import io.github.mvolkert.entryrecorder.util.ServerRecordingSource
 import io.github.mvolkert.entryrecorder.util.UiStrings
-import io.github.mvolkert.entryrecorder.video.H264Transcoder
 import javax.inject.Inject
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
-
-/** Where a manually triggered export delivers the file. */
-enum class RecordingExportKind {
-    SHARE, GALLERY, FOLDER,
-
-    /** Delivers the original captured file to the SAF export folder with no transcode, ignoring the Settings toggle. */
-    RAW_FOLDER
-}
 
 data class RecordingsUiState(
     val items: List<GalleryItem> = emptyList(),
-    val devices: List<DeviceEntity> = emptyList(),
+    val devices: List<Device> = emptyList(),
     val selectedDeviceId: Long? = null,
     val selectedEventType: EventType? = null,
     val searchQuery: String = "",
@@ -56,8 +53,8 @@ data class RecordingsUiState(
     val serverModeEnabled: Boolean = false
 ) {
     /** Only local recordings are selectable / exportable / deletable; server rows are read-only for now. */
-    val localRecordings: List<RecordingEntity>
-        get() = items.filterIsInstance<GalleryItem.Local>().map { it.entity }
+    val localRecordings: List<Recording>
+        get() = items.filterIsInstance<GalleryItem.Local>().map { it.recording }
 }
 
 /** One-shot export effects the screen has to perform (snack-bar messages, the share sheet). */
@@ -67,14 +64,11 @@ sealed interface RecordingsUiEvent {
     /**
      * The share sheet has to be launched from an Activity context (the single-file path does not add
      * `FLAG_ACTIVITY_NEW_TASK`), so the ViewModel resolves the files and the screen performs the launch.
-     * [recording] is non-null for a single local share; for a downloaded server row there is no entity, so
-     * [deviceName] / [eventTypeLabel] carry the sheet's labels instead; both null means the multi-select batch.
+     * [metadata] carries the sheet's labels for a single-clip share; null means the multi-select batch.
      */
     data class Share(
         val files: List<File>,
-        val recording: RecordingEntity?,
-        val deviceName: String? = null,
-        val eventTypeLabel: String? = null
+        val metadata: ExportMetadata? = null,
     ) : RecordingsUiEvent
 
     /** Sent when a batch export finishes, so the screen can leave multi-select. */
@@ -91,15 +85,11 @@ sealed interface RecordingsUiEvent {
 class RecordingsViewModel @Inject constructor(
     private val repository: IntercomRepository,
     private val serverClient: ServerClient,
-    private val exportGateway: ExportGateway,
-    private val transcoder: H264Transcoder,
-    // MediaStore writes and the scratch folder the transcoder works in need paths, and the messages need
-    // resource formatting: both arrive as [storageDirs] / [strings] rather than as a Context, so this class
-    // can be constructed and driven from an ordinary JVM test. The one Context left is the Activity share()
-    // has to be started from, which only the screen can supply.
-    private val storageDirs: AppStorageDirs,
     private val strings: UiStrings,
-    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+    // The whole transcode → deliver → progress → celebrate pipeline lives in [ExportRunner]; the ViewModel
+    // keeps only the state the strip and the snack bar read (the progress flows, the event channel) and the
+    // intents that start, guard and cancel a run.
+    private val exportRunner: ExportRunner,
 ) : ViewModel() {
 
     private val _selectedDeviceId = MutableStateFlow<Long?>(null)
@@ -161,37 +151,25 @@ class RecordingsViewModel @Inject constructor(
         _serverDownload.value = null
     }
 
-    /** Drops the half-written H.264 a cancelled transcode leaves in the scratch folder. */
-    private fun deletePartialTranscode(source: File) {
-        transcoder.outputFor(source).delete()
-    }
-
     private val _events = Channel<RecordingsUiEvent>(Channel.BUFFERED)
 
     /** Export results the screen turns into a snack-bar message or a share sheet. */
     val events: Flow<RecordingsUiEvent> = _events.receiveAsFlow()
 
     /**
-     * Opens the system share sheet for [event]. [context] has to be the Activity hosting the screen: the
-     * single-file sheet is started without NEW_TASK, so an application context would place it outside the
-     * app's task. Everything else about a share is decided here — which of the three payload shapes the
-     * event is, and how the gateway's outcome text gets back to the snack bar — so the screen holds no
-     * gateway of its own.
+     * Wires the [ExportRunner]'s progress + effect callbacks to this ViewModel's flows and event channel:
+     * the runner owns the pipeline, the ViewModel only mirrors what it reports onto the state the screen
+     * reads. The share effect is forwarded to the screen (as a [RecordingsUiEvent.Share]) because only an
+     * Activity context can open the system sheet — the ViewModel holds none.
      */
-    fun share(context: Context, event: RecordingsUiEvent.Share, onMessage: (String) -> Unit) {
-        val recording = event.recording
-        val deviceName = event.deviceName
-        val file = event.files.firstOrNull()
-        when {
-            recording != null && file != null ->
-                exportGateway.shareFile(context, file, recording, onMessage)
-
-            deviceName != null && file != null ->
-                exportGateway.shareFile(context, file, deviceName, event.eventTypeLabel ?: "", onMessage)
-
-            else -> exportGateway.shareFiles(context, event.files, onMessage)
-        }
-    }
+    private val exportContext = ExportContext(
+        onExportProgress = { percent, bodyRes -> _exportProgress.value = ExportRunProgress(percent, bodyRes) },
+        onBatchProgress = { done, total -> _batchProgress.value = done to total },
+        onServerDownload = { percent -> _serverDownload.value = percent },
+        onMessage = { text, short -> emitMessage(text, short) },
+        onShare = { files, metadata -> _events.trySend(RecordingsUiEvent.Share(files, metadata)) },
+        onCelebrate = { _events.trySend(RecordingsUiEvent.ExportCompleted) },
+    )
 
     /** Server rows are a lazy one-shot fetch, kept out of the Room flow so an offline server can't stall it. */
     private data class ServerListState(
@@ -202,9 +180,9 @@ class RecordingsViewModel @Inject constructor(
 
     private data class Filters(val deviceId: Long?, val eventType: EventType?, val query: String)
     private data class SourceData(
-        val recordings: List<RecordingEntity>,
-        val devices: List<DeviceEntity>,
-        val settings: AppSettingsEntity?,
+        val recordings: List<Recording>,
+        val devices: List<Device>,
+        val settings: AppSettings?,
         val server: ServerListState
     )
 
@@ -248,7 +226,7 @@ class RecordingsViewModel @Inject constructor(
                         if (selectedServerId != null) dto.deviceId == selectedServerId
                         else dto.deviceName == selectedDevice?.name
                 val matchesType = filters.eventType == null ||
-                        runCatching { EventType.valueOf(dto.eventType) }.getOrDefault(EventType.MANUAL) == filters.eventType
+                        runCatching { EventType.valueOf(dto.eventType) }.getOrDefault(EventType.UNKNOWN) == filters.eventType
                 val matchesQuery = filters.query.isBlank() ||
                         dto.deviceName.contains(filters.query, ignoreCase = true) ||
                         (dto.note?.contains(filters.query, ignoreCase = true) == true)
@@ -256,8 +234,8 @@ class RecordingsViewModel @Inject constructor(
                 if (!matchesDevice || !matchesType || !matchesQuery || video == null) null
                 else GalleryItem.Remote(
                     dto = dto,
-                    thumbnailAbsoluteUrl = absoluteServerUrl(settings.serverBaseUrl, dto.thumbnailUrl, settings.serverApiKey),
-                    videoAbsoluteUrl = absoluteServerUrl(settings.serverBaseUrl, video, settings.serverApiKey) ?: ""
+                    thumbnailAbsoluteUrl = ServerMediaUrls.absolute(settings.serverBaseUrl, dto.thumbnailUrl, settings.serverApiKey),
+                    videoAbsoluteUrl = ServerMediaUrls.absolute(settings.serverBaseUrl, video, settings.serverApiKey) ?: ""
                 )
             }
         } else emptyList()
@@ -275,16 +253,6 @@ class RecordingsViewModel @Inject constructor(
             serverModeEnabled = settings?.recordingMode == RecordingMode.PYTHON_SERVER
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RecordingsUiState())
-
-    /**
-     * Prefixes a server-relative media path with the base URL and appends the API key as a query param,
-     * because image and video loads go through Coil / ExoPlayer, which cannot set the X-API-Key header.
-     */
-    private fun absoluteServerUrl(baseUrl: String, relative: String?, apiKey: String): String? {
-        if (relative == null) return null
-        val full = baseUrl.trimEnd('/') + relative
-        return if (apiKey.isBlank()) full else "$full?api_key=$apiKey"
-    }
 
     /**
      * Fetches the server's completed recordings; called when the screen is shown. A no-op that also clears
@@ -335,7 +303,7 @@ class RecordingsViewModel @Inject constructor(
         _events.trySend(RecordingsUiEvent.SelectionCleared)
     }
 
-    fun deleteRecording(recording: RecordingEntity) {
+    fun deleteRecording(recording: Recording) {
         // Drop the row from the selection where it still sits, so the header count never names a clip
         // that is already gone and a deleted anchor cannot stretch a range across the list.
         _selectedIds.update { it - recording.id }
@@ -411,7 +379,7 @@ class RecordingsViewModel @Inject constructor(
      * Every local recording, filters ignored — what a bulk operation resolves its checked ids against.
      * Reading the screen state instead would let a filter quietly shrink the batch the user confirmed.
      */
-    private suspend fun allLocalRecordings(): List<RecordingEntity> = repository.allRecordings.first()
+    private suspend fun allLocalRecordings(): List<Recording> = repository.allRecordings.first()
 
     /** Deletes the unprotected selected recordings (and their files), then clears the selection. */
     fun deleteSelected() {
@@ -440,7 +408,7 @@ class RecordingsViewModel @Inject constructor(
         }
     }
 
-    fun toggleProtection(recording: RecordingEntity) {
+    fun toggleProtection(recording: Recording) {
         viewModelScope.launch {
             repository.setRecordingProtected(recording.id, !recording.isProtected)
         }
@@ -488,111 +456,15 @@ class RecordingsViewModel @Inject constructor(
     }
 
     /**
-     * Downloads one server recording into the app cache, then delivers it like a local export. The server
-     * file is already H.264, so there is no transcode step; SHARE/GALLERY/FOLDER just move the downloaded
-     * copy; the download crosses the network, so it runs under the progress strip and can be cancelled.
+     * Exports one recording through [ExportRunner]; the busy guard and the progress strip's lifecycle stay
+     * here — the run owns [activeRun] so a second request is refused, and [finishRun] drops every flow when
+     * the run ends or is cancelled.
      */
-    fun exportServerRecording(item: GalleryItem.Remote, kind: RecordingExportKind) {
-        if (runBusy()) return
-        if (item.videoAbsoluteUrl.isBlank()) {
-            message(R.string.recordings_toast_download_failed, "no video url")
-            return
-        }
-        activeRun = viewModelScope.launch {
-            try {
-                val settings = repository.getSettings()
-                if (kind == RecordingExportKind.FOLDER && settings.exportFolderUri.isBlank()) {
-                    message(R.string.recordings_toast_set_folder_first)
-                    return@launch
-                }
-                _serverDownload.value = 0
-                val result = serverClient.downloadVideo(
-                    absoluteUrl = item.videoAbsoluteUrl,
-                    targetDir = storageDirs.transcodeScratchDir,
-                    baseName = "server_rec_${item.dto.id}"
-                ) { percent -> _serverDownload.value = percent }
-                result
-                    .onSuccess { file -> deliverRemote(item, file, kind, settings.exportFolderUri) }
-                    .onFailure { error -> message(R.string.recordings_toast_download_failed, error.message ?: "") }
-            } finally {
-                finishRun()
-            }
-        }
-    }
-
-    private suspend fun deliverRemote(item: GalleryItem.Remote, file: File, kind: RecordingExportKind, exportFolderUri: String) {
-        val deviceName = item.deviceName
-        val label = strings(eventTypeLabelRes(item.eventType))
-        when (kind) {
-            RecordingExportKind.SHARE ->
-                _events.trySend(RecordingsUiEvent.Share(listOf(file), recording = null, deviceName = deviceName, eventTypeLabel = label))
-
-            RecordingExportKind.GALLERY -> if (saveSingleToGallery(file, deviceName)) celebrate()
-
-            // RAW_FOLDER never reaches a server row (no local original), it just keeps the when exhaustive.
-            RecordingExportKind.FOLDER, RecordingExportKind.RAW_FOLDER -> {
-                val ok = withContext(ioDispatcher) {
-                    exportGateway.saveFileToSafFolder(exportFolderUri, file, file.name)
-                }
-                if (ok) {
-                    message(R.string.recordings_toast_exported_to, exportGateway.safFolderDisplayName(exportFolderUri))
-                    celebrate()
-                } else {
-                    message(R.string.recordings_toast_export_folder_failed)
-                }
-            }
-        }
-    }
-
-    // --- Manual export (lazy transcode) ---
-
-    /**
-     * Exports one recording to [kind]'s destination, transcoding the raw MJPEG MKV to H.264 first when
-     * the Settings toggle allows it so the result plays in other apps. Transcoding runs only here, on an
-     * explicit user action, never during capture. SHARE opens the system sheet and persists nothing;
-     * FOLDER writes one file per recording (the re-encode when it exists, otherwise the original), so
-     * the lossless original stays in-app and the folder isn't cluttered with near-duplicates.
-     * RAW_FOLDER always ships the original. The blocking deliver work runs on IO with the progress strip
-     * driven by percent callbacks, so the list stays readable and the run can still be cancelled.
-     */
-    fun exportRecording(recording: RecordingEntity, kind: RecordingExportKind) {
+    fun exportRecording(recording: Recording, kind: RecordingExportKind) {
         if (runBusy()) return
         activeRun = viewModelScope.launch {
-            // Read the settings when the action runs: which folder was picked and whether to re-encode
-            // must not depend on whether anything happens to be subscribed to them.
-            val settings = repository.getSettings()
-            val src = File(recording.filePath)
-            val goesToFolder = kind == RecordingExportKind.FOLDER || kind == RecordingExportKind.RAW_FOLDER
-            val willTranscode = settings.transcodeOnExport && kind != RecordingExportKind.RAW_FOLDER &&
-                    src.extension.equals("mkv", ignoreCase = true)
             try {
-                if (goesToFolder) {
-                    if (settings.exportFolderUri.isBlank()) {
-                        message(R.string.recordings_toast_set_folder_first)
-                        return@launch
-                    }
-                    if (!src.exists()) {
-                        message(R.string.recordings_toast_file_not_found, short = true)
-                        return@launch
-                    }
-                }
-                // Raw file straight to Share/Gallery: no progress strip, the deliver itself is on IO.
-                if (!willTranscode && !goesToFolder) {
-                    deliver(recording, src, kind, settings.exportFolderUri)
-                    return@launch
-                }
-                if (willTranscode) {
-                    _exportProgress.value = ExportRunProgress(0, R.string.recordings_export_progress_body)
-                }
-                val out = if (willTranscode) transcodeWithProgress(recording) else src
-                deliver(recording, out, kind, settings.exportFolderUri)
-            } catch (e: CancellationException) {
-                // The interrupted encode is this run's discard, not a file: the next export of the same
-                // recording would otherwise hand out a truncated video that plays up to the cut.
-                if (willTranscode) deletePartialTranscode(src)
-                throw e
-            } catch (e: Exception) {
-                message(R.string.recordings_toast_export_failed, e.message ?: "")
+                exportRunner.exportLocal(recording, kind, exportContext)
             } finally {
                 finishRun()
             }
@@ -600,10 +472,9 @@ class RecordingsViewModel @Inject constructor(
     }
 
     /**
-     * Exports every checked recording, whether or not a filter currently hides it, with the same
-     * lazy-transcode policy as [exportRecording] and a k-of-n progress. A per-file transcode failure falls
-     * back to that file's original instead of aborting the batch; Share collects all files into one system
-     * sheet, Gallery and Folder report a final saved count.
+     * Exports every checked recording, whether or not a filter currently hides it, through [ExportRunner]
+     * with the same lazy-transcode policy. Leaving multi-select and clearing the selection stay here because
+     * the ViewModel owns the selection state.
      */
     fun exportSelected(kind: RecordingExportKind) {
         if (runBusy()) return
@@ -612,80 +483,9 @@ class RecordingsViewModel @Inject constructor(
             return
         }
         activeRun = viewModelScope.launch {
-            val targets = allLocalRecordings().filter { it.id in _selectedIds.value }
-            if (targets.isEmpty()) {
-                message(R.string.recordings_toast_nothing_selected)
-                return@launch
-            }
-            val settings = repository.getSettings()
-            if ((kind == RecordingExportKind.FOLDER || kind == RecordingExportKind.RAW_FOLDER) &&
-                settings.exportFolderUri.isBlank()
-            ) {
-                message(R.string.recordings_toast_set_folder_first)
-                return@launch
-            }
-            _batchProgress.value = 0 to targets.size
-            val toShare = ArrayList<File>()
-            var saved = 0
-            var done = 0
             try {
-                for (rec in targets) {
-                    val src = File(rec.filePath)
-                    val willTranscode = settings.transcodeOnExport &&
-                            kind != RecordingExportKind.RAW_FOLDER &&
-                            src.extension.equals("mkv", ignoreCase = true) && src.exists()
-                    val out = if (willTranscode) {
-                        try {
-                            transcoder.transcodeToH264(rec)
-                        } catch (e: CancellationException) {
-                            // Cancellation is not a failed encode: the fallback below would hand the batch
-                            // a truncated file and keep going. Drop the unfinished output and unwind.
-                            deletePartialTranscode(src)
-                            throw e
-                        } catch (_: Exception) {
-                            src
-                        }
-                    } else src
-
-                    when (kind) {
-                        RecordingExportKind.SHARE -> toShare.add(out)
-                        RecordingExportKind.GALLERY ->
-                            withContext(ioDispatcher) {
-                                if (exportGateway.saveFileToGallery(out, rec, onMessage = ::emitMessage)) saved++
-                            }
-
-                        RecordingExportKind.FOLDER, RecordingExportKind.RAW_FOLDER -> {
-                            // One file per recording (H.264 when produced, else original) — as single-item.
-                            withContext(ioDispatcher) {
-                                if (exportGateway.saveFileToSafFolder(settings.exportFolderUri, out, out.name)) saved++
-                            }
-                        }
-                    }
-                    _batchProgress.value = ++done to targets.size
-                }
-
-                when (kind) {
-                    RecordingExportKind.SHARE ->
-                        if (toShare.isNotEmpty()) _events.trySend(RecordingsUiEvent.Share(toShare, null))
-
-                    RecordingExportKind.GALLERY -> {
-                        messagePlural(
-                            R.plurals.recordings_toast_saved_gallery, targets.size, saved, targets.size
-                        )
-                        if (saved > 0) celebrate()
-                    }
-
-                    RecordingExportKind.FOLDER, RecordingExportKind.RAW_FOLDER -> {
-                        messagePlural(
-                            R.plurals.recordings_toast_exported_folder, targets.size, saved, targets.size
-                        )
-                        if (saved > 0) celebrate()
-                    }
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                message(R.string.recordings_toast_export_failed, e.message ?: "")
+                val targets = allLocalRecordings().filter { it.id in _selectedIds.value }
+                exportRunner.exportBatch(targets, kind, exportContext)
             } finally {
                 clearSelection()
                 _events.trySend(RecordingsUiEvent.SelectionCleared)
@@ -694,61 +494,30 @@ class RecordingsViewModel @Inject constructor(
         }
     }
 
-    private suspend fun transcodeWithProgress(recording: RecordingEntity): File =
-        transcoder.transcodeToH264(recording) { done, total ->
-            _exportProgress.value = ExportRunProgress(
-                if (total > 0) done * 100 / total else 0,
-                R.string.recordings_export_progress_body
-            )
+    /**
+     * Downloads one server recording and delivers it through [ExportRunner]. The check that the row actually
+     * has a video URL stays here so its message precedes the run, exactly as before; the row is reduced to a
+     * [ServerRecordingSource] so the runner never sees a UI type.
+     */
+    fun exportServerRecording(item: GalleryItem.Remote, kind: RecordingExportKind) {
+        if (runBusy()) return
+        if (item.videoAbsoluteUrl.isBlank()) {
+            message(R.string.recordings_toast_download_failed, "no video url")
+            return
         }
-
-    private suspend fun deliver(recording: RecordingEntity, file: File, kind: RecordingExportKind, exportFolderUri: String) {
-        when (kind) {
-            RecordingExportKind.SHARE -> _events.trySend(RecordingsUiEvent.Share(listOf(file), recording))
-
-            RecordingExportKind.GALLERY -> if (saveSingleToGallery(file, recording.deviceName)) celebrate()
-
-            RecordingExportKind.FOLDER, RecordingExportKind.RAW_FOLDER -> {
-                val ok = withContext(ioDispatcher) {
-                    exportGateway.saveFileToSafFolder(exportFolderUri, file, file.name) { percent ->
-                        _exportProgress.value = ExportRunProgress(percent, R.string.recordings_copy_progress_body)
-                    }
-                }
-                if (ok) {
-                    message(R.string.recordings_toast_exported_to, exportGateway.safFolderDisplayName(exportFolderUri))
-                    celebrate()
-                } else {
-                    message(R.string.recordings_toast_export_folder_failed)
-                }
+        val source = ServerRecordingSource(
+            id = item.dto.id,
+            videoAbsoluteUrl = item.videoAbsoluteUrl,
+            deviceName = item.deviceName,
+            eventType = item.eventType,
+        )
+        activeRun = viewModelScope.launch {
+            try {
+                exportRunner.exportServer(source, kind, exportContext)
+            } finally {
+                finishRun()
             }
         }
-    }
-
-    /** Marks a flow as completed for the screen's celebration moment (see [RecordingsUiEvent.ExportCompleted]). */
-    private fun celebrate() {
-        _events.trySend(RecordingsUiEvent.ExportCompleted)
-    }
-
-    /**
-     * Saves one finished file into the public gallery. [ExportGateway]'s own success line is swallowed and
-     * said here instead, exactly once and next to the celebration check: with the system's animation scale
-     * at zero the check returns immediately, and a save that only flickered would leave no record that it
-     * happened. Every other outcome - a vanished source, a rejected MediaStore insert, the pre-Q write
-     * that reports the path it chose - still reaches the snack bar as it comes.
-     */
-    private suspend fun saveSingleToGallery(source: File, deviceName: String): Boolean {
-        val successLine = strings(R.string.export_saved_gallery)
-        var reportedSomething = false
-        val saved = withContext(ioDispatcher) {
-            exportGateway.saveFileToGallery(source, deviceName, onMessage = { text ->
-                if (text != successLine) {
-                    reportedSomething = true
-                    emitMessage(text)
-                }
-            })
-        }
-        if (saved && !reportedSomething) emitMessage(successLine)
-        return saved
     }
 
     private fun message(@StringRes id: Int, vararg args: Any, short: Boolean = false) {

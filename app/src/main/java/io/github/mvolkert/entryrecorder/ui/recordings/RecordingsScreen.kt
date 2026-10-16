@@ -44,9 +44,15 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import io.github.mvolkert.entryrecorder.R
-import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import io.github.mvolkert.entryrecorder.domain.model.Recording
 import io.github.mvolkert.entryrecorder.data.model.EventType
+import io.github.mvolkert.entryrecorder.util.ExportGateway
+import io.github.mvolkert.entryrecorder.util.RecordingExportKind
 import io.github.mvolkert.entryrecorder.ui.LocalAppSnackbar
 import io.github.mvolkert.entryrecorder.ui.showMessage
 import io.github.mvolkert.entryrecorder.ui.components.CelebrationCheck
@@ -70,12 +76,17 @@ fun RecordingsScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    // The share sheet has to be launched from this screen's Activity context — the one thing the ViewModel
+    // can no longer hold — so the screen reaches the app-wide [ExportGateway] directly and owns that step.
+    val exportGateway = remember {
+        EntryPointAccessors.fromApplication(context.applicationContext, RecordingsScreenEntryPoint::class.java).exportGateway()
+    }
     val snackbarHost = LocalAppSnackbar.current
     val scope = rememberCoroutineScope()
     val exportProgress by viewModel.exportProgress.collectAsStateWithLifecycle()
     val batchProgress by viewModel.batchProgress.collectAsStateWithLifecycle()
     val serverDownload by viewModel.serverDownload.collectAsStateWithLifecycle()
-    var recordingToDelete by remember { mutableStateOf<RecordingEntity?>(null) }
+    var recordingToDelete by remember { mutableStateOf<Recording?>(null) }
     var serverItemToDelete by remember { mutableStateOf<GalleryItem.Remote?>(null) }
     // Set by the ViewModel when an export wrote its files; the check floats over the list and clears itself.
     var showSavedCheck by remember { mutableStateOf(false) }
@@ -141,12 +152,19 @@ fun RecordingsScreen(
                 // clips and then a saved count delivers both instead of the last one winning.
                 is RecordingsUiEvent.Message -> snackbarHost.showMessage(event.text, event.short)
 
-                is RecordingsUiEvent.Share ->
+                is RecordingsUiEvent.Share -> {
                     // ExportGateway builds its outcome text on this thread and has no coroutine to post
-                    // from, so the screen hands it the hop into the snack bar.
-                    viewModel.share(context, event) { text ->
-                        scope.launch { snackbarHost.showMessage(text) }
+                    // from, so the screen hands it the hop into the snack bar. The single-file sheet needs
+                    // this Activity context (it adds no NEW_TASK); the batch sheet takes the same files.
+                    val metadata = event.metadata
+                    val file = event.files.firstOrNull()
+                    val onShareMessage: (String) -> Unit = { text -> scope.launch { snackbarHost.showMessage(text) } }
+                    if (metadata != null && file != null) {
+                        exportGateway.shareFile(context, file, metadata, onShareMessage)
+                    } else {
+                        exportGateway.shareFiles(context, event.files, onShareMessage)
                     }
+                }
 
                 RecordingsUiEvent.SelectionCleared -> selectionMode = false
 
@@ -168,7 +186,7 @@ fun RecordingsScreen(
     val motion = MaterialTheme.motionScheme
     val rows: LazyListScope.() -> Unit = {
         items(state.items, key = { it.stableKey }) { item ->
-            val localId = (item as? GalleryItem.Local)?.entity?.id
+            val localId = (item as? GalleryItem.Local)?.recording?.id
             RecordingCardItem(
                 modifier = Modifier.animateItem(
                     fadeInSpec = motion.defaultEffectsSpec(),
@@ -177,9 +195,9 @@ fun RecordingsScreen(
                 ),
                 item = item,
                 selectionMode = selectionMode,
-                selected = item is GalleryItem.Local && item.entity.id in selectedIds,
+                selected = item is GalleryItem.Local && item.recording.id in selectedIds,
                 onSelectToggle = {
-                    (item as? GalleryItem.Local)?.let { viewModel.toggleSelection(it.entity.id) }
+                    (item as? GalleryItem.Local)?.let { viewModel.toggleSelection(it.recording.id) }
                 },
                 onLongSelect = {
                     localId?.let { id ->
@@ -194,44 +212,44 @@ fun RecordingsScreen(
                 onPlay = {
                     onRequestPlayback(
                         when (item) {
-                            is GalleryItem.Local -> PlaybackTarget.LocalFile(item.entity.filePath)
+                            is GalleryItem.Local -> PlaybackTarget.LocalFile(item.recording.filePath)
                             is GalleryItem.Remote -> PlaybackTarget.RemoteUrl(item.videoAbsoluteUrl)
                         }
                     )
                 },
                 onDelete = {
                     when (item) {
-                        is GalleryItem.Local -> recordingToDelete = item.entity
+                        is GalleryItem.Local -> recordingToDelete = item.recording
                         is GalleryItem.Remote -> serverItemToDelete = item
                     }
                 },
                 onToggleProtect = {
                     when (item) {
-                        is GalleryItem.Local -> viewModel.toggleProtection(item.entity)
+                        is GalleryItem.Local -> viewModel.toggleProtection(item.recording)
                         is GalleryItem.Remote -> viewModel.toggleServerProtection(item)
                     }
                 },
                 onShare = {
                     when (item) {
-                        is GalleryItem.Local -> viewModel.exportRecording(item.entity, RecordingExportKind.SHARE)
+                        is GalleryItem.Local -> viewModel.exportRecording(item.recording, RecordingExportKind.SHARE)
                         is GalleryItem.Remote -> viewModel.exportServerRecording(item, RecordingExportKind.SHARE)
                     }
                 },
                 onExportGallery = {
                     when (item) {
-                        is GalleryItem.Local -> viewModel.exportRecording(item.entity, RecordingExportKind.GALLERY)
+                        is GalleryItem.Local -> viewModel.exportRecording(item.recording, RecordingExportKind.GALLERY)
                         is GalleryItem.Remote -> viewModel.exportServerRecording(item, RecordingExportKind.GALLERY)
                     }
                 },
                 onExportFolder = {
                     when (item) {
-                        is GalleryItem.Local -> viewModel.exportRecording(item.entity, RecordingExportKind.FOLDER)
+                        is GalleryItem.Local -> viewModel.exportRecording(item.recording, RecordingExportKind.FOLDER)
                         is GalleryItem.Remote -> viewModel.exportServerRecording(item, RecordingExportKind.FOLDER)
                     }
                 },
                 // Raw copies only exist for local clips; server rows already live on the server as H.264.
                 onExportRawFolder = if (item is GalleryItem.Local) {
-                    { viewModel.exportRecording(item.entity, RecordingExportKind.RAW_FOLDER) }
+                    { viewModel.exportRecording(item.recording, RecordingExportKind.RAW_FOLDER) }
                 } else null
             )
         }
@@ -500,4 +518,15 @@ private fun GalleryList(
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
         content = content
     )
+}
+
+/**
+ * A Hilt accessor so this composable can reach the app-wide [ExportGateway] to run the share sheet from
+ * its own Activity context. The ViewModel deliberately holds no gateway (and no Context) now that the
+ * share is a screen-side effect, so the screen — not the ViewModel — is the one that talks to the gateway.
+ */
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+private interface RecordingsScreenEntryPoint {
+    fun exportGateway(): ExportGateway
 }

@@ -2,7 +2,7 @@ package io.github.mvolkert.entryrecorder.video
 
 import android.graphics.BitmapFactory
 import android.util.Log
-import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import io.github.mvolkert.entryrecorder.domain.model.Recording
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.util.AppStorageDirs
 import javax.inject.Inject
@@ -46,7 +46,7 @@ class ExportTranscoder @Inject constructor(
      * @throws IllegalStateException if there are no frames or the platform encoder is unavailable.
      */
     override suspend fun transcodeToH264(
-        recording: RecordingEntity,
+        recording: Recording,
         onProgress: (done: Int, total: Int) -> Unit,
     ): File = withContext(ioDispatcher) {
         val source = File(recording.filePath)

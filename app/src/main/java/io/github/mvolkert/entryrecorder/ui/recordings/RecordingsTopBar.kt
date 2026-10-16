@@ -35,6 +35,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import io.github.mvolkert.entryrecorder.R
+import io.github.mvolkert.entryrecorder.util.RecordingExportKind
 
 /**
  * Recordings title band. A real [TopAppBar] so its height, titleLarge typography and status-bar

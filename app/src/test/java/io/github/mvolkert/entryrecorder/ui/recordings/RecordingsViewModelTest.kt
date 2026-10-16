@@ -21,6 +21,8 @@ import io.github.mvolkert.entryrecorder.testing.expectIs
 import io.github.mvolkert.entryrecorder.testing.assertFalse
 import io.github.mvolkert.entryrecorder.testing.assertTrue
 import io.github.mvolkert.entryrecorder.util.AppStorageDirs
+import io.github.mvolkert.entryrecorder.util.ExportRunner
+import io.github.mvolkert.entryrecorder.util.RecordingExportKind
 import java.io.File
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -76,11 +78,16 @@ class RecordingsViewModelTest {
         vm = RecordingsViewModel(
             repository = repository,
             serverClient = FakeServerClient(),
-            exportGateway = gateway,
-            transcoder = transcoder,
-            storageDirs = storageDirs,
             strings = strings,
-            ioDispatcher = testDispatcher,
+            exportRunner = ExportRunner(
+                repository = repository,
+                serverClient = FakeServerClient(),
+                exportGateway = gateway,
+                transcoder = transcoder,
+                storageDirs = storageDirs,
+                strings = strings,
+                ioDispatcher = testDispatcher,
+            ),
         )
     }
 
@@ -211,15 +218,15 @@ class RecordingsViewModelTest {
     fun `device, event-type and search filters narrow items and flip filtersActive`() = runViewModelTest {
         val gate = testDevice(id = 1L, name = "Doorbell")
         val garage = testDevice(id = 2L, name = "Garage")
-        deviceDao.insertDevice(gate)
-        deviceDao.insertDevice(garage)
-        recordingDao.insertRecording(
+        repository.upsertDevice(gate)
+        repository.upsertDevice(garage)
+        repository.insertRecording(
             testRecording(id = 1, deviceId = 1L, deviceName = "Doorbell", eventType = EventType.MOTION, filePath = "clip1.mkv")
         )
-        recordingDao.insertRecording(
+        repository.insertRecording(
             testRecording(id = 2, deviceId = 2L, deviceName = "Garage", eventType = EventType.RING, timestamp = 1_700_000_000_001L, filePath = "clip2.mkv")
         )
-        recordingDao.insertRecording(
+        repository.insertRecording(
             testRecording(id = 3, deviceId = 1L, deviceName = "Doorbell", eventType = EventType.NOISE, timestamp = 1_700_000_000_002L, filePath = "clip3.mkv")
         )
 
@@ -257,10 +264,10 @@ class RecordingsViewModelTest {
 
     @Test
     fun `a clip that folded in a second trigger matches either event-type filter`() = runViewModelTest {
-        deviceDao.insertDevice(testDevice(id = 1L))
-        recordingDao.insertRecording(
+        repository.upsertDevice(testDevice(id = 1L))
+        repository.insertRecording(
             testRecording(id = 1, deviceId = 1L, eventType = EventType.MOTION, filePath = "clip.mkv").let {
-                it.copy(alsoEventTypes = EventType.RING.name)
+                it.copy(alsoEventTypes = listOf(EventType.RING))
             }
         )
         assertTrue(EventType.RING in recordingDao.rows.single().triggerTypes)
