@@ -1,5 +1,8 @@
 # Tasks
 
+> Superseded by `sip-per-device-accounts` — the migration (2.1/2.2/2.3) is implemented there; the on-device
+> validation (3.1/3.2/3.3) is tracked as the device gates 1.2/4.2 in that change. Nothing here remains.
+
 Backlog — blocked on real-device/PBX validation capacity. No implementation started.
 
 ## 1. Preparation

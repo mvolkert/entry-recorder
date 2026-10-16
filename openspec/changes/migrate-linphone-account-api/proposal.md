@@ -1,5 +1,10 @@
 # Proposal
 
+> **Superseded by `sip-per-device-accounts`.** The `ProxyConfig → Account` API migration and the
+> `Factory.setDebugMode → LoggingService` replacement described here are implemented as part of that change
+> (same `sip/SipCallManager.kt` surface, executed together with per-device accounts and identity-based ring
+> attribution). Kept for history; no separate work remains.
+
 ## Why
 
 `SipCallManager` drives the monitor core through APIs deprecated in Linphone 5.x —

@@ -8,7 +8,6 @@ import android.os.Build
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.mvolkert.entryrecorder.di.ApplicationScope
-import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.SipMode
 import java.util.concurrent.atomic.AtomicReference
@@ -91,6 +90,18 @@ class SipCallManager @Inject constructor(
     private val audioManager = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var idleResetJob: Job? = null
 
+    /**
+     * A monitored device's live SIP state on the shared core: its [Device] plus the [Account] that carries
+     * its PBX registration (null for a peer-to-peer device, which is reached directly rather than
+     * registered). Keyed by device id so [synchronizeDevices] can diff the wanted set against what is
+     * live and so an incoming call can be traced back to the device that owns the account it rang on.
+     */
+    private data class ManagedDevice(val device: Device, val account: Account?)
+
+    // Reconciled on the main thread and read from the core listener, which the SDK also runs on the main
+    // thread, so no lock is needed.
+    private val managed = LinkedHashMap<Long, ManagedDevice>()
+
     // Probes share one Linphone Factory and one port space, so they run one at a time on rotating ports.
     private val probeLock = Mutex()
     private var probeSlot = 0
@@ -105,17 +116,18 @@ class SipCallManager @Inject constructor(
     override val hasActiveCore: Boolean get() = core != null
 
     /**
-     * Invoked when the intercom actually rings this phone (SIP INVITE received), with the remote host and
-     * a display name. The monitor service sets this so a ring is detected from two independent sources:
-     * the 2N HTTP event stream and the SIP call itself, which keeps the doorbell working when SSE has to
-     * fall back to status polling (that fallback cannot see rings at all). Duplicate rings from one press
-     * are collapsed by the service's per-device debounce, so this must stay a plain notification.
+     * Invoked when the intercom actually rings this phone (SIP INVITE received), with the id of the device
+     * the ring is attributed to by identity, the remote host and a display name. The monitor service sets
+     * this so a ring is detected from two independent sources: the 2N HTTP event stream and the SIP call
+     * itself, which keeps the doorbell working when SSE has to fall back to status polling (that fallback
+     * cannot see rings at all). Duplicate rings from one press are collapsed by the service's per-device
+     * debounce, so this must stay a plain notification.
      *
      * Volatile because it is assigned by the monitor service and read on the Linphone core thread. A second
      * consumer should get a Flow rather than another callback property.
      */
     @Volatile
-    var onIncomingCall: ((remoteHost: String, caller: String) -> Unit)? = null
+    var onIncomingCall: ((deviceId: Long, remoteHost: String, caller: String) -> Unit)? = null
 
     private val coreListener = object : CoreListenerStub() {
         override fun onCallStateChanged(
@@ -144,13 +156,7 @@ class SipCallManager @Inject constructor(
                 routeAudioToSpeaker(true)
             }
             if (SipCallEffect.ReportIncoming in result.effects) {
-                // Every INVITE is reported; the monitor service's per-device debounce is what collapses this
-                // against the 2N event stream's own ring notification for the same press. Address.domain is
-                // the SIP host part, i.e. the intercom's IP in peer-to-peer mode.
-                val remoteAddress = call.remoteAddress
-                val caller = remoteAddress.username ?: remoteAddress.asStringUriOnly()
-                val displayName = remoteAddress.displayName ?: caller
-                onIncomingCall?.invoke(remoteAddress.domain ?: "", displayName)
+                reportIncomingCall(call)
             }
             if (SipCallEffect.ScheduleIdleReset in result.effects) {
                 // ENDED and ERROR stay observable for a bounded window rather than being overwritten to IDLE
@@ -159,9 +165,9 @@ class SipCallManager @Inject constructor(
             }
         }
 
-        override fun onRegistrationStateChanged(
+        override fun onAccountRegistrationStateChanged(
             core: Core,
-            cfg: ProxyConfig,
+            account: Account,
             state: RegistrationState?,
             message: String
         ) {
@@ -169,19 +175,51 @@ class SipCallManager @Inject constructor(
         }
     }
 
+    /**
+     * Resolves which monitored device an incoming [call] should be attributed to, then notifies
+     * [onIncomingCall]. Identity is decided here rather than by the service because only this class holds
+     * the account-to-device mapping: a call received on one of our registered [Account]s is that device;
+     * otherwise a peer-to-peer INVITE carries the intercom's own address, and behind a PBX the outbound leg
+     * carries the dialed extension. A ring that matches nothing is dropped instead of guessed, closing the
+     * old by-count fallback that could open the wrong call screen.
+     */
+    private fun reportIncomingCall(call: Call) {
+        val remoteAddress = call.remoteAddress
+        val remoteHost = remoteAddress?.domain.orEmpty()
+        val caller = remoteAddress?.username ?: remoteAddress?.asStringUriOnly().orEmpty()
+        val displayName = remoteAddress?.displayName ?: caller
+        val deviceId = resolveRingingDeviceId(call)
+        if (deviceId == null) {
+            Log.w(tag, "SIP ring from '$remoteHost' (dialed '${call.callLog?.toAddress?.username}') matches none of " +
+                "${managed.size} monitored device(s), ignoring")
+            return
+        }
+        onIncomingCall?.invoke(deviceId, remoteHost, displayName)
+    }
+
+    /** The id of the device [call] belongs to, or null when none of the identity signals match. */
+    private fun resolveRingingDeviceId(call: Call): Long? {
+        // 1. Peer-to-peer: the intercom dials the phone directly, so the remote address is the device itself.
+        val remoteHost = call.remoteAddress?.domain
+        if (!remoteHost.isNullOrBlank()) {
+            managed.entries.firstOrNull { it.value.device.ipAddress == remoteHost }?.let { return it.key }
+        }
+        // 2. Behind a PBX the outbound leg carries the dialed extension, which is the device's SIP user.
+        val dialed = call.callLog?.toAddress?.username
+        if (!dialed.isNullOrBlank()) {
+            managed.entries.firstOrNull { it.value.device.sipUser == dialed }?.let { return it.key }
+        }
+        return null
+    }
+
     /** Builds the monitor's Linphone core. Call on the main thread, which is where the SDK runs its loop. */
     fun initialize() {
         if (core != null) return
 
         try {
+            configureLogging()
+
             val factory = Factory.instance()
-            // Linphone keeps every registration answer to itself unless logging is on, which is the only way
-            // to tell a REGISTER the PBX refused from one that never left the phone. Debug builds pay the
-            // noise; releases stay quiet.
-            factory.setDebugMode(
-                (app.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0,
-                "EntryRecorderSIP"
-            )
             val newCore = factory.createCore(null, null, app)
 
             newCore.addListener(coreListener)
@@ -197,101 +235,182 @@ class SipCallManager @Inject constructor(
 
             // Configure Transports (UDP & TCP on Port 5060)
             val transports = newCore.transports
-            transports.udpPort = 5060
-            transports.tcpPort = 5060
+            transports.udpPort = SipCallTiming.DEFAULT_SIP_PORT
+            transports.tcpPort = SipCallTiming.DEFAULT_SIP_PORT
             transports.tlsPort = -1
             newCore.transports = transports
 
             newCore.start()
             core = newCore
-            Log.i(tag, "Linphone Core initialized successfully on port 5060")
+            Log.i(tag, "Linphone Core initialized successfully on port ${SipCallTiming.DEFAULT_SIP_PORT}")
         } catch (e: Exception) {
             Log.e(tag, "Failed to initialize Linphone Core", e)
         }
     }
 
     /**
-     * Points the monitor's core at [Device]'s SIP setup, retiring whatever that core had registered first.
-     *
-     * Suspend because every call below mutates a core whose loop the SDK schedules on the main thread, and
-     * Linphone's API is not thread-safe; this used to run on the service's IO dispatcher.
-     *
-     * The Core ProxyConfig APIs below are deprecated in Linphone 5.x; the migration to the Account API is
-     * tracked as the `migrate-linphone-account-api` OpenSpec change.
+     * Linphone keeps every registration answer to itself unless logging is routed out, which is the only way
+     * to tell a REGISTER the PBX refused from one that never left the phone. Debug builds pay the noise;
+     * releases stay quiet. Replaces the deprecated `Factory.setDebugMode`.
      */
-    suspend fun configureDeviceSip(device: Device) {
-        withContext(Dispatchers.Main.immediate) {
-            val c = core ?: return@withContext
+    private fun configureLogging() {
+        val debuggable = (app.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        val logService = Factory.instance().loggingService
+        // The domain must be set before the level, and it is the tag the messages are filed under.
+        logService.setDomain(LOG_DOMAIN)
+        if (debuggable) {
+            if (!loggingListenerAttached) {
+                logService.addListener(loggingListener)
+                loggingListenerAttached = true
+            }
+            logService.setLogLevel(LogLevel.Debug)
+        } else {
+            logService.setLogLevel(LogLevel.Error)
+        }
+    }
 
-            when (device.sipMode) {
-                SipMode.PEER_TO_PEER -> {
-                    Log.i(tag, "Configuring SIP in Direct Peer-to-Peer mode on port ${device.sipLocalPort}")
-                    unregisterAndClearAuth(c)
-                    val transports = c.transports
-                    transports.udpPort = device.sipLocalPort
-                    transports.tcpPort = device.sipLocalPort
-                    c.transports = transports
-                }
-                SipMode.PBX_REGISTRAR -> {
-                    val host = device.sipServerHost ?: return@withContext
-                    val user = device.sipUser ?: return@withContext
-                    // addAuthInfo/addProxyConfig only ever append, so an edited credential used to leave the
-                    // retired account registered and refreshing forever: the PBX held two contacts for one
-                    // address and the older AuthInfo could still be the one answering the 401 challenge.
-                    unregisterAndClearAuth(c)
-                    applyPbxRegistrar(
-                        sipCore = c,
-                        host = host,
-                        port = device.sipServerPort ?: SipCallTiming.DEFAULT_SIP_PORT,
-                        user = user,
-                        password = device.sipPassword ?: ""
-                    )
-                }
-                SipMode.DISABLED -> {
-                    unregisterAndClearAuth(c)
-                }
+    private var loggingListenerAttached = false
+    private val loggingListener = object : LoggingServiceListener {
+        override fun onLogMessageWritten(
+            logService: LoggingService,
+            domain: String,
+            level: LogLevel,
+            message: String
+        ) {
+            when (level) {
+                LogLevel.Debug, LogLevel.Trace -> Log.d(LOG_DOMAIN, message)
+                LogLevel.Warning -> Log.w(LOG_DOMAIN, message)
+                LogLevel.Error, LogLevel.Fatal -> Log.e(LOG_DOMAIN, message)
+                else -> Log.i(LOG_DOMAIN, message)
             }
         }
     }
 
     /**
-     * Withdraws every registration on [sipCore] and forgets its credentials. Only `removeProxyConfig` makes
-     * liblinphone send the unregister REGISTER - `clearProxyConfig` merely drops the entries from the config -
-     * so without this a retired account stays bound on the PBX until its expiry.
+     * Reconciles the shared core's accounts and listen port against the full set of monitored [devices], so
+     * peer-to-peer and PBX devices coexist instead of the last-configured one retiring the others.
      *
-     * For a core that stays running (the monitor's, being reconfigured) only: it frees each removed Account, so
-     * it has no place in a teardown that is already forbidden from running inside a core callback.
+     * Takes the whole list rather than one device precisely because retiring a device now has to be relative
+     * to what should still be live: each PBX device owns an [Account] that is added, replaced or removed on
+     * its own, and the core's inbound port follows the (single) peer-to-peer device rather than being wiped
+     * on every reconfigure.
+     *
+     * Suspend because every call below mutates a core whose loop the SDK schedules on the main thread, and
+     * Linphone's API is not thread-safe.
      */
-    private fun unregisterAndClearAuth(sipCore: Core) {
-        sipCore.proxyConfigList.toList().forEach { proxy -> sipCore.removeProxyConfig(proxy) }
-        sipCore.clearAllAuthInfo()
+    suspend fun synchronizeDevices(devices: List<Device>) {
+        withContext(Dispatchers.Main.immediate) {
+            val c = core ?: return@withContext
+            val wanted = devices.associateBy { it.id }
+
+            // Retire devices that were removed or disabled: withdraw their account + credentials.
+            for (id in (managed.keys - wanted.keys).toList()) {
+                retireDevice(c, id)
+            }
+
+            // Add or reconfigure each device whose row changed; leave untouched ones registered.
+            for (device in wanted.values) {
+                if (managed[device.id]?.device == device) continue
+                retireDevice(c, device.id)
+                applyDevice(c, device)
+            }
+
+            // The core owns one inbound socket. Peer-to-peer intercoms dial it directly, so it binds that
+            // device's local port; a PBX-only set keeps the default and registers outbound.
+            applyInboundPort(c, wanted.values.filter { it.sipMode == SipMode.PEER_TO_PEER })
+        }
     }
 
     /**
-     * Points [sipCore] at a PBX registrar: credentials, identity and a register-enabled proxy config. One
-     * implementation shared by the live path and [probeRegistration], so a registration that tests green
-     * cannot then silently behave differently once saved.
+     * Creates the live SIP state for [device] on [sipCore]. A PBX device gets its own register-enabled
+     * [Account] plus an [AuthInfo]; a peer-to-peer device gets no account (the core's inbound socket receives
+     * its direct INVITE) and is only recorded so a ring can be attributed to it; a disabled device keeps
+     * nothing.
      */
-    private fun applyPbxRegistrar(sipCore: Core, host: String, port: Int, user: String, password: String) {
+    private fun applyDevice(sipCore: Core, device: Device) {
+        when (device.sipMode) {
+            SipMode.PEER_TO_PEER -> {
+                Log.i(tag, "Monitoring SIP in Direct Peer-to-Peer mode on port ${device.sipLocalPort}")
+                managed[device.id] = ManagedDevice(device, account = null)
+            }
+            SipMode.PBX_REGISTRAR -> {
+                val host = device.sipServerHost ?: return
+                val user = device.sipUser ?: return
+                val port = device.sipServerPort ?: SipCallTiming.DEFAULT_SIP_PORT
+                val account = addPbxAccount(sipCore, host, port, user, device.sipPassword ?: "")
+                managed[device.id] = ManagedDevice(device, account)
+            }
+            SipMode.DISABLED -> {
+                Log.i(tag, "SIP disabled for ${device.name}")
+            }
+        }
+    }
+
+    /**
+     * Withdraws the account [device] was registered under and forgets its credentials, then drops it from the
+     * live set. Only `removeAccount` makes liblinphone send the unregister REGISTER - clearing the account
+     * list wholesale would take other devices' registrations with it - so without this a retired account
+     * stays bound on the PBX until its expiry, and its stale AuthInfo could still answer a 401 challenge
+     * after an edited password.
+     */
+    private fun retireDevice(sipCore: Core, deviceId: Long) {
+        val retired = managed.remove(deviceId) ?: return
+        val account = retired.account ?: return
+        sipCore.removeAccount(account)
+        val user = retired.device.sipUser
+        if (user != null) {
+            sipCore.findAuthInfo(retired.device.sipServerHost, user, null)?.let { sipCore.removeAuthInfo(it) }
+        }
+    }
+
+    /**
+     * Registers [device] set up as a PBX account on [sipCore]: credentials, identity and a register-enabled
+     * account. One implementation shared by the live path ([applyDevice]) and [probeRegistration], so a
+     * registration that tests green cannot then silently behave differently once saved.
+     */
+    private fun addPbxAccount(
+        sipCore: Core,
+        host: String,
+        port: Int,
+        user: String,
+        password: String
+    ): Account {
         Log.i(tag, "Configuring SIP PBX Registrar: user=$user server=$host:$port")
         val factory = Factory.instance()
-
         sipCore.addAuthInfo(factory.createAuthInfo(user, null, password, null, null, host))
 
-        val proxyConfig = sipCore.createProxyConfig()
-        proxyConfig.edit()
-        proxyConfig.identityAddress = factory.createAddress("sip:$user@$host")
-        proxyConfig.serverAddr = "sip:$host:$port"
-        proxyConfig.isRegisterEnabled = true
-        proxyConfig.done()
+        val params = sipCore.createAccountParams()
+        params.setIdentityAddress(factory.createAddress("sip:$user@$host"))
+        params.setServerAddress(factory.createAddress("sip:$host:$port"))
+        params.setRealm(host)
+        params.setRegisterEnabled(true)
+        return sipCore.createAccount(params).also { sipCore.addAccount(it) }
+    }
 
-        sipCore.addProxyConfig(proxyConfig)
-        sipCore.defaultProxyConfig = proxyConfig
+    /**
+     * Points the core's single inbound socket at the peer-to-peer device's local port, or back at the default
+     * when no device is reached directly. More than one distinct peer-to-peer port cannot bind one socket, so
+     * the first is used and the rest are reported - a real configuration limit the previous single-core model
+     * shared but hid behind the "last wins" reconfigure.
+     */
+    private fun applyInboundPort(sipCore: Core, peerToPeerDevices: List<Device>) {
+        val ports = peerToPeerDevices.map { it.sipLocalPort }.distinct()
+        if (ports.size > 1) {
+            Log.w(tag, "${peerToPeerDevices.size} peer-to-peer devices want distinct ports $ports; " +
+                "only ${ports.first()} can be bound on the shared core")
+        }
+        val port = ports.firstOrNull() ?: SipCallTiming.DEFAULT_SIP_PORT
+        val transports = sipCore.transports
+        if (transports.udpPort == port && transports.tcpPort == port) return
+        transports.udpPort = port
+        transports.tcpPort = port
+        sipCore.transports = transports
+        Log.i(tag, "SIP inbound port set to $port")
     }
 
     /**
      * Asks a PBX registrar whether the credentials as typed would work, on a **throw-away core**: the
-     * monitor's live registration, its proxy configs and the audio routing are never touched, and nothing is
+     * monitor's live registration, its accounts and the audio routing are never touched, and nothing is
      * written to Room. The answer arrives as [SipProbeResult] instead of logcat.
      *
      * Serialised by [probeLock] and rotating through [SipCallTiming.probeLocalPort]: a stopped core hands its
@@ -318,9 +437,9 @@ class SipCallManager @Inject constructor(
         // means it did and the registrar ignored it. Those need different fixes.
         val lastState = AtomicReference<RegistrationState?>()
         val listener = object : CoreListenerStub() {
-            override fun onRegistrationStateChanged(
+            override fun onAccountRegistrationStateChanged(
                 core: Core,
-                cfg: ProxyConfig,
+                account: Account,
                 state: RegistrationState?,
                 message: String
             ) {
@@ -348,7 +467,7 @@ class SipCallManager @Inject constructor(
                 transports.tlsPort = -1
                 probe.transports = transports
 
-                applyPbxRegistrar(probe, host, port, user, input.password)
+                addPbxAccount(probe, host, port, user, input.password)
 
                 // Attached before start(): a rejection can arrive on the core thread's very first pass.
                 probe.addListener(listener)
@@ -368,7 +487,7 @@ class SipCallManager @Inject constructor(
                 // port bound on the phone.
                 //
                 // Dispatchers.Main and NOT Main.immediate on purpose. A successful probe resumes here as the
-                // direct continuation of onRegistrationStateChanged, which liblinphone calls from inside
+                // direct continuation of onAccountRegistrationStateChanged, which liblinphone calls from inside
                 // Account::setState while it is dispatching the REGISTER answer. Main.immediate would keep
                 // that stack alive and stop() would tear down the belle-sip stack underneath the caller that
                 // still has work left after the notification - its next belle_sip_main_loop_add_source() then
@@ -377,8 +496,8 @@ class SipCallManager @Inject constructor(
                 // iterate() message instead of nesting inside it.
                 withContext(NonCancellable + Dispatchers.Main) {
                     probe.removeListener(listener)
-                    // stop() and nothing else: shutting the core down is the SDK's own graceful unregister.
-                    // Deleting the proxy config first frees the Account the registration state change reports to.
+                    // stop() and nothing else: shutting the core down is the SDK's own graceful unregister, so
+                    // the account this probe registered is withdrawn with it.
                     probe.stop()
                 }
             }
@@ -465,15 +584,24 @@ class SipCallManager @Inject constructor(
             // monitor service reuses, and a cancelled scope would silently drop the ENDED -> IDLE reset.
             core?.let { c ->
                 // stop() and nothing else: shutting a core down is liblinphone's own unregister, so the
-                // registrations this core made are withdrawn with it. removeProxyConfig() here would only
-                // duplicate that work while risking the Account being freed under an in-flight answer.
+                // accounts this core registered are withdrawn with it. removeAccount() here would only
+                // duplicate that work while risking an Account being freed under an in-flight answer.
                 c.removeListener(coreListener)
                 c.stop()
             }
             core = null
+            managed.clear()
+            if (loggingListenerAttached) {
+                Factory.instance().loggingService.removeListener(loggingListener)
+                loggingListenerAttached = false
+            }
         } catch (e: Exception) {
             Log.e(tag, "Error stopping Linphone Core", e)
         }
     }
 
+    private companion object {
+        /** Logcat tag + Linphone logging domain for the SDK's own messages in debug builds. */
+        const val LOG_DOMAIN = "EntryRecorderSIP"
+    }
 }

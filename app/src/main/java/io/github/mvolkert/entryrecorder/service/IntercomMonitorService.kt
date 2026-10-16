@@ -106,7 +106,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         sipManager.initialize()
 
         // A SIP INVITE is a second, independent ring source for the doorbell (see handleSipRing).
-        sipManager.onIncomingCall = { remoteHost, caller -> handleSipRing(remoteHost, caller) }
+        sipManager.onIncomingCall = { deviceId, remoteHost, caller -> handleSipRing(deviceId, remoteHost, caller) }
 
         // The capture loop sees the snapshot endpoint go quiet long before any event stream does, so its
         // connection observations are folded into the same routing as the device events.
@@ -164,9 +164,6 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                 activeDevices[entity.id] = newDevice
                 newDevice.startMonitoring(this@IntercomMonitorService)
                 monitorStatusRegistry.update(entity.id, MonitorStatus.MONITORING)
-
-                // Configure SIP for device
-                sipManager.configureDeviceSip(entity)
             }
 
             // Manage the on-device (app-side) motion analyzer independently of the device implementation.
@@ -199,6 +196,12 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         for (id in activeMotionAnalyzers.keys.toSet() - newIds) {
             activeMotionAnalyzers.remove(id)?.stop()
         }
+
+        // Reconcile the shared SIP core against the monitored set: each PBX device keeps its own account and
+        // the peer-to-peer listen port follows the directly-dialled device, so adding or editing one camera no
+        // longer retires another's registration. Done once per pass (not per device) so removals are relative
+        // to what should still be live.
+        sipManager.synchronizeDevices(enabledDevices)
 
         // Lock policy follows the device list: one keepLocksHeld device wins and holds through idle;
         // when the last of them goes away, anything still held is released once nothing records.
@@ -410,15 +413,15 @@ class IntercomMonitorService : Service(), IntercomEventListener {
      * the doorbell working in the SSE polling-fallback mode, which can only read the motion/noise status
      * endpoints and would otherwise lose every ring. Routed through the normal event path so recording,
      * notification and wake handling stay in one place, and through the same ring debounce.
+     *
+     * The device is named by [SipCallManager] from the call's own identity (the account it rang on, the
+     * peer-to-peer caller address, or the dialed extension), so a ring behind a shared PBX is attributed to
+     * the right camera rather than guessed from the monitored-device count.
      */
-    private fun handleSipRing(remoteHost: String, caller: String) {
-        val devices = activeDevices.values.map { it.device }
-        val device = devices.firstOrNull { it.ipAddress == remoteHost }
-            ?: devices.singleOrNull()?.also {
-                Log.i(tag, "SIP ring from $remoteHost attributed to the only monitored device ${it.name}")
-            }
+    private fun handleSipRing(deviceId: Long, remoteHost: String, caller: String) {
+        val device = activeDevices[deviceId]?.device
         if (device == null) {
-            Log.w(tag, "SIP ring from $remoteHost matches none of the ${devices.size} monitored devices, ignoring")
+            Log.w(tag, "SIP ring (device $deviceId from $remoteHost) is no longer monitored, ignoring")
             return
         }
         onEvent(IntercomEvent.DoorbellRung(device, callerNumber = caller))
