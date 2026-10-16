@@ -8,7 +8,7 @@ import androidx.work.Data
 import androidx.work.WorkerParameters
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
-import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import io.github.mvolkert.entryrecorder.domain.model.Recording
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.util.ExportGateway
@@ -53,7 +53,7 @@ class ExportTriggerWorker @AssistedInject constructor(
             }
 
             val scope = inputData.getString(KEY_SCOPE) ?: SCOPE_LATEST
-            val targets: List<RecordingEntity> = if (scope == SCOPE_ALL) {
+            val targets: List<Recording> = if (scope == SCOPE_ALL) {
                 all
             } else {
                 val latest = all.maxByOrNull { it.timestamp } ?: return@withContext Result.success(buildOutput(true, "No recordings"))

@@ -2,7 +2,7 @@ package io.github.mvolkert.entryrecorder.util
 
 import android.content.Context
 import android.net.Uri
-import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import io.github.mvolkert.entryrecorder.data.model.EventType
 import java.io.File
 
 /**
@@ -27,6 +27,16 @@ enum class ExportFolderAccess {
 }
 
 /**
+ * What a finished clip is labelled with when it leaves the app: the owning device's name and the
+ * trigger type of the recording. Carrying the raw EventType lets the gateway resolve the label text
+ * itself, so neither the Room entities nor the UI layer have to be reachable from here.
+ */
+data class ExportMetadata(
+    val deviceName: String,
+    val eventType: EventType,
+)
+
+/**
  * Every way a finished clip can leave the app: the system share sheet, the public Movies folder, and the
  * user's own SAF export folder.
  *
@@ -47,37 +57,18 @@ interface ExportGateway {
      */
     fun shareFiles(context: Context, files: List<File>, onMessage: (String) -> Unit = {})
 
-    /** Shares a single video [file] (e.g. a transcoded H.264 export) labelled by [recording]. */
+    /** Shares a single video [file] labelled by [metadata]. */
     fun shareFile(
         context: Context,
         file: File,
-        recording: RecordingEntity,
+        metadata: ExportMetadata,
         onMessage: (String) -> Unit = {},
     )
 
     /**
-     * Shares a single video [file] using an explicit [deviceName] / [eventTypeLabel] for the sheet's
-     * subject and text. Server recordings have no local row, so this is the form a just-downloaded clip uses.
+     * Saves [sourceFile] into the public Movies/EntryRecorder folder, labelled with [deviceName].
+     * @return true when the clip is in the gallery afterwards; every outcome text goes to [onMessage].
      */
-    fun shareFile(
-        context: Context,
-        file: File,
-        deviceName: String,
-        eventTypeLabel: String,
-        onMessage: (String) -> Unit = {},
-    )
-
-    /**
-     * Saves [sourceFile] into the public Movies/EntryRecorder folder, labelled with [recording]'s device
-     * name. @return true when the clip is in the gallery afterwards; every outcome text goes to [onMessage].
-     */
-    fun saveFileToGallery(
-        sourceFile: File,
-        recording: RecordingEntity,
-        onMessage: (String) -> Unit = {},
-    ): Boolean
-
-    /** [saveFileToGallery] with an explicit [deviceName] used only for the file label. */
     fun saveFileToGallery(
         sourceFile: File,
         deviceName: String,

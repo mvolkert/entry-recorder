@@ -14,8 +14,7 @@ import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.mvolkert.entryrecorder.R
-import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
-import io.github.mvolkert.entryrecorder.ui.theme.eventTypeLabelRes
+import io.github.mvolkert.entryrecorder.data.model.eventTypeLabelRes
 import java.io.File
 import java.io.FileInputStream
 import javax.inject.Inject
@@ -80,21 +79,7 @@ class AndroidExportGateway @Inject constructor(
     override fun shareFile(
         context: Context,
         file: File,
-        recording: RecordingEntity,
-        onMessage: (String) -> Unit,
-    ) = shareFile(
-        context,
-        file,
-        recording.deviceName,
-        context.getString(eventTypeLabelRes(recording.eventType)),
-        onMessage,
-    )
-
-    override fun shareFile(
-        context: Context,
-        file: File,
-        deviceName: String,
-        eventTypeLabel: String,
+        metadata: ExportMetadata,
         onMessage: (String) -> Unit,
     ) {
         if (!file.exists()) {
@@ -108,17 +93,18 @@ class AndroidExportGateway @Inject constructor(
                 context.getString(R.string.fileprovider_authority),
                 file
             )
+            val eventTypeLabel = context.getString(eventTypeLabelRes(metadata.eventType))
 
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = mimeFor(file)
                 putExtra(Intent.EXTRA_STREAM, contentUri)
                 putExtra(
                     Intent.EXTRA_SUBJECT,
-                    context.getString(R.string.export_subject_label, deviceName, eventTypeLabel)
+                    context.getString(R.string.export_subject_label, metadata.deviceName, eventTypeLabel)
                 )
                 putExtra(
                     Intent.EXTRA_TEXT,
-                    context.getString(R.string.export_text_label, deviceName, eventTypeLabel)
+                    context.getString(R.string.export_text_label, metadata.deviceName, eventTypeLabel)
                 )
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
@@ -129,12 +115,6 @@ class AndroidExportGateway @Inject constructor(
             onMessage(context.getString(R.string.recordings_toast_export_failed, e.localizedMessage ?: ""))
         }
     }
-
-    override fun saveFileToGallery(
-        sourceFile: File,
-        recording: RecordingEntity,
-        onMessage: (String) -> Unit,
-    ): Boolean = saveFileToGallery(sourceFile, recording.deviceName, onMessage)
 
     override fun saveFileToGallery(
         sourceFile: File,
