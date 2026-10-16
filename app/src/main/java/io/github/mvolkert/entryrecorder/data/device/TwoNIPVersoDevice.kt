@@ -1,7 +1,6 @@
 package io.github.mvolkert.entryrecorder.data.device
 
 import android.util.Log
-import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
@@ -29,7 +28,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.MediaType.Companion.toMediaType
 import java.io.IOException
-import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration.Companion.milliseconds
@@ -284,7 +282,7 @@ class TwoNIPVersoDevice(
             }
             if (!response.isSuccessful) return@withCancellableResponse PullResult.Retryable
             val root = parseObjectOrNull(body) ?: return@withCancellableResponse PullResult.Retryable
-            dispatch2NEvents(root, listener)
+            TwoNEventDecoder.decodeAll(device, root, tag).forEach { listener.onEvent(it) }
             PullResult.Drained
         }
     } catch (e: CancellationException) {
@@ -347,96 +345,6 @@ class TwoNIPVersoDevice(
     }
 
     /**
-     * Fan a Logging API response out to [decodeEventObject].
-     *
-     * The `pull` envelope is provisional (see the Open Question in the change design): the entries array is
-     * looked for under `result`/`data` and the usual 2N names, and an unrecognised shape is logged rather
-     * than silently dropped, so the hardware gate can read the real path straight out of logcat.
-     */
-    private fun dispatch2NEvents(root: JsonObject, listener: IntercomEventListener) {
-        val entries = extractEventElements(root)
-        if (entries.isEmpty()) {
-            Log.d(tag, "No event array in 2N Logging payload: ${root.toString().take(160)}")
-            return
-        }
-        for (element in entries) {
-            element.takeIf { it.isJsonObject }?.asJsonObject?.let { decodeEventObject(it, listener) }
-        }
-    }
-
-    private fun extractEventElements(root: JsonObject): List<JsonElement> {
-        val scopes = listOfNotNull(
-            root,
-            root.getAsJsonObjectOrNull("result"),
-            root.getAsJsonObjectOrNull("data"),
-        )
-        for (obj in scopes) {
-            for (key in EVENT_ARRAY_KEYS) {
-                val el = obj.get(key)
-                if (el != null && el.isJsonArray) return el.asJsonArray.asList()
-            }
-        }
-        // A single event object (the shape the old SSE delivered) still decodes, so the reused handler works
-        // for both transports.
-        val single = root.getAsJsonObjectOrNull("event")
-            ?: if (root.has("event") || root.has("type")) root else null
-        return listOfNotNull(single)
-    }
-
-    private fun decodeEventObject(eventObj: JsonObject, listener: IntercomEventListener) {
-        val eventType = eventObj.get("event")?.takeIf { it.isJsonPrimitive }?.asString
-            ?: eventObj.get("type")?.takeIf { it.isJsonPrimitive }?.asString ?: ""
-        val params = eventObj.getAsJsonObjectOrNull("params") ?: JsonObject()
-
-        when (eventType) {
-            "MotionDetected" -> {
-                // A missing or unrecognised `state` must not become "no motion": the previous decode
-                // (`?.asBoolean ?: (asString == "active")`) fabricated a MotionEnded for every payload
-                // it did not understand, so an unexpected field shape killed the trigger silently.
-                when (triState(params.get("state")) ?: triState(params.get("active"))) {
-                    true -> listener.onEvent(IntercomEvent.MotionStarted(device))
-                    false -> listener.onEvent(IntercomEvent.MotionEnded(device))
-                    null -> Log.w(tag, "MotionDetected without a usable state field: ${eventObj.toString().take(160)}")
-                }
-            }
-            "NoiseDetected" -> {
-                // `active` is the field name the status endpoints of this API use, so accept it as an
-                // alternative spelling of the same boolean instead of guessing a new one.
-                when (triState(params.get("state")) ?: triState(params.get("active"))) {
-                    true -> listener.onEvent(IntercomEvent.NoiseStarted(device))
-                    false -> listener.onEvent(IntercomEvent.NoiseEnded(device))
-                    null -> Log.w(tag, "NoiseDetected without a usable state field: ${eventObj.toString().take(160)}")
-                }
-            }
-            "KeyPressed" -> {
-                // Reported for every key of the device and for both edges of a press. Only the known
-                // release/hold edges are dropped: the press action string is not documented in this
-                // repo, so an unknown action still rings and duplicates of one press are collapsed by
-                // the monitor service's per-device ring debounce.
-                val action = params.get("action")?.takeIf { it.isJsonPrimitive }?.asString
-                    ?.lowercase(Locale.US).orEmpty()
-                if (action in KEY_RELEASE_ACTIONS) {
-                    Log.d(tag, "KeyPressed action=$action ignored (not a press edge)")
-                } else {
-                    listener.onEvent(IntercomEvent.DoorbellRung(device, callerNumber = "Doorbell Button"))
-                }
-            }
-            "CallStateChanged" -> {
-                val state = params.get("state")?.asString ?: ""
-                val direction = params.get("direction")?.asString ?: ""
-                Log.d(tag, "2N CallStateChanged: state=$state direction=$direction")
-                // "dialing" is kept on purpose: a doorbell press makes the intercom dial this phone,
-                // so from the device's point of view the ringing call is *outgoing*. Filtering by
-                // direction would therefore discard the primary ring path; the debounce upstream is
-                // what makes the overlap with KeyPressed harmless.
-                if (state.equals("incoming", ignoreCase = true) || state.equals("ringing", ignoreCase = true) || state.equals("dialing", ignoreCase = true)) {
-                    listener.onEvent(IntercomEvent.DoorbellRung(device, callerNumber = params.get("peer")?.asString))
-                }
-            }
-        }
-    }
-
-    /**
      * 2N answers a path this firmware does not serve, or a request it rejects, with HTTP 200 +
      * `{"success":false,"error":{"code":N,"description":"..."}}` instead of an error status.
      */
@@ -455,24 +363,6 @@ class TwoNIPVersoDevice(
     private fun isPermanentReject(httpStatus: Int, code2N: Int?): Boolean =
         code2N in setOf(ERROR_CODE_INVALID_REQUEST_PATH, ERROR_CODE_INVALID_CONNECTION_TYPE, ERROR_CODE_UNAUTHORIZED) ||
             httpStatus == HTTP_NOT_FOUND
-
-    /**
-     * Converts a 2N boolean-ish field: real booleans, the truthy/falsy words this firmware family uses
-     * (`active`/`inactive`, `on`/`off`, `true`/`false`) and numbers. Null means the payload does not say,
-     * which callers must handle as "no information" instead of defaulting to a definite state.
-     */
-    private fun triState(element: JsonElement?): Boolean? {
-        val primitive = element?.takeIf { it.isJsonPrimitive }?.asJsonPrimitive ?: return null
-        return when {
-            primitive.isBoolean -> primitive.asBoolean
-            primitive.isNumber -> primitive.asDouble != 0.0
-            else -> when (primitive.asString.lowercase(Locale.US)) {
-                in TRUE_WORDS -> true
-                in FALSE_WORDS -> false
-                else -> null
-            }
-        }
-    }
 
     /**
      * Idempotent and non-suspending on purpose: the service tears devices down concurrently under a
@@ -495,21 +385,7 @@ class TwoNIPVersoDevice(
     private fun parseObjectOrNull(body: String): JsonObject? =
         runCatching { JsonParser.parseString(body).asJsonObject }.getOrNull()
 
-    private fun JsonObject.getAsJsonObjectOrNull(key: String): JsonObject? =
-        get(key)?.takeIf { it.isJsonObject }?.asJsonObject
-
     companion object {
-        // Wording this firmware family uses for boolean-ish event/status fields; anything else is treated as
-        // "unknown" rather than guessed, so a wrong assumption shows up in the log instead of pinning a state.
-        private val TRUE_WORDS = setOf("active", "true", "on", "yes", "start", "detected", "moving")
-        private val FALSE_WORDS = setOf("inactive", "false", "off", "no", "stop", "idle", "clear", "none")
-
-        // KeyPressed edges that are NOT a doorbell press; the press itself is the default, see decodeEventObject.
-        private val KEY_RELEASE_ACTIONS = setOf("released", "release", "up", "long", "hold", "held", "double")
-
-        // Where the drained log entries may sit in the pull body; checked in order until one is an array.
-        private val EVENT_ARRAY_KEYS = listOf("log", "logs", "entries", "events", "items")
-
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
         // Subscribe for a fixed window and re-acquire this many seconds before it lapses, so a pull never

@@ -10,8 +10,11 @@
 
 ## 2. Decode
 
-- [ ] 2.1 Route drained log entries through `handleRaw2NEvent` and verify ring/motion/noise map to the
-  existing `IntercomEvent` types
+- [x] 2.1 Route drained log entries through `handleRaw2NEvent` and verify ring/motion/noise map to the
+  existing `IntercomEvent` types (the SSE decode now lives as `TwoNEventDecoder`, which `TwoNIPVersoDevice.pull`
+  fans each drained entry through; `TwoNEventDecoderTest` pins `MotionDetected`/`NoiseDetected`/`KeyPressed`/
+  `CallStateChanged` onto `MotionStarted/Ended`, `NoiseStarted/Ended` and `DoorbellRung`, incl. the unknown-state
+  and release-edge drops. The exact `pull` envelope path is still provisional pending the 3.3 body)
 - [x] 2.2 Remove the dead `/api/event/*` SSE and `/api/motion|noise/status` poll paths and verify
   `compileDebugKotlin` + `lintDebug` stay green
 
