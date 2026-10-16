@@ -8,14 +8,25 @@
 
 ## 2. Implement
 
-- [ ] 2.1 Add the zero-re-encode RTSP H.264 passthrough path behind the config flag, so the
-  snapshot/MJPEG path stays authoritative when the flag is off
+- [x] 2.1 Zero-re-encode RTSP H.264 passthrough path behind the config flag (`device.streamProtocol == RTSP`
+  **and** an [io.github.mvolkert.entryrecorder.video.H264SampleSource] is wired), so the snapshot/MJPEG path
+  stays authoritative when the flag is off. The demux→re-mux mechanism
+  ([io.github.mvolkert.entryrecorder.video.H264PassthroughMuxer] feeding [MkvStreamMuxer] via
+  [io.github.mvolkert.entryrecorder.video.H264StreamHelper]) is implemented and unit-tested. The flag is
+  **inert in the shipped deployment**: the concrete decode-free Media3 RTSP source that would fill the seam is
+  the deferred on-device piece (see 3.2), so production passes no source and MJPEG/snapshot still captures every
+  clip.
 
 ## 3. Verification
 
-- [ ] 3.1 CI-only (blind): compile + a device-free test of the passthrough/mux seam with synthetic frames
-- [ ] 3.2 On-device (deferred, needs an RTSP camera): record and confirm the output plays and battery/CPU
-  stays low — cannot be proven without hardware
+- [x] 3.1 CI-only (blind): compiles, and the passthrough/mux seam is proven device-free from synthetic NAL bytes
+  — [io.github.mvolkert.entryrecorder.video.H264StreamHelperTest] (avcC + keyframe classification) and
+  [io.github.mvolkert.entryrecorder.video.H264PassthroughMuxerTest] (track opens only from the first SPS/PPS
+  unit, later units append, EBML header + CodecPrivate verified) — with no camera or Media3 involved
+- [ ] 3.2 On-device (deferred, needs an RTSP camera): implement the decode-free Media3 RTSP elementary-stream
+  tap for [io.github.mvolkert.entryrecorder.video.H264SampleSource] (Media3 1.11.1 exposes no clean public
+  sample API, so it cannot be written or verified blind), then record and confirm the output plays and
+  battery/CPU stays low — cannot be proven without hardware
 
 ## Workflow follow-up
 

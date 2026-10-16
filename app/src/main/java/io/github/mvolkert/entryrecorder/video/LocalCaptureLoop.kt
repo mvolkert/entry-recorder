@@ -71,6 +71,12 @@ internal class LocalCaptureLoop(
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     private val events: Channel<RecorderEvent>,
     private val onActiveChanged: () -> Unit,
+    /**
+     * Source for the RTSP H.264 passthrough path (change `rtsp-h264-passthrough`). Null in the shipped
+     * deployment: the decode-free Media3 RTSP tap that would fill it is unverifiable without a physical
+     * camera and stays the deferred on-device task, so the snapshot/MJPEG path below remains authoritative.
+     */
+    private val h264Source: H264SampleSource? = null,
 ) {
     private val tag = "RtspStreamRecorder"
     private val scope = CoroutineScope(ioDispatcher + SupervisorJob())
@@ -264,6 +270,28 @@ internal class LocalCaptureLoop(
         val fps = device.effectiveSnapshotFps
 
         MkvStreamMuxer(outputFile).use { muxer ->
+            // RTSP H.264 passthrough: the stream is already H.264, so re-mux its access units straight into an
+            // H.264 track with no decode and no re-encode. Takes the whole clip: an H.264 track cannot carry the
+            // MJPEG pre-roll frames, and a source is only wired when an RTSP camera is actually onboarded.
+            val source = h264Source
+            if (device.streamProtocol == StreamProtocol.RTSP && source != null) {
+                if (preRoll.isNotEmpty()) {
+                    Log.d(tag, "Dropping ${preRoll.size} MJPEG pre-roll frames on the ${device.name} H.264 passthrough clip")
+                }
+                val passthrough = H264PassthroughMuxer(muxer, width = 1280, height = 720)
+                try {
+                    source.stream(device).collect { unit ->
+                        if (!isActive || System.currentTimeMillis() >= deadlineMs.get()) return@collect
+                        // firstFrameRef stays null: an H.264 MKV is decodable by MediaMetadataRetriever, so
+                        // finalizeRecording extracts the thumbnail from the file instead of a JPEG frame.
+                        passthrough.writeUnit(unit, baselineMs)
+                    }
+                } catch (e: Exception) {
+                    Log.w(tag, "RTSP H.264 passthrough for ${device.name} ended (${e.message})")
+                }
+                return@use
+            }
+
             fun handleJpeg(jpeg: ByteArray, atMs: Long) {
                 muxer.writeMjpegFrame(jpeg, (atMs - baselineMs).coerceAtLeast(0L))
             }

@@ -5,7 +5,6 @@ import android.graphics.BitmapFactory
 import android.media.MediaCodec
 import android.media.MediaFormat
 import android.util.Log
-import java.io.ByteArrayOutputStream
 import androidx.core.graphics.scale
 
 /**
@@ -72,7 +71,7 @@ class H264Encoder(
         get() {
             val s = sps ?: return null
             val p = pps ?: return null
-            return buildAvcC(s, p)
+            return H264StreamHelper.buildAvcC(s, p)
         }
 
     fun start() {
@@ -209,10 +208,10 @@ class H264Encoder(
                             // Keyframe detection: parse the NAL units for an IDR (type 5). This is the
                             // reliable signal; the deprecated BUFFER_FLAG_SYNC_FRAME hint is intentionally
                             // not used.
-                            val isKey = containsIdr(bytes)
+                            val isKey = H264StreamHelper.isKeyframe(bytes)
                             result.add(
                                 EncodedFrame(
-                                    annexB = normalizeToAnnexB(bytes),
+                                    annexB = H264StreamHelper.normalizeToAnnexB(bytes),
                                     presentationTimeUs = bufferInfo.presentationTimeUs,
                                     isKeyframe = isKey,
                                 )
@@ -233,96 +232,12 @@ class H264Encoder(
      * the SPS (type 7) and PPS (type 8).
      */
     private fun extractParameterSets(data: ByteArray) {
-        for (nal in splitNalUnits(data)) {
+        for (nal in H264StreamHelper.splitNalUnits(data)) {
             if (nal.isEmpty()) continue
             when (nal[0].toInt() and 0x1F) {
                 7 -> sps = nal
                 8 -> pps = nal
             }
-        }
-    }
-
-    private fun containsIdr(data: ByteArray): Boolean =
-        splitNalUnits(data).any { it.isNotEmpty() && (it[0].toInt() and 0x1F) == 5 }
-
-    /**
-     * Normalizes an access unit to Annex-B with 4-byte start codes, regardless of whether the
-     * encoder emitted start codes or bare NALs.
-     */
-    private fun normalizeToAnnexB(data: ByteArray): ByteArray {
-        val nals = splitNalUnits(data)
-        if (nals.isEmpty()) return data
-        val out = ByteArrayOutputStream(data.size + nals.size * 4)
-        for (nal in nals) {
-            out.write(byteArrayOf(0x00, 0x00, 0x00, 0x01))
-            out.write(nal)
-        }
-        return out.toByteArray()
-    }
-
-    /** Splits a byte stream (with or without start codes) into raw NAL units (no start codes). */
-    private fun splitNalUnits(data: ByteArray): List<ByteArray> {
-        val nals = ArrayList<ByteArray>()
-        var i = 0
-        val n = data.size
-        var start = -1
-        while (i < n) {
-            val scLen = startCodeLengthAt(data, i)
-            if (scLen > 0) {
-                if (start >= 0) nals.add(data.copyOfRange(start, i))
-                i += scLen
-                start = i
-            } else {
-                i++
-            }
-        }
-        if (start in 0 until n) nals.add(data.copyOfRange(start, n))
-        // If no start codes were present at all, treat the whole buffer as one NAL.
-        if (nals.isEmpty() && n > 0) nals.add(data)
-        return nals.filter { it.isNotEmpty() }
-    }
-
-    private fun startCodeLengthAt(data: ByteArray, index: Int): Int {
-        val n = data.size
-        if (index + 3 <= n &&
-            data[index].toInt() == 0 &&
-            data[index + 1].toInt() == 0 &&
-            data[index + 2].toInt() == 1
-        ) {
-            return 3
-        }
-        if (index + 4 <= n &&
-            data[index].toInt() == 0 &&
-            data[index + 1].toInt() == 0 &&
-            data[index + 2].toInt() == 0 &&
-            data[index + 3].toInt() == 1
-        ) {
-            return 4
-        }
-        return 0
-    }
-
-    companion object {
-        /**
-         * Builds an `AVCDecoderConfigurationRecord` (avcC) from raw SPS and PPS NAL units.
-         */
-        fun buildAvcC(sps: ByteArray, pps: ByteArray): ByteArray {
-            val out = ByteArrayOutputStream()
-            out.write(0x01) // configurationVersion
-            // AVCProfileIndication / profile_compatibility / AVCLevelIndication come from SPS bytes 1..3
-            out.write(sps.getOrElse(1) { 0 }.toInt())
-            out.write(sps.getOrElse(2) { 0 }.toInt())
-            out.write(sps.getOrElse(3) { 0 }.toInt())
-            out.write(0xFF.toByte().toInt()) // lengthSizeMinusOne = 3 (4-byte NAL lengths)
-            out.write(0xE1) // numOfSequenceParameterSets = 1
-            out.write((sps.size shr 8) and 0xFF)
-            out.write(sps.size and 0xFF)
-            out.write(sps)
-            out.write(0x01) // numOfPictureParameterSets = 1
-            out.write((pps.size shr 8) and 0xFF)
-            out.write(pps.size and 0xFF)
-            out.write(pps)
-            return out.toByteArray()
         }
     }
 
