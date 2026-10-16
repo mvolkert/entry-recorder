@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.video
 
-import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,9 +24,9 @@ interface RecordingController {
     /** True only while the *phone's* capture loop polls the device's snapshot endpoint (not server recordings). */
     fun isLocallyRecording(deviceId: Long): Boolean
 
-    /** Start a recording for [device] triggered by [eventType]; folds into a running clip if one exists. */
+    /** Start a recording for [Device] triggered by [eventType]; folds into a running clip if one exists. */
     fun startRecording(
-        device: DeviceEntity,
+        device: Device,
         eventType: EventType,
         maxDurationSeconds: Int = 60,
         preRoll: List<PreRollFrame> = emptyList()
@@ -36,5 +36,5 @@ interface RecordingController {
     fun stopRecording(deviceId: Long, reason: EventType? = null)
 
     /** Rebuilds the app's view of server recordings that were in flight when the process died. */
-    suspend fun resumePersistedServerRecordings(devices: List<DeviceEntity>)
+    suspend fun resumePersistedServerRecordings(devices: List<Device>)
 }

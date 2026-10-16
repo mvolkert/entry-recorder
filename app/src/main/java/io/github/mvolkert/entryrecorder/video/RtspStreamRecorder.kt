@@ -3,68 +3,29 @@ package io.github.mvolkert.entryrecorder.video
 import android.content.Context
 import android.util.Log
 import androidx.annotation.OptIn
-import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
 import dagger.hilt.android.qualifiers.ApplicationContext
-import io.github.mvolkert.entryrecorder.data.local.entity.ActiveServerRecordingEntity
-import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
-import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
-import io.github.mvolkert.entryrecorder.data.model.ConnectionCapability
-import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
-import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.data.server.ServerClient
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
-import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.util.ExportGateway
-import io.github.mvolkert.entryrecorder.util.recordingsDirOf
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicReference
-import kotlin.time.Duration.Companion.milliseconds
-
-/** A captured JPEG plus its wall-clock capture time, used to prepend a motion pre-roll to a recording. */
-class PreRollFrame(val timestampMs: Long, val jpeg: ByteArray)
-
-/**
- * Which trigger a clip is filed under when more than one happened while it was running. A doorbell outranks
- * the rest because it is the event the user goes looking for afterwards; a manual clip outranks nothing because
- * the user knows they pressed the button.
- */
-private val EventType.significance: Int
-    get() = when (this) {
-        EventType.RING -> 3
-        EventType.MOTION -> 2
-        EventType.NOISE -> 1
-        EventType.MANUAL -> 0
-    }
 
 /**
  * Things the capture loop learns that no caller asked for, published so the monitor service can act on
@@ -72,9 +33,17 @@ private val EventType.significance: Int
  * card, not only logcat.
  */
 sealed interface RecorderEvent {
-    data class Connection(val event: IntercomEvent.ConnectionState) : RecorderEvent
+    data class Connection(val event: io.github.mvolkert.entryrecorder.domain.device.IntercomEvent.ConnectionState) : RecorderEvent
 }
 
+/**
+ * The recording controller the monitor service and Live view code against. It is deliberately thin: it owns
+ * the observable state (which devices are recording, local or server) and the one-shot event channel, decides
+ * between the two capture back ends from the stored [RecordingMode], then delegates. The phone-side frame
+ * loop lives in [LocalCaptureLoop]; the Python-server job tracking lives in [ServerRecordingOrchestrator].
+ * Splitting them keeps each mechanism (muxer + folding triggers vs reconcile + resume) readable and testable
+ * on its own while [RecordingController] stays the single seam fakes implement.
+ */
 @OptIn(UnstableApi::class)
 @Singleton
 class RtspStreamRecorder @Inject constructor(
@@ -88,14 +57,10 @@ class RtspStreamRecorder @Inject constructor(
 ) : RecordingController {
     private val tag = "RtspStreamRecorder"
     private val scope = CoroutineScope(ioDispatcher + SupervisorJob())
-    private val activeRecordings = ConcurrentHashMap<Long, ActiveRecordingJob>()
-    // Server-side recordings remember their trigger type too, so a delayed post-record stop from one
-    // event type cannot terminate the recording another event type started (see stopRecording).
-    private val activeServerRecordings = ConcurrentHashMap<Long, ActiveServerRecording>()
 
-    // Observable recording status: the plain ConcurrentHashMaps above are invisible to Compose, so
-    // every mutation also publishes the affected device ids here (local + server recordings). The
-    // Live screen observes this StateFlow through LiveViewModel instead of polling for a live status.
+    // Observable recording status: the maps inside the two collaborators are invisible to Compose, so every
+    // mutation republishes the affected device ids here (local + server recordings). The Live screen observes
+    // this StateFlow through LiveViewModel instead of polling for a live status.
     private val _activeDeviceIds = MutableStateFlow<Set<Long>>(emptySet())
     /** Device ids that currently have an active recording (local or on the server). */
     override val activeDeviceIds: StateFlow<Set<Long>> = _activeDeviceIds.asStateFlow()
@@ -104,96 +69,56 @@ class RtspStreamRecorder @Inject constructor(
     /** One-shot recorder observations for the monitor service to route (never replayed to a late collector). */
     override val events: Flow<RecorderEvent> = _events.receiveAsFlow()
 
+    private val localLoop = LocalCaptureLoop(
+        context = context,
+        repository = repository,
+        snapshotClient = snapshotClient,
+        mjpegReader = mjpegReader,
+        exportGateway = exportGateway,
+        ioDispatcher = ioDispatcher,
+        events = _events,
+        onActiveChanged = ::publishActiveIds,
+    )
+
+    private val serverOrchestrator = ServerRecordingOrchestrator(
+        repository = repository,
+        serverClient = serverClient,
+        ioDispatcher = ioDispatcher,
+        onActiveChanged = ::publishActiveIds,
+    )
+
     private fun publishActiveIds() {
-        _activeDeviceIds.value = (activeRecordings.keys + activeServerRecordings.keys).toSet()
+        _activeDeviceIds.value = localLoop.activeDeviceIds + serverOrchestrator.activeDeviceIds
     }
-
-    /**
-     * A clip the phone is still writing. [triggers] and [deadlineMs] are mutable because a second trigger
-     * folds into the running clip rather than replacing it, and the capture loop reads how long it has left
-     * straight from [deadlineMs] so that fold can push the end out.
-     */
-    private class ActiveRecordingJob(
-        val deviceId: Long,
-        val startTimeMs: Long,
-        val outputFile: File,
-        val job: Job,
-        val triggers: MutableTriggers,
-        val deadlineMs: AtomicLong
-    )
-
-    /**
-     * The trigger tags of a clip that is still being recorded. One clip carries several because an event that
-     * arrives mid-clip is folded into it instead of stopping it (see [RtspStreamRecorder.startRecording]).
-     * [primary] is the tag the recording is filed under: the most significant trigger seen so far, so a
-     * doorbell pressed during a motion clip stays findable in the ring filter.
-     */
-    private class MutableTriggers(start: EventType) {
-        @Volatile
-        var primary: EventType = start
-            private set
-
-        private val folded = ConcurrentHashMap.newKeySet<EventType>()
-
-        /** Folds [incoming] in. False when the clip was already running under exactly that trigger. */
-        fun fold(incoming: EventType): Boolean {
-            if (incoming == primary) return false
-            if (incoming.significance > primary.significance) {
-                folded += primary
-                primary = incoming
-            } else {
-                folded += incoming
-            }
-            return true
-        }
-
-        /** The folded-in triggers in the stored comma-separated enum-name form. */
-        fun foldedCsv(): String = folded.sortedByDescending { it.significance }.joinToString(",")
-    }
-
-    /**
-     * The app's view of a recording the server is running. Kept deliberately thin: the server owns the job
-     * and its duration, so what the phone has to remember is which trigger started it (for the stop guard),
-     * how long it asked for (for the reconcile deadline), whether the job is even this client's to stop, and
-     * when it began (so a resume after a process restart honours the time already elapsed).
-     */
-    private data class ActiveServerRecording(
-        val eventType: EventType,
-        val maxDurationSeconds: Int,
-        val startedByThisRequest: Boolean,
-        /** Server row id, once the server returns one from start (Phase S). Null with today's server. */
-        val recordingId: Long?,
-        /** Wall-clock ms of the successful start; the reconcile deadline is anchored to this. */
-        val startedAtMs: Long
-    )
 
     /**
      * True only while the *phone's* capture loop polls the device's snapshot endpoint (not for
      * server-side recordings). Motion analysis backs off on this, because in PYTHON_SERVER mode the
      * server is the poller and slowing the analyzer would relieve contention that doesn't exist here.
      */
-    override fun isLocallyRecording(deviceId: Long): Boolean = activeRecordings.containsKey(deviceId)
+    override fun isLocallyRecording(deviceId: Long): Boolean = localLoop.isRecording(deviceId)
 
     /**
-     * Start recording an RTSP/Snapshot video sequence for a given device and trigger event.
-     * Evaluates whether to record via Python server or locally in-app (default).
+     * Start recording for a given device and trigger event, choosing the Python server or the local capture
+     * loop from the stored mode (local is the default and the fallback).
      *
-     * A clip that is already running on this device is never replaced: the new trigger is folded into it
-     * instead, because one recording per device is what the camera and the storage budget allow.
+     * A clip that is already running on this device is never replaced: the new trigger is folded into it,
+     * because one recording per device is what the camera and the storage budget allow. A server job the app
+     * already tracks carries its own trigger and length with no fold API, so a second event simply adds nothing.
      */
     @Synchronized
     override fun startRecording(
-        device: DeviceEntity,
+        device: Device,
         eventType: EventType,
         maxDurationSeconds: Int,
-        preRoll: List<PreRollFrame>
+        preRoll: List<PreRollFrame>,
     ) {
-        val running = activeRecordings[device.id]
-        if (running != null) {
-            foldIntoRunningClip(running, device, eventType, maxDurationSeconds)
+        if (localLoop.isRecording(device.id)) {
+            // Fold into the running clip; the loop re-detects that one is active and folds rather than starting a second.
+            localLoop.start(device, eventType, maxDurationSeconds, preRoll)
             return
         }
-        if (activeServerRecordings.containsKey(device.id)) {
+        if (serverOrchestrator.isActive(device.id)) {
             // The server owns that job's trigger and length, and its API offers no way to add a second tag to
             // a running recording, so there is nothing to fold into.
             Log.i(tag, "Device ${device.id} is recording on the server; a $eventType event adds no second job")
@@ -202,142 +127,15 @@ class RtspStreamRecorder @Inject constructor(
 
         scope.launch {
             val settings = repository.getSettings()
-
             if (settings.recordingMode == RecordingMode.PYTHON_SERVER) {
-                Log.i(tag, "Initiating server recording on ${settings.serverBaseUrl} for ${device.name}")
-                // Just-in-time registration is the safety net for a device that never synced through
-                // Settings (created while in APP_LOCAL, or a registration that failed then): without a
-                // server id there is nothing to address, so register now and persist the id.
-                val serverDeviceId = device.serverDeviceId ?: ensureRegistered(device)
-                if (serverDeviceId == null) {
-                    Log.w(tag, "Could not register ${device.name} on the server; falling back to local recording")
-                    startLocalRecording(device, eventType, maxDurationSeconds, preRoll)
-                    return@launch
+                val outcome = serverOrchestrator.start(device, eventType, maxDurationSeconds, settings)
+                if (outcome is ServerStartOutcome.FallbackToLocal) {
+                    localLoop.start(device, eventType, maxDurationSeconds, preRoll)
                 }
-                val serverDevice = if (device.serverDeviceId == null) device.copy(serverDeviceId = serverDeviceId) else device
-                val result = serverClient.startRecording(
-                    serverUrl = settings.serverBaseUrl,
-                    apiKey = settings.serverApiKey.ifBlank { null },
-                    serverDeviceId = serverDeviceId,
-                    deviceName = device.name,
-                    eventType = eventType,
-                    durationSeconds = maxDurationSeconds
-                )
-
-                if (result.isSuccess) {
-                    val start = result.getOrThrow()
-                    val startedAt = System.currentTimeMillis()
-                    activeServerRecordings[device.id] = ActiveServerRecording(
-                        eventType = eventType,
-                        maxDurationSeconds = maxDurationSeconds,
-                        startedByThisRequest = start.startedByThisRequest,
-                        recordingId = start.recordingId,
-                        startedAtMs = startedAt
-                    )
-                    publishActiveIds()
-                    // Persist so a process restart can resume reconciling and auto-stopping this job: the
-                    // recorder is a process singleton, so the in-memory map alone dies with the process.
-                    repository.saveActiveServerRecording(
-                        ActiveServerRecordingEntity(
-                            deviceId = device.id,
-                            recordingId = start.recordingId,
-                            eventType = eventType,
-                            maxDurationSeconds = maxDurationSeconds,
-                            startedByThisRequest = start.startedByThisRequest,
-                            startedAtMs = startedAt
-                        )
-                    )
-                    if (!start.startedByThisRequest) {
-                        Log.i(tag, "Server was already recording ${device.name}; watching that job instead of arming a stop for it")
-                    }
-                    // Reconcile against the server's own job list rather than trusting a blind local timer:
-                    // the job can finish early, be stopped from the server's web UI, or outlive what this
-                    // request asked for, and in every one of those cases the phone has to stop claiming it.
-                    launch { watchServerRecording(serverDevice) }
-                    return@launch
-                } else {
-                    Log.w(tag, "Server recording failed, falling back to local recording: ${result.exceptionOrNull()?.message}")
-                }
+                return@launch
             }
-
-            // Local recording (Default or Fallback)
-            startLocalRecording(device, eventType, maxDurationSeconds, preRoll)
+            localLoop.start(device, eventType, maxDurationSeconds, preRoll)
         }
-    }
-
-    /**
-     * Folds [eventType] into the clip already running on this device instead of starting a second one. The
-     * muxer is mid-file: stopping it to restart would drop the frame in flight plus the reconnect gap, which
-     * is exactly what a doorbell pressed during a motion recording used to cost. The clip takes the extra tag
-     * and is held open at least [maxDurationSeconds] longer, so the fold covers the event rather than only
-     * noting it.
-     */
-    private fun foldIntoRunningClip(
-        running: ActiveRecordingJob,
-        device: DeviceEntity,
-        eventType: EventType,
-        maxDurationSeconds: Int
-    ) {
-        if (!running.triggers.fold(eventType)) {
-            Log.d(tag, "Device ${device.id} is already recording a $eventType clip")
-            return
-        }
-        val wantedDeadlineMs = System.currentTimeMillis() + maxDurationSeconds * 1000L
-        running.deadlineMs.updateAndGet { current -> maxOf(current, wantedDeadlineMs) }
-        val secondsLeft = ((running.deadlineMs.get() - System.currentTimeMillis()) / 1000L).coerceAtLeast(0L)
-        Log.i(
-            tag,
-            "Folded $eventType into the running ${running.triggers.primary.name} clip on ${device.name}; " +
-                "it now records ${secondsLeft}s more and will be filed as ${running.triggers.primary.name}"
-        )
-    }
-
-    private fun startLocalRecording(
-        device: DeviceEntity,
-        eventType: EventType,
-        maxDurationSeconds: Int,
-        preRoll: List<PreRollFrame>
-    ) {
-        val timestampStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val recordingsDir = recordingsDirOf(context).apply { mkdirs() }
-        val outputFile = File(recordingsDir, "REC_${device.id}_${eventType.name}_$timestampStr.mkv")
-
-        // Start the timeline at the earliest pre-roll frame so the recording's timestamp/duration cover
-        // the moment that triggered motion, not just what happened after detection confirmed it.
-        val startTime = preRoll.firstOrNull()?.timestampMs ?: System.currentTimeMillis()
-        Log.i(tag, "Starting local MKV recording for ${device.name} [${eventType.name}] -> ${outputFile.name}")
-
-        val firstFrameRef = AtomicReference<ByteArray?>(null)
-        val triggers = MutableTriggers(eventType)
-        val deadlineMs = AtomicLong(System.currentTimeMillis() + maxDurationSeconds * 1000L)
-        val job = scope.launch {
-            try {
-                // Recording capture loop: captures snapshot frames / MJPEG stream chunks into crash-safe MKV
-                recordStreamToMkv(device, outputFile, deadlineMs, firstFrameRef, startTime, preRoll)
-            } catch (_: CancellationException) {
-                Log.d(tag, "Recording cancelled/stopped normally for ${device.name}")
-            } catch (e: Exception) {
-                Log.e(tag, "Error during recording for ${device.name}", e)
-            } finally {
-                // Finalization performs suspending DB writes (recording row, thumbnail, auto-export
-                // mirror). On a manual early stop this coroutine is already cancelled, which would
-                // abort those suspends and silently lose the whole recording — run it NonCancellable
-                // so stopping early still commits the recording like a natural timeout does.
-                withContext(NonCancellable) {
-                    finalizeRecording(device, triggers, startTime, outputFile, firstFrameRef.get())
-                }
-            }
-        }
-
-        activeRecordings[device.id] = ActiveRecordingJob(
-            deviceId = device.id,
-            startTimeMs = startTime,
-            outputFile = outputFile,
-            job = job,
-            triggers = triggers,
-            deadlineMs = deadlineMs
-        )
-        publishActiveIds()
     }
 
     /**
@@ -346,352 +144,21 @@ class RtspStreamRecorder @Inject constructor(
      * [reason] restricts the stop to the recording that this event type started: the motion and noise
      * post-record buffers stop on a delay, and without the guard a short noise clip ending at 20 s
      * would cut a 60 s doorbell recording on the same device short. A null reason (the manual stop from
-     * the Live view) stops whatever is running for the device.
+     * the Live view) stops whatever is running for the device. Both back ends are consulted, since a
+     * device only ever has one live job but the caller does not know which end owns it.
      */
     @Synchronized
     override fun stopRecording(deviceId: Long, reason: EventType?) {
-        val active = activeRecordings[deviceId]
-        when {
-            active == null -> Unit
-            reason != null && active.triggers.primary != reason ->
-                Log.i(tag, "Ignoring $reason post-record stop for device $deviceId: active recording is ${active.triggers.primary.name}")
-            else -> {
-                Log.i(tag, "Stopping active local recording for device $deviceId")
-                activeRecordings.remove(deviceId)
-                publishActiveIds()
-                active.job.cancel()
-            }
-        }
-
-        val serverRecording = activeServerRecordings[deviceId]
-        when {
-            serverRecording == null -> Unit
-            reason != null && serverRecording.eventType != reason ->
-                Log.i(tag, "Ignoring $reason post-record stop for device $deviceId: server recording is ${serverRecording.eventType}")
-            else -> {
-                Log.i(tag, "Stopping active server recording for device $deviceId")
-                activeServerRecordings.remove(deviceId)
-                publishActiveIds()
-                scope.launch {
-                    val settings = repository.getSettings()
-                    repository.deleteActiveServerRecording(deviceId)
-                    // The stop must address the server job by the server-assigned id, not the local device id.
-                    val serverDeviceId = repository.getDeviceById(deviceId)?.serverDeviceId
-                    if (serverDeviceId != null) {
-                        requestServerStop(serverDeviceId, "device $deviceId", settings.serverBaseUrl, settings.serverApiKey.ifBlank { null })
-                    } else {
-                        Log.w(tag, "No server id for device $deviceId; cannot stop its server job")
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * Registers [device] on the server and persists the returned id as its `serverDeviceId`, so later starts
-     * address it without re-registering. Returns null when registration fails (server unreachable, rejected),
-     * which the caller treats as "fall back to local recording". This is the just-in-time safety net behind
-     * the best-effort sync in SettingsViewModel.saveDevice.
-     */
-    private suspend fun ensureRegistered(device: DeviceEntity): Long? {
-        val settings = repository.getSettings()
-        val id = serverClient
-            .registerDevice(settings.serverBaseUrl, settings.serverApiKey.ifBlank { null }, device)
-            .getOrNull() ?: return null
-        repository.saveDevice(device.copy(serverDeviceId = id))
-        Log.i(tag, "Registered ${device.name} on the server as id $id")
-        return id
-    }
-
-    /**
-     * Keeps the app's view of a server recording in step with the server's own job list.
-     *
-     * The old behaviour was a `maxDurationSeconds + 2` sleep and an unconditional stop, which drifted in both
-     * directions: the phone kept showing REC after the server finalized, and it sent a stop for a job that
-     * belongs to an earlier request (`already_recording`) whose duration was never this one's.
-     */
-    private suspend fun watchServerRecording(device: DeviceEntity) {
-        val tracked = activeServerRecordings[device.id] ?: return
-        // All server-facing calls address the device by its server-assigned id; the local maps keep keying by
-        // device.id. A device with no server id cannot be probed, so drop the watch rather than spin failures.
-        val serverDeviceId = device.serverDeviceId ?: run {
-            clearServerRecording(device.id, "has no server id")
-            return
-        }
-        // Anchor the deadline to the recorded start rather than to when this coroutine begins, so a watcher
-        // resumed after a process restart honours the time already elapsed instead of granting a fresh
-        // maxDurationSeconds. For a fresh start (startedAtMs == now) this equals the previous value.
-        val stopAtMs = tracked.startedAtMs + (tracked.maxDurationSeconds * 1000L) + SERVER_STOP_GRACE_MS
-        var failedProbes = 0
-
-        while (currentCoroutineContext().isActive) {
-            delay(SERVER_RECONCILE_INTERVAL_MS.milliseconds)
-            // Cleared by a stop through the app or by a new trigger: this coroutine no longer owns anything.
-            val active = activeServerRecordings[device.id] ?: return
-            val settings = repository.getSettings()
-            val apiKey = settings.serverApiKey.ifBlank { null }
-            val probe = serverClient.activeRecordingFor(settings.serverBaseUrl, apiKey, serverDeviceId)
-            val job = probe.getOrNull()
-
-            when {
-                probe.isFailure -> {
-                    failedProbes++
-                    Log.w(
-                        tag,
-                        "Server job for ${device.name} not reconcilable (attempt $failedProbes): " +
-                            probe.exceptionOrNull()?.message
-                    )
-                    if (failedProbes >= SERVER_RECONCILE_GIVE_UP_PROBES) {
-                        if (active.startedByThisRequest) {
-                            requestServerStop(serverDeviceId, device.name, settings.serverBaseUrl, apiKey)
-                        }
-                        clearServerRecording(device.id, "status probes stopped working")
-                        return
-                    }
-                }
-
-                // Nothing running on the server anymore: it finalized on its own or was stopped in its web UI.
-                job == null -> {
-                    clearServerRecording(device.id, "the server no longer has a job for it")
-                    return
-                }
-
-                System.currentTimeMillis() >= stopAtMs -> {
-                    if (active.startedByThisRequest) {
-                        Log.i(
-                            tag,
-                            "Server job on ${device.name} still live after ${tracked.maxDurationSeconds}s " +
-                                "(elapsed ${job.elapsedSeconds}s of ${job.maxDurationSeconds}s), asking it to stop"
-                        )
-                        requestServerStop(serverDeviceId, device.name, settings.serverBaseUrl, apiKey)
-                        clearServerRecording(device.id, "stopped past the requested duration")
-                        return
-                    }
-                    // Not this request's job to end: it carries its own duration, so keep watching until the
-                    // server drops it instead of truncating someone else's recording.
-                    Log.i(tag, "Server job on ${device.name} outlived the requested duration; leaving it running")
-                }
-            }
-        }
-    }
-
-    /** Drops the app's view of a server recording; the job on the server itself is untouched. */
-    private suspend fun clearServerRecording(deviceId: Long, reason: String) {
-        if (activeServerRecordings.remove(deviceId) != null) {
-            publishActiveIds()
-            repository.deleteActiveServerRecording(deviceId)
-            Log.i(tag, "No longer tracking the server recording of device $deviceId ($reason)")
-        }
+        localLoop.stop(deviceId, reason)
+        serverOrchestrator.stop(deviceId, reason)
     }
 
     /**
      * Rebuilds the app's view of server recordings that were in flight when the process died, so a reboot
-     * still shows REC, reconciles against the server and auto-stops a job this client started. Called from
-     * the monitor service once the enabled devices are known. Rows whose device is no longer monitored, or
-     * left over while the recording mode is no longer the server, are dropped: the server finalizes on its
-     * own, so the only thing lost is the app claiming it. Idempotent — a device already tracked live is
-     * skipped, so repeated device-list emissions never stack watchers on one job.
+     * still shows REC, reconciles against the server and auto-stops a job this client started. Delegated to
+     * the orchestrator, which owns that tracking.
      */
-    override suspend fun resumePersistedServerRecordings(devices: List<DeviceEntity>) {
-        val persisted = repository.getActiveServerRecordings()
-        if (persisted.isEmpty()) return
-        val recordingMode = repository.getSettings().recordingMode
-        val byId = devices.associateBy { it.id }
-        for (row in persisted) {
-            if (activeServerRecordings.containsKey(row.deviceId)) continue
-            val device = byId[row.deviceId]
-            if (device == null || recordingMode != RecordingMode.PYTHON_SERVER) {
-                repository.deleteActiveServerRecording(row.deviceId)
-                continue
-            }
-            activeServerRecordings[device.id] = ActiveServerRecording(
-                eventType = row.eventType,
-                maxDurationSeconds = row.maxDurationSeconds,
-                startedByThisRequest = row.startedByThisRequest,
-                recordingId = row.recordingId,
-                startedAtMs = row.startedAtMs
-            )
-            publishActiveIds()
-            Log.i(tag, "Resumed tracking a server recording on ${device.name} across restart (id ${row.recordingId ?: "none"})")
-            scope.launch { watchServerRecording(device) }
-        }
-    }
-
-    private suspend fun requestServerStop(serverDeviceId: Long, label: String, serverUrl: String, apiKey: String?) {
-        val outcome = serverClient.stopRecording(serverUrl, apiKey, serverDeviceId)
-        val answer = outcome.getOrNull()
-        when {
-            answer == null -> Log.w(tag, "Server stop for $label failed: ${outcome.exceptionOrNull()?.message}")
-            answer.hadActiveJob -> Log.i(tag, "Server stopped the recording of $label")
-            // The job had already ended on its own: exactly the drift the reconcile loop exists to catch.
-            else -> Log.i(tag, "Server had no job left to stop for $label (it had already ended)")
-        }
-    }
-
-    /**
-     * Records incoming snapshot or MJPEG frames directly into a streaming Matroska (MKV) container
-     * as a `V_MJPEG` track. Every cluster is flushed incrementally, so the file is crash-resilient.
-     *
-     * Deliberately NO re-encoding during capture (keeps the 24/7 monitor cheap on CPU/battery).
-     * In-app playback uses a dedicated JPEG frame player (JpegFramePlayer), and an H.264
-     * transcode is produced lazily only when the user exports/shares (see [ExportTranscoder]).
-     *
-     * [deadlineMs] is read every frame rather than resolved once, so a trigger folded into this clip while
-     * it runs can extend it and actually get recorded.
-     */
-    private suspend fun recordStreamToMkv(
-        device: DeviceEntity,
-        outputFile: File,
-        deadlineMs: AtomicLong,
-        firstFrameRef: AtomicReference<ByteArray?>,
-        baselineMs: Long,
-        preRoll: List<PreRollFrame>
-    ) = withContext(ioDispatcher) {
-        val fps = device.effectiveSnapshotFps
-
-        MkvStreamMuxer(outputFile).use { muxer ->
-            fun handleJpeg(jpeg: ByteArray, atMs: Long) {
-                muxer.writeMjpegFrame(jpeg, (atMs - baselineMs).coerceAtLeast(0L))
-            }
-
-            // Prepend the frames captured just before the trigger; baselineMs is the earliest of them,
-            // so their relative times are >= 0 and stay monotonic against the live frames that follow.
-            // firstFrameRef deliberately only picks up the first LIVE frame: the oldest pre-roll frame is
-            // typically the empty approach scene, which would make every thumbnail look identical.
-            preRoll.forEach { handleJpeg(it.jpeg, it.timestampMs) }
-
-            fun handleLiveFrame(jpeg: ByteArray, atMs: Long) {
-                if (firstFrameRef.get() == null) firstFrameRef.set(jpeg)
-                handleJpeg(jpeg, atMs)
-            }
-
-            if (device.streamProtocol == StreamProtocol.MJPEG_STREAM) {
-                try {
-                    mjpegReader.streamRawJpeg(device).collect { jpegBytes ->
-                        if (!isActive || System.currentTimeMillis() >= deadlineMs.get()) return@collect
-                        handleLiveFrame(jpegBytes, System.currentTimeMillis())
-                    }
-                } catch (e: Exception) {
-                    // Snapshot polling continues below. Not silent: a stream that dies after a few frames
-                    // otherwise looks identical to a recording that simply has no motion in it.
-                    Log.w(tag, "MJPEG stream for ${device.name} ended (${e.message}), continuing with snapshot polling")
-                }
-            }
-
-            // Snapshot polling mode. Pace against a rolling deadline: a grab already costs a network
-            // round trip plus a JPEG write, so sleeping a full frame interval *after* each capture
-            // records slower than device.snapshotFps and spaces the motion-analysis comparisons
-            // further apart than the configured rate implies.
-            val frameIntervalMs = 1000L / fps
-            var nextFrameAt = System.currentTimeMillis()
-            // Edge-triggered health: one announcement per state change instead of one per dropped frame,
-            // so a recording that never gets a frame is not confused with a short quiet one.
-            var reportedQuality = snapshotClient.snapshotQuality(device.id)
-            var framesWritten = 0
-            while (isActive && System.currentTimeMillis() < deadlineMs.get()) {
-                nextFrameAt += frameIntervalMs
-                val frameBytes = snapshotClient.fetchSnapshotBytes(device)
-                if (frameBytes != null && frameBytes.isNotEmpty()) {
-                    handleLiveFrame(frameBytes, System.currentTimeMillis())
-                    framesWritten++
-                }
-                val quality = snapshotClient.snapshotQuality(device.id)
-                if (quality != reportedQuality) {
-                    reportedQuality = quality
-                    val failures = snapshotClient.consecutiveFailures(device.id)
-                    Log.w(tag, "Snapshot endpoint for ${device.name} is $quality ($failures polls in a row without a frame)")
-                    _events.trySend(
-                        RecorderEvent.Connection(
-                            IntercomEvent.ConnectionState(
-                                device = device,
-                                quality = quality,
-                                capability = ConnectionCapability.SNAPSHOT,
-                                message = if (quality == ConnectionQuality.ONLINE)
-                                    "Snapshot frames recovered after $failures missed polls"
-                                else "Snapshot endpoint delivered no frame for $failures polls in a row"
-                            )
-                        )
-                    )
-                }
-                val remainingMs = nextFrameAt - System.currentTimeMillis()
-                if (remainingMs > 0) delay(remainingMs.milliseconds)
-            }
-            // The rate the loop actually got frames at, versus what was configured: the gap is what the
-            // endpoint's serial ceiling costs, and it has to be visible without a LAN measurement.
-            val elapsedSec = ((System.currentTimeMillis() - baselineMs) / 1000f).coerceAtLeast(1f)
-            Log.i(
-                tag,
-                "Recorded ${device.name} at %.1f fps (configured %d fps, endpoint ceiling %d fps) "
-                    .format(framesWritten / elapsedSec, fps, device.maxSnapshotFps) +
-                    "${framesWritten} frames"
-            )
-        }
-    }
-
-    private suspend fun finalizeRecording(
-        device: DeviceEntity,
-        triggers: MutableTriggers,
-        startTimeMs: Long,
-        outputFile: File,
-        firstFrameJpeg: ByteArray?
-    ) {
-        activeRecordings.remove(device.id)
-        publishActiveIds()
-        val durationSec = ((System.currentTimeMillis() - startTimeMs) / 1000L).coerceAtLeast(1L)
-        val fileSize = if (outputFile.exists()) outputFile.length() else 0L
-
-        if (fileSize > 0) {
-            // Prefer the captured JPEG frame for the thumbnail: MJPEG-in-MKV cannot be decoded by
-            // MediaMetadataRetriever on most devices, so frame-based thumbnails are far more reliable.
-            val thumbPath = firstFrameJpeg?.let {
-                ThumbnailUtil.saveThumbnailFromJpeg(context, it, device.id)
-            } ?: ThumbnailUtil.extractAndSaveThumbnail(context, outputFile.absolutePath, device.id)
-            val recording = RecordingEntity(
-                deviceId = device.id,
-                deviceName = device.name,
-                eventType = triggers.primary,
-                alsoEventTypes = triggers.foldedCsv(),
-                timestamp = startTimeMs,
-                durationSeconds = durationSec,
-                filePath = outputFile.absolutePath,
-                fileSizeBytes = fileSize,
-                thumbnailPath = thumbPath
-            )
-            val id = repository.insertRecording(recording)
-            Log.i(tag, "Recording saved: id=$id, duration=${durationSec}s, size=$fileSize bytes")
-
-            // Opt-in archive mirror: copy the finalized (lossless) MJPEG MKV into the user's SAF
-            // export folder so sync tools always see complete, up-to-date recordings. Deliberately
-            // done only after finalization — a live-appended file in a synced folder would churn
-            // constantly and expose half-written recordings. Best-effort: failures are logged, never
-            // fatal (the authoritative copy always stays in the app's private storage).
-            val settings = repository.getSettings()
-            if (settings.autoExportOnFinalize && settings.exportFolderUri.isNotBlank()) {
-                val mirrored = try {
-                    exportGateway.saveFileToSafFolder(settings.exportFolderUri, outputFile, outputFile.name)
-                } catch (e: Exception) {
-                    Log.e(tag, "Auto-export mirror failed for ${outputFile.name}", e)
-                    false
-                }
-                if (!mirrored) {
-                    Log.w(tag, "Auto-export to folder did not complete for ${outputFile.name} " +
-                            "(folder grant broken or storage full?)")
-                }
-            }
-        } else {
-            Log.w(tag, "Recording produced empty file, discarding ${outputFile.name}")
-            if (outputFile.exists()) outputFile.delete()
-        }
-    }
-
-    companion object {
-        /** How often a server recording is checked against the server's own list of running jobs. */
-        private const val SERVER_RECONCILE_INTERVAL_MS = 10_000L
-
-        /** Extra time past the requested duration before the app asks the server to end the job. */
-        private const val SERVER_STOP_GRACE_MS = 2_000L
-
-        /** Status probes in a row that have to fail before the app stops tracking the job. */
-        private const val SERVER_RECONCILE_GIVE_UP_PROBES = 3
+    override suspend fun resumePersistedServerRecordings(devices: List<Device>) {
+        serverOrchestrator.resume(devices)
     }
 }
