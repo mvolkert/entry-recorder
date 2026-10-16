@@ -17,7 +17,6 @@ import io.github.mvolkert.entryrecorder.data.backup.BackupDocumentStore
 import io.github.mvolkert.entryrecorder.data.local.AppDatabase
 import io.github.mvolkert.entryrecorder.data.local.crypto.AndroidKeystoreCredentialKeyProvider
 import io.github.mvolkert.entryrecorder.data.local.crypto.CredentialCipher
-import io.github.mvolkert.entryrecorder.data.local.crypto.CredentialConverters
 import io.github.mvolkert.entryrecorder.data.local.dao.ActiveServerRecordingDao
 import io.github.mvolkert.entryrecorder.data.local.dao.AppSettingsDao
 import io.github.mvolkert.entryrecorder.data.local.dao.DeviceDao
@@ -174,15 +173,9 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideCredentialConverters(cipher: CredentialCipher): CredentialConverters =
-        CredentialConverters(cipher)
-
-    @Provides
-    @Singleton
     fun provideDatabase(
         @ApplicationContext context: Context,
         @ApplicationScope scope: CoroutineScope,
-        credentialConverters: CredentialConverters,
         credentialCipher: CredentialCipher,
     ): AppDatabase {
         // Held so the creation callback can write through the same database Room is still building. The
@@ -199,7 +192,6 @@ object AppModule {
             // a database this app has no migration for fails at open instead of silently deleting the user's
             // recordings — see the note on APP_DATABASE_MIGRATIONS about the pre-4 gap.
             .addMigrations(*APP_DATABASE_MIGRATIONS, credentialReencryptMigration(credentialCipher))
-            .addTypeConverter(credentialConverters)
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onCreate(db: SupportSQLiteDatabase) {
                     super.onCreate(db)

@@ -2,6 +2,8 @@ package io.github.mvolkert.entryrecorder.testing
 
 import android.net.Uri
 import io.github.mvolkert.entryrecorder.data.backup.BackupDocumentStore
+import io.github.mvolkert.entryrecorder.data.local.crypto.CredentialCipher
+import io.github.mvolkert.entryrecorder.data.local.crypto.SymmetricKeyProvider
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.domain.model.Recording
 import io.github.mvolkert.entryrecorder.data.model.EventType
@@ -31,6 +33,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import java.io.File
+import javax.crypto.KeyGenerator
 
 /**
  * Hand-written fakes for the seams the ViewModels consume, in the spirit of the project's AGENTS note:
@@ -414,3 +417,14 @@ fun testRecording(
     timestamp = timestamp,
     filePath = filePath,
 )
+
+/**
+ * A [CredentialCipher] on a fixed software AES key, standing in for the Keystore-backed production
+ * cipher in repository and ViewModel tests. The key is generated once per call and returned on every
+ * encrypt/decrypt, mirroring the cached Keystore entry; a provider that re-generated would make
+ * [CredentialCipher.decrypt] see a different key.
+ */
+fun testCredentialCipher(): CredentialCipher {
+    val key = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
+    return CredentialCipher(SymmetricKeyProvider { key })
+}

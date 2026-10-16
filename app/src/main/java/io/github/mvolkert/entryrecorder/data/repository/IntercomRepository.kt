@@ -1,5 +1,6 @@
 package io.github.mvolkert.entryrecorder.data.repository
 
+import io.github.mvolkert.entryrecorder.data.local.crypto.CredentialCipher
 import io.github.mvolkert.entryrecorder.data.local.dao.ActiveServerRecordingDao
 import io.github.mvolkert.entryrecorder.data.local.dao.AppSettingsDao
 import io.github.mvolkert.entryrecorder.data.local.dao.DeviceDao
@@ -36,21 +37,24 @@ class IntercomRepository @Inject constructor(
     private val recordingDao: RecordingDao,
     private val appSettingsDao: AppSettingsDao,
     private val activeServerRecordingDao: ActiveServerRecordingDao,
+    private val credentialCipher: CredentialCipher,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) {
     // Devices
-    val allDevices: Flow<List<Device>> = deviceDao.getAllDevicesFlow().map { rows -> rows.map { it.toDomain() } }
+    val allDevices: Flow<List<Device>> =
+        deviceDao.getAllDevicesFlow().map { rows -> rows.map { it.toDomain(credentialCipher) } }
 
-    suspend fun getAllDevicesList(): List<Device> = deviceDao.getAllDevices().map { it.toDomain() }
+    suspend fun getAllDevicesList(): List<Device> = deviceDao.getAllDevices().map { it.toDomain(credentialCipher) }
 
-    suspend fun getEnabledDevices(): List<Device> = deviceDao.getEnabledDevices().map { it.toDomain() }
+    suspend fun getEnabledDevices(): List<Device> = deviceDao.getEnabledDevices().map { it.toDomain(credentialCipher) }
 
-    suspend fun getDeviceById(id: Long): Device? = deviceDao.getDeviceById(id)?.toDomain()
+    suspend fun getDeviceById(id: Long): Device? = deviceDao.getDeviceById(id)?.toDomain(credentialCipher)
 
-    fun getDeviceByIdFlow(id: Long): Flow<Device?> = deviceDao.getDeviceByIdFlow(id).map { it?.toDomain() }
+    fun getDeviceByIdFlow(id: Long): Flow<Device?> =
+        deviceDao.getDeviceByIdFlow(id).map { it?.toDomain(credentialCipher) }
 
     suspend fun saveDevice(device: Device): Long {
-        val entity = device.toEntity()
+        val entity = device.toEntity(credentialCipher)
         return if (device.id == 0L) {
             deviceDao.insertDevice(entity)
         } else {
@@ -60,7 +64,7 @@ class IntercomRepository @Inject constructor(
     }
 
     suspend fun deleteDevice(device: Device) {
-        deviceDao.deleteDevice(device.toEntity())
+        deviceDao.deleteDevice(device.toEntity(credentialCipher))
     }
 
     suspend fun deleteDeviceById(id: Long) {
@@ -71,7 +75,7 @@ class IntercomRepository @Inject constructor(
      * Inserts [device] preserving its existing id (Room REPLACE on conflict). Used by backup
      * restore so re-imported devices keep the ids their recordings still reference.
      */
-    suspend fun upsertDevice(device: Device): Long = deviceDao.insertDevice(device.toEntity())
+    suspend fun upsertDevice(device: Device): Long = deviceDao.insertDevice(device.toEntity(credentialCipher))
 
     /** Entity-level settings write for backup restore; the domain mapping drops declared legacy columns. */
     suspend fun insertOrUpdateSettingsEntity(entity: AppSettingsEntity) = appSettingsDao.insertOrUpdate(entity)
@@ -171,16 +175,16 @@ class IntercomRepository @Inject constructor(
         recordingDao.getAllFilePaths() + recordingDao.getAllThumbnailPaths()
 
     // Settings
-    val settingsFlow: Flow<AppSettings?> = appSettingsDao.getSettingsFlow().map { it?.toDomain() }
+    val settingsFlow: Flow<AppSettings?> = appSettingsDao.getSettingsFlow().map { it?.toDomain(credentialCipher) }
 
     suspend fun getSettings(): AppSettings {
-        return appSettingsDao.getSettings()?.toDomain() ?: AppSettings().also {
-            appSettingsDao.insertOrUpdate(it.toEntity())
+        return appSettingsDao.getSettings()?.toDomain(credentialCipher) ?: AppSettings().also {
+            appSettingsDao.insertOrUpdate(it.toEntity(credentialCipher))
         }
     }
 
     suspend fun updateSettings(settings: AppSettings) {
-        appSettingsDao.insertOrUpdate(settings.toEntity())
+        appSettingsDao.insertOrUpdate(settings.toEntity(credentialCipher))
     }
 
     // Active server recordings: transient rows tracking a job the server runs, so a process restart can

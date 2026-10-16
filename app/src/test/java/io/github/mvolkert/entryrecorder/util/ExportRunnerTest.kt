@@ -13,6 +13,7 @@ import io.github.mvolkert.entryrecorder.testing.FakeH264Transcoder
 import io.github.mvolkert.entryrecorder.testing.FakeRecordingDao
 import io.github.mvolkert.entryrecorder.testing.FakeServerClient
 import io.github.mvolkert.entryrecorder.testing.FakeUiStrings
+import io.github.mvolkert.entryrecorder.testing.testCredentialCipher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
@@ -41,7 +42,7 @@ class ExportRunnerTest {
     private val recordingDao = FakeRecordingDao()
     private val settingsDao = FakeAppSettingsDao()
     private val dispatcher = StandardTestDispatcher()
-    private val repository = IntercomRepository(deviceDao, recordingDao, settingsDao, FakeActiveServerRecordingDao(), dispatcher)
+    private val repository = IntercomRepository(deviceDao, recordingDao, settingsDao, FakeActiveServerRecordingDao(), testCredentialCipher(), dispatcher)
 
     private val gateway = FakeExportGateway()
     private val transcoder = FakeH264Transcoder()

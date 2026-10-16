@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.data.mapper
 
-import io.github.mvolkert.entryrecorder.data.local.crypto.EncryptedString
+import io.github.mvolkert.entryrecorder.data.local.crypto.CredentialCipher
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
@@ -12,9 +12,14 @@ import io.github.mvolkert.entryrecorder.domain.model.Recording
 /**
  * Entity ↔ domain translation at the data boundary. Room DAOs keep speaking entities internally;
  * everything above the repository consumes the domain models through these mappers.
+ *
+ * The credential-bearing mappers ([DeviceEntity.toDomain], [Device.toEntity], [AppSettingsEntity.toDomain],
+ * [AppSettings.toEntity]) take a [CredentialCipher] because a device password / SIP password / server API key
+ * is stored as ciphertext at rest: it is decrypted here on the way out to the domain and encrypted on the way
+ * in to storage, so the rest of the app only ever sees plaintext and the encryption boundary stays in one place.
  */
 
-fun DeviceEntity.toDomain(): Device = Device(
+fun DeviceEntity.toDomain(cipher: CredentialCipher): Device = Device(
     id = id,
     name = name,
     deviceType = deviceType,
@@ -25,7 +30,7 @@ fun DeviceEntity.toDomain(): Device = Device(
     rtspPort = rtspPort,
     rtspPath = rtspPath,
     username = username,
-    password = password.value,
+    password = cipher.decrypt(password),
     streamProtocol = streamProtocol,
     mjpegPath = mjpegPath,
     snapshotPath = snapshotPath,
@@ -35,7 +40,7 @@ fun DeviceEntity.toDomain(): Device = Device(
     sipServerHost = sipServerHost,
     sipServerPort = sipServerPort,
     sipUser = sipUser,
-    sipPassword = sipPassword?.value,
+    sipPassword = sipPassword?.let { cipher.decrypt(it) },
     recordOnMotion = recordOnMotion,
     recordOnRing = recordOnRing,
     recordOnNoise = recordOnNoise,
@@ -55,7 +60,7 @@ fun DeviceEntity.toDomain(): Device = Device(
     serverDeviceId = serverDeviceId,
 )
 
-fun Device.toEntity(): DeviceEntity = DeviceEntity(
+fun Device.toEntity(cipher: CredentialCipher): DeviceEntity = DeviceEntity(
     id = id,
     name = name,
     deviceType = deviceType,
@@ -66,7 +71,7 @@ fun Device.toEntity(): DeviceEntity = DeviceEntity(
     rtspPort = rtspPort,
     rtspPath = rtspPath,
     username = username,
-    password = EncryptedString(password),
+    password = cipher.encrypt(password),
     streamProtocol = streamProtocol,
     mjpegPath = mjpegPath,
     snapshotPath = snapshotPath,
@@ -76,7 +81,7 @@ fun Device.toEntity(): DeviceEntity = DeviceEntity(
     sipServerHost = sipServerHost,
     sipServerPort = sipServerPort,
     sipUser = sipUser,
-    sipPassword = sipPassword?.let(::EncryptedString),
+    sipPassword = sipPassword?.let { cipher.encrypt(it) },
     recordOnMotion = recordOnMotion,
     recordOnRing = recordOnRing,
     recordOnNoise = recordOnNoise,
@@ -132,10 +137,10 @@ private fun parseAlsoEventTypes(raw: String): List<EventType> =
         name.trim().takeIf { it.isNotEmpty() }?.let { runCatching { EventType.valueOf(it) }.getOrNull() }
     }
 
-fun AppSettingsEntity.toDomain(): AppSettings = AppSettings(
+fun AppSettingsEntity.toDomain(cipher: CredentialCipher): AppSettings = AppSettings(
     recordingMode = recordingMode,
     serverBaseUrl = serverBaseUrl,
-    serverApiKey = serverApiKey.value,
+    serverApiKey = cipher.decrypt(serverApiKey),
     retentionDays = retentionDays,
     transcodeOnExport = transcodeOnExport,
     exportFolderUri = exportFolderUri,
@@ -155,10 +160,10 @@ fun AppSettingsEntity.toDomain(): AppSettings = AppSettings(
 )
 
 /** The entity's declared-but-unread legacy columns take their table defaults through the data-class defaults. */
-fun AppSettings.toEntity(): AppSettingsEntity = AppSettingsEntity(
+fun AppSettings.toEntity(cipher: CredentialCipher): AppSettingsEntity = AppSettingsEntity(
     recordingMode = recordingMode,
     serverBaseUrl = serverBaseUrl,
-    serverApiKey = EncryptedString(serverApiKey),
+    serverApiKey = cipher.encrypt(serverApiKey),
     retentionDays = retentionDays,
     transcodeOnExport = transcodeOnExport,
     exportFolderUri = exportFolderUri,

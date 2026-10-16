@@ -20,6 +20,7 @@ import io.github.mvolkert.entryrecorder.testing.FakeSipRegistrar
 import io.github.mvolkert.entryrecorder.testing.FakeThemeModeStore
 import io.github.mvolkert.entryrecorder.testing.FakeAutoBootStore
 import io.github.mvolkert.entryrecorder.testing.FakeUiStrings
+import io.github.mvolkert.entryrecorder.testing.testCredentialCipher
 import io.github.mvolkert.entryrecorder.testing.testDevice
 import io.github.mvolkert.entryrecorder.testing.assertNone
 import io.github.mvolkert.entryrecorder.testing.assertEquals
@@ -63,7 +64,7 @@ class SettingsViewModelTest {
         Dispatchers.setMain(testDispatcher)
         deviceDao = FakeDeviceDao()
         settingsDao = FakeAppSettingsDao()
-        repository = IntercomRepository(deviceDao, FakeRecordingDao(), settingsDao, FakeActiveServerRecordingDao(), testDispatcher)
+        repository = IntercomRepository(deviceDao, FakeRecordingDao(), settingsDao, FakeActiveServerRecordingDao(), testCredentialCipher(), testDispatcher)
         server = FakeServerClient()
         themeModes = FakeThemeModeStore()
         autoBoots = FakeAutoBootStore()
@@ -80,6 +81,7 @@ class SettingsViewModelTest {
             autoBootStore = autoBoots,
             cleanupScheduler = FakeRetentionCleanupScheduler(),
             backupStore = FakeBackupDocumentStore(),
+            credentialCipher = testCredentialCipher(),
             ioDispatcher = testDispatcher,
             exportGateway = FakeExportGateway(),
             snapshotClient = HttpSnapshotClient(OkHttpClient(), testDispatcher),

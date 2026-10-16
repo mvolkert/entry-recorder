@@ -13,6 +13,7 @@ import io.github.mvolkert.entryrecorder.testing.FakeAppSettingsDao
 import io.github.mvolkert.entryrecorder.testing.FakeDeviceDao
 import io.github.mvolkert.entryrecorder.testing.FakeRecordingController
 import io.github.mvolkert.entryrecorder.testing.FakeRecordingDao
+import io.github.mvolkert.entryrecorder.testing.testCredentialCipher
 import io.github.mvolkert.entryrecorder.testing.testDevice
 import io.github.mvolkert.entryrecorder.testing.assertEquals
 import io.github.mvolkert.entryrecorder.testing.assertFalse
@@ -47,7 +48,8 @@ class LiveViewModelTest {
         Dispatchers.setMain(testDispatcher)
         deviceDao = FakeDeviceDao()
         repository = IntercomRepository(
-            deviceDao, FakeRecordingDao(), FakeAppSettingsDao(), FakeActiveServerRecordingDao(), testDispatcher
+            deviceDao, FakeRecordingDao(), FakeAppSettingsDao(), FakeActiveServerRecordingDao(),
+            testCredentialCipher(), testDispatcher
         )
         recorder = FakeRecordingController()
         registry = MonitorStatusRegistry()

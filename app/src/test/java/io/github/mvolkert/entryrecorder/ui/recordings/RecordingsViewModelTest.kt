@@ -13,6 +13,7 @@ import io.github.mvolkert.entryrecorder.testing.FakeH264Transcoder
 import io.github.mvolkert.entryrecorder.testing.FakeRecordingDao
 import io.github.mvolkert.entryrecorder.testing.FakeServerClient
 import io.github.mvolkert.entryrecorder.testing.FakeUiStrings
+import io.github.mvolkert.entryrecorder.testing.testCredentialCipher
 import io.github.mvolkert.entryrecorder.testing.testDevice
 import io.github.mvolkert.entryrecorder.testing.testRecording
 import io.github.mvolkert.entryrecorder.testing.assertNone
@@ -65,7 +66,7 @@ class RecordingsViewModelTest {
         deviceDao = FakeDeviceDao()
         recordingDao = FakeRecordingDao()
         settingsDao = FakeAppSettingsDao()
-        repository = IntercomRepository(deviceDao, recordingDao, settingsDao, FakeActiveServerRecordingDao(), testDispatcher)
+        repository = IntercomRepository(deviceDao, recordingDao, settingsDao, FakeActiveServerRecordingDao(), testCredentialCipher(), testDispatcher)
         gateway = FakeExportGateway()
         transcoder = FakeH264Transcoder()
         strings = FakeUiStrings()

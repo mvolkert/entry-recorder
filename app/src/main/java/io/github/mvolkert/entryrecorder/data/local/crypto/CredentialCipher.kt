@@ -1,6 +1,5 @@
 package io.github.mvolkert.entryrecorder.data.local.crypto
 
-import java.security.SecureRandom
 import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
@@ -24,14 +23,16 @@ fun interface SymmetricKeyProvider {
  */
 class CredentialCipher(
     private val keyProvider: SymmetricKeyProvider,
-    private val random: SecureRandom = SecureRandom(),
 ) {
     fun encrypt(plaintext: String): String {
         if (plaintext.isEmpty()) return plaintext
-        val iv = ByteArray(IV_LENGTH_BYTES).also(random::nextBytes)
+        // The AndroidKeyStore Cipher forbids a caller-supplied IV on encryption and generates its own, so
+        // the IV is read back off the initialised cipher rather than passed in. A software key (tests) takes
+        // the same path: the default provider fills a fresh random IV per init, which `cipher.iv` returns.
         val cipher = Cipher.getInstance(TRANSFORMATION).apply {
-            init(Cipher.ENCRYPT_MODE, keyProvider.key(), GCMParameterSpec(TAG_BITS, iv))
+            init(Cipher.ENCRYPT_MODE, keyProvider.key())
         }
+        val iv = cipher.iv
         val ciphertext = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
         return PREFIX + Base64.getEncoder().encodeToString(iv + ciphertext)
     }

@@ -10,6 +10,7 @@ import io.github.mvolkert.entryrecorder.testing.FakeDeviceDao
 import io.github.mvolkert.entryrecorder.testing.FakeExportGateway
 import io.github.mvolkert.entryrecorder.testing.FakeH264Transcoder
 import io.github.mvolkert.entryrecorder.testing.FakeRecordingDao
+import io.github.mvolkert.entryrecorder.testing.testCredentialCipher
 import java.io.File
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -33,7 +34,7 @@ class ExportTriggerRunnerTest {
     private val settingsDao = FakeAppSettingsDao()
     private val dispatcher = StandardTestDispatcher()
     private val repository =
-        IntercomRepository(deviceDao, recordingDao, settingsDao, FakeActiveServerRecordingDao(), dispatcher)
+        IntercomRepository(deviceDao, recordingDao, settingsDao, FakeActiveServerRecordingDao(), testCredentialCipher(), dispatcher)
     private val gateway = FakeExportGateway()
     private val transcoder = FakeH264Transcoder()
     private val monitor = ExportFailureMonitor()

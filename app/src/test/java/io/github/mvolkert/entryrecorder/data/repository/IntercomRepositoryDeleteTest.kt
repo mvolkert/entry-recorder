@@ -6,6 +6,7 @@ import io.github.mvolkert.entryrecorder.testing.FakeActiveServerRecordingDao
 import io.github.mvolkert.entryrecorder.testing.FakeAppSettingsDao
 import io.github.mvolkert.entryrecorder.testing.FakeDeviceDao
 import io.github.mvolkert.entryrecorder.testing.FakeRecordingDao
+import io.github.mvolkert.entryrecorder.testing.testCredentialCipher
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -27,7 +28,7 @@ class IntercomRepositoryDeleteTest {
     private val recordingDao = FakeRecordingDao()
     private val settingsDao = FakeAppSettingsDao()
     private val dispatcher = StandardTestDispatcher()
-    private val repository = IntercomRepository(deviceDao, recordingDao, settingsDao, FakeActiveServerRecordingDao(), dispatcher)
+    private val repository = IntercomRepository(deviceDao, recordingDao, settingsDao, FakeActiveServerRecordingDao(), testCredentialCipher(), dispatcher)
 
     private fun recording(id: Long, filePath: String, thumbnailPath: String? = null) = Recording(
         id = id,

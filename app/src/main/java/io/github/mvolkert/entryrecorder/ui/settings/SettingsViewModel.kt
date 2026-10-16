@@ -17,6 +17,7 @@ import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.domain.server.ServerDeleteResult
 import io.github.mvolkert.entryrecorder.domain.server.ServerSyncResult
 import io.github.mvolkert.entryrecorder.domain.server.SyncDeviceUseCase
+import io.github.mvolkert.entryrecorder.data.local.crypto.CredentialCipher
 import io.github.mvolkert.entryrecorder.data.local.entity.normalizedForRestore
 import io.github.mvolkert.entryrecorder.data.local.prefs.AutoBootStore
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
@@ -91,6 +92,7 @@ class SettingsViewModel @Inject constructor(
     private val autoBootStore: AutoBootStore,
     private val cleanupScheduler: RetentionCleanupScheduler,
     private val backupStore: BackupDocumentStore,
+    private val credentialCipher: CredentialCipher,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     private val exportGateway: ExportGateway,
     private val snapshotClient: HttpSnapshotClient,
@@ -464,7 +466,7 @@ class SettingsViewModel @Inject constructor(
 
                 backup.appSettings?.let {
                     themeModeStore.setThemeMode(it.themeMode)
-                    repository.insertOrUpdateSettingsEntity(it.toEntity().normalizedForRestore())
+                    repository.insertOrUpdateSettingsEntity(it.toEntity(credentialCipher).normalizedForRestore())
                 }
                 // Reset serverDeviceId: a backup may have been taken against a different server, so the
                 // restored devices re-register lazily against whichever server is configured now.

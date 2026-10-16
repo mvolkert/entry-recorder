@@ -2,7 +2,6 @@ package io.github.mvolkert.entryrecorder.data.local.entity
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-import io.github.mvolkert.entryrecorder.data.local.crypto.EncryptedString
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.util.CleanupPolicy
 
@@ -12,7 +11,8 @@ data class AppSettingsEntity(
     val id: Int = 1,
     val recordingMode: RecordingMode = RecordingMode.APP_LOCAL,
     val serverBaseUrl: String = "http://192.168.1.100:8000",
-    val serverApiKey: EncryptedString = EncryptedString(""),
+    // Held at rest as `enc:v1:` ciphertext; the repository's DomainMappers encrypt on write and decrypt on read.
+    val serverApiKey: String = "",
     val retentionDays: Int = 14,             // Auto-delete recordings older than N days (0 = disabled)
     // The whole-archive byte limit that used to drive the only purge. Superseded by internalQuotaMb /
     // externalQuotaMb below, which MIGRATION_16_17 backfills from it. Kept declared (like
