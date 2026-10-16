@@ -13,6 +13,7 @@ import io.github.mvolkert.entryrecorder.data.server.ServerStopResponse
 import io.github.mvolkert.entryrecorder.sip.SipProbeResult
 import io.github.mvolkert.entryrecorder.sip.SipRegistrar
 import io.github.mvolkert.entryrecorder.ui.theme.ThemeModeStore
+import io.github.mvolkert.entryrecorder.data.local.prefs.AutoBootStore
 import io.github.mvolkert.entryrecorder.util.ExportEntry
 import io.github.mvolkert.entryrecorder.util.ExportFolderAccess
 import io.github.mvolkert.entryrecorder.util.ExportGateway
@@ -64,6 +65,16 @@ class FakeThemeModeStore : ThemeModeStore {
 
     override fun setThemeMode(mode: Int) {
         lastMode = mode
+        setCount++
+    }
+}
+
+class FakeAutoBootStore : AutoBootStore {
+    var lastEnabled: Boolean? = null
+    var setCount = 0
+
+    override fun setAutoBootEnabled(enabled: Boolean) {
+        lastEnabled = enabled
         setCount++
     }
 }

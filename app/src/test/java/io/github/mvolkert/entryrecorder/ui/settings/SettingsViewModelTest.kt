@@ -18,6 +18,7 @@ import io.github.mvolkert.entryrecorder.testing.FakeRetentionCleanupScheduler
 import io.github.mvolkert.entryrecorder.testing.FakeServerClient
 import io.github.mvolkert.entryrecorder.testing.FakeSipRegistrar
 import io.github.mvolkert.entryrecorder.testing.FakeThemeModeStore
+import io.github.mvolkert.entryrecorder.testing.FakeAutoBootStore
 import io.github.mvolkert.entryrecorder.testing.FakeUiStrings
 import io.github.mvolkert.entryrecorder.testing.testDevice
 import io.github.mvolkert.entryrecorder.testing.assertNone
@@ -54,6 +55,7 @@ class SettingsViewModelTest {
     private lateinit var repository: IntercomRepository
     private lateinit var server: FakeServerClient
     private lateinit var themeModes: FakeThemeModeStore
+    private lateinit var autoBoots: FakeAutoBootStore
     private lateinit var vm: SettingsViewModel
 
     @Before
@@ -64,6 +66,7 @@ class SettingsViewModelTest {
         repository = IntercomRepository(deviceDao, FakeRecordingDao(), settingsDao, FakeActiveServerRecordingDao(), testDispatcher)
         server = FakeServerClient()
         themeModes = FakeThemeModeStore()
+        autoBoots = FakeAutoBootStore()
         val root = File(System.getProperty("java.io.tmpdir"), "setvm-${System.nanoTime()}").apply { mkdirs() }
         vm = SettingsViewModel(
             repository = repository,
@@ -74,6 +77,7 @@ class SettingsViewModelTest {
             strings = FakeUiStrings(),
             storageDirs = AppStorageDirs(File(root, "recordings"), File(root, "thumbnails"), File(root, "export")),
             themeModeStore = themeModes,
+            autoBootStore = autoBoots,
             cleanupScheduler = FakeRetentionCleanupScheduler(),
             backupStore = FakeBackupDocumentStore(),
             ioDispatcher = testDispatcher,
@@ -152,6 +156,15 @@ class SettingsViewModelTest {
 
         assertEquals(2, themeModes.lastMode, "the synchronous mirror must see the mode")
         assertEquals(2, settingsDao.current?.themeMode, "and the Room row must carry it")
+    }
+
+    @Test
+    fun `toggling auto boot persists the row and mirrors the synchronous boot gate`() = runViewModelTest {
+        vm.updateSettings(AppSettings(autoBootEnabled = false))
+        advanceUntilIdle()
+
+        assertEquals(false, autoBoots.lastEnabled, "BootReceiver reads the synchronous mirror, not Room")
+        assertEquals(false, settingsDao.current?.autoBootEnabled, "the Room row is the source of truth for the switch")
     }
 
     @Test

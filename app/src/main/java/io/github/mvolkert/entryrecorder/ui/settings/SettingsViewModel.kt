@@ -18,6 +18,7 @@ import io.github.mvolkert.entryrecorder.domain.server.ServerDeleteResult
 import io.github.mvolkert.entryrecorder.domain.server.ServerSyncResult
 import io.github.mvolkert.entryrecorder.domain.server.SyncDeviceUseCase
 import io.github.mvolkert.entryrecorder.data.local.entity.normalizedForRestore
+import io.github.mvolkert.entryrecorder.data.local.prefs.AutoBootStore
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
@@ -87,6 +88,7 @@ class SettingsViewModel @Inject constructor(
     // through to [ExportGateway] / [BackupDocumentStore].
     private val storageDirs: AppStorageDirs,
     private val themeModeStore: ThemeModeStore,
+    private val autoBootStore: AutoBootStore,
     private val cleanupScheduler: RetentionCleanupScheduler,
     private val backupStore: BackupDocumentStore,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
@@ -249,6 +251,9 @@ class SettingsViewModel @Inject constructor(
         // Mirror the mode into the synchronous SharedPreferences store first: MainActivity reads it
         // in attachBaseContext, which runs before Room is even opened on the next cold start.
         themeModeStore.setThemeMode(settings.themeMode)
+        // Likewise the boot gate: BootReceiver reads the synchronous mirror on the boot broadcast, before
+        // Room is warm, so the flag has to live there too for autostart to honour the user's choice.
+        autoBootStore.setAutoBootEnabled(settings.autoBootEnabled)
         viewModelScope.launch {
             repository.updateSettings(settings)
         }

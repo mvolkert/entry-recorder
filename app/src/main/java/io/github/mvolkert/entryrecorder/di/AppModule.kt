@@ -27,6 +27,8 @@ import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.ui.theme.AndroidThemeModeStore
 import io.github.mvolkert.entryrecorder.ui.theme.ThemeModeStore
+import io.github.mvolkert.entryrecorder.data.local.prefs.AndroidAutoBootStore
+import io.github.mvolkert.entryrecorder.data.local.prefs.AutoBootStore
 import io.github.mvolkert.entryrecorder.util.AndroidExportGateway
 import io.github.mvolkert.entryrecorder.util.AndroidUiStrings
 import io.github.mvolkert.entryrecorder.util.AppStorageDirs
@@ -101,6 +103,11 @@ object AppModule {
     @Singleton
     fun provideThemeModeStore(@ApplicationContext context: Context): ThemeModeStore =
         AndroidThemeModeStore(context)
+
+    @Provides
+    @Singleton
+    fun provideAutoBootStore(@ApplicationContext context: Context): AutoBootStore =
+        AndroidAutoBootStore(context)
 
     /** The "clean up now" button, behind the one method the settings ViewModel calls. */
     @Provides
@@ -439,6 +446,17 @@ private val APP_DATABASE_MIGRATIONS: Array<Migration> = arrayOf(
     object : Migration(18, 19) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE devices ADD COLUMN keepLocksHeld INTEGER NOT NULL DEFAULT 0")
+        }
+    },
+
+    // v20 -> v21: the user-controlled "Auto Boot" gate on the monitor's boot autostart. Default 1 keeps the
+    // unconditional autostart existing installs had — and matches AutoBootPrefs' read default, so a device
+    // that upgrades but has not yet saved settings still restarts its monitor exactly as before.
+    object : Migration(20, 21) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE app_settings ADD COLUMN autoBootEnabled INTEGER NOT NULL DEFAULT 1"
+            )
         }
     },
 )

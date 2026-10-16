@@ -1,0 +1,574 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 21,
+    "identityHash": "412931d2a438bb419463352bb6ae1f9b",
+    "entities": [
+      {
+        "tableName": "devices",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `deviceType` TEXT NOT NULL, `ipAddress` TEXT NOT NULL, `httpPort` INTEGER NOT NULL, `httpsPort` INTEGER NOT NULL, `useHttps` INTEGER NOT NULL, `rtspPort` INTEGER NOT NULL, `rtspPath` TEXT NOT NULL, `username` TEXT NOT NULL, `password` TEXT NOT NULL, `streamProtocol` TEXT NOT NULL, `mjpegPath` TEXT NOT NULL, `snapshotPath` TEXT NOT NULL, `snapshotFps` INTEGER NOT NULL, `sipMode` TEXT NOT NULL, `sipLocalPort` INTEGER NOT NULL, `sipServerHost` TEXT, `sipServerPort` INTEGER, `sipUser` TEXT, `sipPassword` TEXT, `recordOnMotion` INTEGER NOT NULL, `recordOnRing` INTEGER NOT NULL, `recordOnNoise` INTEGER NOT NULL, `recordOnMotionOnDevice` INTEGER NOT NULL, `motionSensitivity` TEXT NOT NULL, `motionPreRollFrames` INTEGER NOT NULL, `motionPostRecordSeconds` INTEGER NOT NULL, `noisePostRecordSeconds` INTEGER NOT NULL, `ringRecordSeconds` INTEGER NOT NULL, `wakeOnRing` INTEGER NOT NULL, `soundOnRing` INTEGER NOT NULL, `vibrateOnRing` INTEGER NOT NULL, `wakeOnMotion` INTEGER NOT NULL, `wakeOnNoise` INTEGER NOT NULL, `keepLocksHeld` INTEGER NOT NULL, `isEnabled` INTEGER NOT NULL, `serverDeviceId` INTEGER)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceType",
+            "columnName": "deviceType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ipAddress",
+            "columnName": "ipAddress",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "httpPort",
+            "columnName": "httpPort",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "httpsPort",
+            "columnName": "httpsPort",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "useHttps",
+            "columnName": "useHttps",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rtspPort",
+            "columnName": "rtspPort",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rtspPath",
+            "columnName": "rtspPath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "username",
+            "columnName": "username",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "password",
+            "columnName": "password",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "streamProtocol",
+            "columnName": "streamProtocol",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mjpegPath",
+            "columnName": "mjpegPath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotPath",
+            "columnName": "snapshotPath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotFps",
+            "columnName": "snapshotFps",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sipMode",
+            "columnName": "sipMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sipLocalPort",
+            "columnName": "sipLocalPort",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sipServerHost",
+            "columnName": "sipServerHost",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sipServerPort",
+            "columnName": "sipServerPort",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sipUser",
+            "columnName": "sipUser",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sipPassword",
+            "columnName": "sipPassword",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "recordOnMotion",
+            "columnName": "recordOnMotion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordOnRing",
+            "columnName": "recordOnRing",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordOnNoise",
+            "columnName": "recordOnNoise",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordOnMotionOnDevice",
+            "columnName": "recordOnMotionOnDevice",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "motionSensitivity",
+            "columnName": "motionSensitivity",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "motionPreRollFrames",
+            "columnName": "motionPreRollFrames",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "motionPostRecordSeconds",
+            "columnName": "motionPostRecordSeconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "noisePostRecordSeconds",
+            "columnName": "noisePostRecordSeconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ringRecordSeconds",
+            "columnName": "ringRecordSeconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wakeOnRing",
+            "columnName": "wakeOnRing",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "soundOnRing",
+            "columnName": "soundOnRing",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vibrateOnRing",
+            "columnName": "vibrateOnRing",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wakeOnMotion",
+            "columnName": "wakeOnMotion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wakeOnNoise",
+            "columnName": "wakeOnNoise",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "keepLocksHeld",
+            "columnName": "keepLocksHeld",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isEnabled",
+            "columnName": "isEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverDeviceId",
+            "columnName": "serverDeviceId",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "recordings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `deviceId` INTEGER NOT NULL, `deviceName` TEXT NOT NULL, `eventType` TEXT NOT NULL, `alsoEventTypes` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, `durationSeconds` INTEGER NOT NULL, `filePath` TEXT NOT NULL, `fileSizeBytes` INTEGER NOT NULL, `thumbnailPath` TEXT, `isProtected` INTEGER NOT NULL, `note` TEXT)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceName",
+            "columnName": "deviceName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eventType",
+            "columnName": "eventType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "alsoEventTypes",
+            "columnName": "alsoEventTypes",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationSeconds",
+            "columnName": "durationSeconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "filePath",
+            "columnName": "filePath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileSizeBytes",
+            "columnName": "fileSizeBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "thumbnailPath",
+            "columnName": "thumbnailPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isProtected",
+            "columnName": "isProtected",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_recordings_timestamp",
+            "unique": false,
+            "columnNames": [
+              "timestamp"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recordings_timestamp` ON `${TABLE_NAME}` (`timestamp`)"
+          },
+          {
+            "name": "index_recordings_deviceId",
+            "unique": false,
+            "columnNames": [
+              "deviceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recordings_deviceId` ON `${TABLE_NAME}` (`deviceId`)"
+          },
+          {
+            "name": "index_recordings_eventType",
+            "unique": false,
+            "columnNames": [
+              "eventType"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recordings_eventType` ON `${TABLE_NAME}` (`eventType`)"
+          }
+        ]
+      },
+      {
+        "tableName": "app_settings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `recordingMode` TEXT NOT NULL, `serverBaseUrl` TEXT NOT NULL, `serverApiKey` TEXT NOT NULL, `retentionDays` INTEGER NOT NULL, `maxStorageUsageMb` INTEGER NOT NULL, `autoCleanupEnabled` INTEGER NOT NULL, `wakeOnMotion` INTEGER NOT NULL, `wakeOnRing` INTEGER NOT NULL, `wakeOnNoise` INTEGER NOT NULL, `vibrateOnRing` INTEGER NOT NULL, `soundOnRing` INTEGER NOT NULL, `transcodeOnExport` INTEGER NOT NULL, `exportFolderUri` TEXT NOT NULL, `autoExportOnFinalize` INTEGER NOT NULL, `internalQuotaMb` INTEGER NOT NULL, `internalCleanupEnabled` INTEGER NOT NULL, `externalQuotaMb` INTEGER NOT NULL, `externalCleanupEnabled` INTEGER NOT NULL, `themeAccentIndex` INTEGER NOT NULL, `themePrimaryIndex` INTEGER NOT NULL, `themeSecondaryIndex` INTEGER NOT NULL, `themeTertiaryIndex` INTEGER NOT NULL, `themeMode` INTEGER NOT NULL, `themeUseDynamicColor` INTEGER NOT NULL, `autoBootEnabled` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordingMode",
+            "columnName": "recordingMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverBaseUrl",
+            "columnName": "serverBaseUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverApiKey",
+            "columnName": "serverApiKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "retentionDays",
+            "columnName": "retentionDays",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "maxStorageUsageMb",
+            "columnName": "maxStorageUsageMb",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "autoCleanupEnabled",
+            "columnName": "autoCleanupEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wakeOnMotion",
+            "columnName": "wakeOnMotion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wakeOnRing",
+            "columnName": "wakeOnRing",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wakeOnNoise",
+            "columnName": "wakeOnNoise",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vibrateOnRing",
+            "columnName": "vibrateOnRing",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "soundOnRing",
+            "columnName": "soundOnRing",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "transcodeOnExport",
+            "columnName": "transcodeOnExport",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "exportFolderUri",
+            "columnName": "exportFolderUri",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "autoExportOnFinalize",
+            "columnName": "autoExportOnFinalize",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "internalQuotaMb",
+            "columnName": "internalQuotaMb",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "internalCleanupEnabled",
+            "columnName": "internalCleanupEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "externalQuotaMb",
+            "columnName": "externalQuotaMb",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "externalCleanupEnabled",
+            "columnName": "externalCleanupEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "themeAccentIndex",
+            "columnName": "themeAccentIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "themePrimaryIndex",
+            "columnName": "themePrimaryIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "themeSecondaryIndex",
+            "columnName": "themeSecondaryIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "themeTertiaryIndex",
+            "columnName": "themeTertiaryIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "themeMode",
+            "columnName": "themeMode",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "themeUseDynamicColor",
+            "columnName": "themeUseDynamicColor",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "autoBootEnabled",
+            "columnName": "autoBootEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "active_server_recordings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`deviceId` INTEGER NOT NULL, `recordingId` INTEGER, `eventType` TEXT NOT NULL, `maxDurationSeconds` INTEGER NOT NULL, `startedByThisRequest` INTEGER NOT NULL, `startedAtMs` INTEGER NOT NULL, PRIMARY KEY(`deviceId`))",
+        "fields": [
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordingId",
+            "columnName": "recordingId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "eventType",
+            "columnName": "eventType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "maxDurationSeconds",
+            "columnName": "maxDurationSeconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedByThisRequest",
+            "columnName": "startedByThisRequest",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAtMs",
+            "columnName": "startedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "deviceId"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '412931d2a438bb419463352bb6ae1f9b')"
+    ]
+  }
+}

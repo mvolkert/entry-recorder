@@ -69,7 +69,11 @@ data class AppSettingsEntity(
     // sources the colorScheme from dynamic{Light,Dark}ColorScheme(context) instead of the curated
     // accent presets; the three theme*Index columns still persist so flipping back restores the
     // exact previous look. Older API levels silently fall through to the presets.
-    val themeUseDynamicColor: Boolean = false
+    val themeUseDynamicColor: Boolean = false,
+    // Whether BootReceiver restarts the monitor foreground service after a reboot. Default true preserves
+    // the unconditional autostart existing installs had; MIGRATION_20_21 seeds it so an upgrade keeps that
+    // behaviour, and the value is mirrored into AutoBootPrefs for the boot-time read.
+    val autoBootEnabled: Boolean = true
 ) {
     companion object {
         /**

@@ -153,6 +153,8 @@
     <string name="settings_server_api_key">API Key (Optional)</string>
     <string name="settings_server_testing">Testing connection…</string>
     <string name="settings_server_test">Test Server Connection</string>
+    <string name="settings_autoboot_title">Auto Boot</string>
+    <string name="settings_autoboot_subtitle">Restart the monitor automatically when the device powers on. Leave on for a dedicated detection device; turn off on a shared phone.</string>
     <string name="settings_section_retention">Video Retention &amp; Auto-Cleanup</string>
     <string name="settings_section_internal_storage">Phone Storage</string>
     <string name="settings_storage_usage">Current storage usage: %1$s</string>

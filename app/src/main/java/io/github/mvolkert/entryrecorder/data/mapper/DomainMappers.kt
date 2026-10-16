@@ -149,6 +149,7 @@ fun AppSettingsEntity.toDomain(): AppSettings = AppSettings(
     themeTertiaryIndex = themeTertiaryIndex,
     themeMode = themeMode,
     themeUseDynamicColor = themeUseDynamicColor,
+    autoBootEnabled = autoBootEnabled,
 )
 
 /** The entity's declared-but-unread legacy columns take their table defaults through the data-class defaults. */
@@ -169,4 +170,5 @@ fun AppSettings.toEntity(): AppSettingsEntity = AppSettingsEntity(
     themeTertiaryIndex = themeTertiaryIndex,
     themeMode = themeMode,
     themeUseDynamicColor = themeUseDynamicColor,
+    autoBootEnabled = autoBootEnabled,
 )

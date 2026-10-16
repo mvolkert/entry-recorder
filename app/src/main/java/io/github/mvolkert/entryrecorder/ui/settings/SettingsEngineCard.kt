@@ -110,5 +110,13 @@ internal fun SettingsEngineCard(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        SettingsSwitchRow(
+            title = stringResource(R.string.settings_autoboot_title),
+            subtitle = stringResource(R.string.settings_autoboot_subtitle),
+            checked = settings.autoBootEnabled,
+            onCheckedChange = { onSettingsChange(settings.copy(autoBootEnabled = it)) },
+        )
     }
 }

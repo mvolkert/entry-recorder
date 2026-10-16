@@ -25,6 +25,7 @@ data class AppSettings(
     val themeTertiaryIndex: Int = 0,
     val themeMode: Int = 0,
     val themeUseDynamicColor: Boolean = false,
+    val autoBootEnabled: Boolean = true,
 ) {
     companion object {
         /**
