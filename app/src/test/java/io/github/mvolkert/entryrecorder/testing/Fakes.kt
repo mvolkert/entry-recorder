@@ -264,6 +264,9 @@ class FakeH264Transcoder : H264Transcoder {
     val transcodeCalls = mutableListOf<Recording>()
     var blockTranscode: CompletableDeferred<Unit>? = null
 
+    /** When set, [transcodeToH264] throws it instead of returning a file — the encode-failure fallback path. */
+    var transcodeFailure: Throwable? = null
+
     override fun outputFor(source: File): File =
         File(source.parentFile, "${source.nameWithoutExtension}_h264_fake.mp4")
 
@@ -273,6 +276,7 @@ class FakeH264Transcoder : H264Transcoder {
     ): File {
         transcodeCalls += recording
         blockTranscode?.await()
+        transcodeFailure?.let { throw it }
         onProgress(1, 1)
         return File.createTempFile("fake_h264_", ".mp4").apply { deleteOnExit() }
     }
@@ -283,6 +287,9 @@ class FakeExportGateway : ExportGateway {
     val safSaveCalls = mutableListOf<Triple<String, File, String>>()
     var safSaveResult = true
     var gallerySaveResult = true
+
+    /** When set, [saveFileToSafFolder] throws it — the transient-failure path a caller retries on. */
+    var saveFailure: Throwable? = null
     var probeAccessResult: ExportFolderAccess = ExportFolderAccess.OK
     var folderDisplayName = "FakeExport"
     val grantTakeCalls = mutableListOf<String>()
@@ -311,6 +318,7 @@ class FakeExportGateway : ExportGateway {
         onProgress: ((Int) -> Unit)?,
     ): Boolean {
         safSaveCalls += Triple(folderUri, sourceFile, displayName)
+        saveFailure?.let { throw it }
         return safSaveResult
     }
 
