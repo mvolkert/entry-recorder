@@ -2,6 +2,7 @@ package io.github.mvolkert.entryrecorder.data.local.entity
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import io.github.mvolkert.entryrecorder.data.local.crypto.EncryptedString
 import io.github.mvolkert.entryrecorder.data.model.DeviceType
 import io.github.mvolkert.entryrecorder.data.model.MotionSensitivity
 import io.github.mvolkert.entryrecorder.data.model.SipMode
@@ -20,7 +21,7 @@ data class DeviceEntity(
     val rtspPort: Int = 554,
     val rtspPath: String = "/live.sdp",
     val username: String = "admin",
-    val password: String = "2n",
+    val password: EncryptedString = EncryptedString("2n"),
 
     // Streaming Protocol & Endpoints
     val streamProtocol: StreamProtocol = StreamProtocol.AUTO,
@@ -34,7 +35,7 @@ data class DeviceEntity(
     val sipServerHost: String? = null,
     val sipServerPort: Int? = 5060,
     val sipUser: String? = null,
-    val sipPassword: String? = null,
+    val sipPassword: EncryptedString? = null,
     
     // Recording & Trigger Configuration
     val recordOnMotion: Boolean = true,

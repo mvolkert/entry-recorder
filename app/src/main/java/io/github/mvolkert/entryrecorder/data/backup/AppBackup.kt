@@ -1,19 +1,21 @@
 package io.github.mvolkert.entryrecorder.data.backup
 
-import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
-import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.AppSettings
+import io.github.mvolkert.entryrecorder.domain.model.Device
 
 /**
  * On-disk shape of a settings backup, serialized with Gson (see SettingsViewModel).
- * Captures the single [AppSettingsEntity] row and the full [DeviceEntity] list so a user can move
- * their configuration to another install. Recordings (large media) are intentionally excluded.
+ * Captures the current [AppSettings] and the full [Device] list so a user can move their
+ * configuration to another install. Recordings (large media) are intentionally excluded.
  *
- * NOTE: device HTTP/SIP credentials are stored plaintext in Room today, so a backup file contains
- * them in plaintext too — treat exported files as sensitive.
+ * It deliberately holds the domain models rather than the Room entities: the entities now keep device
+ * HTTP/SIP passwords and the server API key encrypted at rest under a device-local Keystore key, and
+ * ciphertext would be unreadable once restored on another install. The domain form carries the
+ * plaintext the app works with, so a backup stays portable — treat exported files as sensitive.
  */
 data class AppBackup(
     val version: Int = 1,
     val exportedAt: Long = 0L,
-    val appSettings: AppSettingsEntity? = null,
-    val devices: List<DeviceEntity> = emptyList()
+    val appSettings: AppSettings? = null,
+    val devices: List<Device> = emptyList(),
 )

@@ -1,6 +1,7 @@
 package io.github.mvolkert.entryrecorder.di
 
 import android.content.Context
+import android.database.Cursor
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
@@ -14,6 +15,9 @@ import dagger.hilt.components.SingletonComponent
 import io.github.mvolkert.entryrecorder.data.backup.AndroidBackupDocumentStore
 import io.github.mvolkert.entryrecorder.data.backup.BackupDocumentStore
 import io.github.mvolkert.entryrecorder.data.local.AppDatabase
+import io.github.mvolkert.entryrecorder.data.local.crypto.AndroidKeystoreCredentialKeyProvider
+import io.github.mvolkert.entryrecorder.data.local.crypto.CredentialCipher
+import io.github.mvolkert.entryrecorder.data.local.crypto.CredentialConverters
 import io.github.mvolkert.entryrecorder.data.local.dao.ActiveServerRecordingDao
 import io.github.mvolkert.entryrecorder.data.local.dao.AppSettingsDao
 import io.github.mvolkert.entryrecorder.data.local.dao.DeviceDao
@@ -158,9 +162,21 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideCredentialCipher(@ApplicationContext context: Context): CredentialCipher =
+        CredentialCipher(AndroidKeystoreCredentialKeyProvider(context))
+
+    @Provides
+    @Singleton
+    fun provideCredentialConverters(cipher: CredentialCipher): CredentialConverters =
+        CredentialConverters(cipher)
+
+    @Provides
+    @Singleton
     fun provideDatabase(
         @ApplicationContext context: Context,
         @ApplicationScope scope: CoroutineScope,
+        credentialConverters: CredentialConverters,
+        credentialCipher: CredentialCipher,
     ): AppDatabase {
         // Held so the creation callback can write through the same database Room is still building. The
         // old companion-object version called getDatabase() again from inside onCreate, which is a
@@ -175,7 +191,8 @@ object AppModule {
             // on/off switch, so any call to it still empties the archive when a step is missing. Without it,
             // a database this app has no migration for fails at open instead of silently deleting the user's
             // recordings — see the note on APP_DATABASE_MIGRATIONS about the pre-4 gap.
-            .addMigrations(*APP_DATABASE_MIGRATIONS)
+            .addMigrations(*APP_DATABASE_MIGRATIONS, credentialReencryptMigration(credentialCipher))
+            .addTypeConverter(credentialConverters)
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onCreate(db: SupportSQLiteDatabase) {
                     super.onCreate(db)
@@ -425,3 +442,41 @@ private val APP_DATABASE_MIGRATIONS: Array<Migration> = arrayOf(
         }
     },
 )
+
+/**
+ * v19 -> v20: the three credential columns (`devices.password`, `devices.sipPassword`,
+ * `app_settings.serverApiKey`) turn from plaintext into ciphertext. Encryption is a Keystore operation,
+ * so it is not expressible in migration SQL — this reads each stored value and writes back its encrypted
+ * form, skipping blanks and anything already tagged so the step is safe to re-run. The table shape is
+ * unchanged (the columns stay TEXT); only the contents move behind the `enc:v1:` marker.
+ */
+private fun credentialReencryptMigration(cipher: CredentialCipher): Migration =
+    object : Migration(19, 20) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            encryptColumn(db, cipher, table = "devices", idColumn = "id", column = "password")
+            encryptColumn(db, cipher, table = "devices", idColumn = "id", column = "sipPassword")
+            encryptColumn(db, cipher, table = "app_settings", idColumn = "id", column = "serverApiKey")
+        }
+    }
+
+private fun encryptColumn(
+    db: SupportSQLiteDatabase,
+    cipher: CredentialCipher,
+    table: String,
+    idColumn: String,
+    column: String,
+) {
+    val pending = ArrayList<Pair<Long, String>>()
+    db.query("SELECT $idColumn, $column FROM $table").use { cursor: Cursor ->
+        while (cursor.moveToNext()) {
+            if (cursor.isNull(1)) continue
+            val raw = cursor.getString(1)
+            if (raw.isNotEmpty() && !cipher.looksEncrypted(raw)) {
+                pending += cursor.getLong(0) to cipher.encrypt(raw)
+            }
+        }
+    }
+    pending.forEach { (id, encrypted) ->
+        db.execSQL("UPDATE $table SET $column = ? WHERE $idColumn = ?", arrayOf<Any?>(encrypted, id))
+    }
+}

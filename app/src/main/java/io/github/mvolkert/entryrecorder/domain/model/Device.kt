@@ -52,8 +52,12 @@ data class Device(
     val isEnabled: Boolean = true,
     val serverDeviceId: Long? = null,
 ) {
-    /** All URL derivation and sanity clamping for this device. */
-    val endpoints: DeviceEndpoints = DeviceEndpointResolver.resolve(this)
+    /**
+     * All URL derivation and sanity clamping for this device. A getter rather than a stored property so
+     * it is not part of the data-class identity and, more importantly, is not serialized into a backup
+     * (the derived RTSP/MJPEG URLs embed the credential; the plaintext fields above are the source).
+     */
+    val endpoints: DeviceEndpoints get() = DeviceEndpointResolver.resolve(this)
 
     val httpBaseUrl: String get() = endpoints.httpBaseUrl
     val rtspStreamUrl: String get() = endpoints.rtspStreamUri

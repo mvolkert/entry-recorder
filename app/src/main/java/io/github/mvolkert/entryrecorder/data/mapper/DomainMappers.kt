@@ -1,5 +1,6 @@
 package io.github.mvolkert.entryrecorder.data.mapper
 
+import io.github.mvolkert.entryrecorder.data.local.crypto.EncryptedString
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
@@ -24,7 +25,7 @@ fun DeviceEntity.toDomain(): Device = Device(
     rtspPort = rtspPort,
     rtspPath = rtspPath,
     username = username,
-    password = password,
+    password = password.value,
     streamProtocol = streamProtocol,
     mjpegPath = mjpegPath,
     snapshotPath = snapshotPath,
@@ -34,7 +35,7 @@ fun DeviceEntity.toDomain(): Device = Device(
     sipServerHost = sipServerHost,
     sipServerPort = sipServerPort,
     sipUser = sipUser,
-    sipPassword = sipPassword,
+    sipPassword = sipPassword?.value,
     recordOnMotion = recordOnMotion,
     recordOnRing = recordOnRing,
     recordOnNoise = recordOnNoise,
@@ -65,7 +66,7 @@ fun Device.toEntity(): DeviceEntity = DeviceEntity(
     rtspPort = rtspPort,
     rtspPath = rtspPath,
     username = username,
-    password = password,
+    password = EncryptedString(password),
     streamProtocol = streamProtocol,
     mjpegPath = mjpegPath,
     snapshotPath = snapshotPath,
@@ -75,7 +76,7 @@ fun Device.toEntity(): DeviceEntity = DeviceEntity(
     sipServerHost = sipServerHost,
     sipServerPort = sipServerPort,
     sipUser = sipUser,
-    sipPassword = sipPassword,
+    sipPassword = sipPassword?.let(::EncryptedString),
     recordOnMotion = recordOnMotion,
     recordOnRing = recordOnRing,
     recordOnNoise = recordOnNoise,
@@ -134,7 +135,7 @@ private fun parseAlsoEventTypes(raw: String): List<EventType> =
 fun AppSettingsEntity.toDomain(): AppSettings = AppSettings(
     recordingMode = recordingMode,
     serverBaseUrl = serverBaseUrl,
-    serverApiKey = serverApiKey,
+    serverApiKey = serverApiKey.value,
     retentionDays = retentionDays,
     transcodeOnExport = transcodeOnExport,
     exportFolderUri = exportFolderUri,
@@ -154,7 +155,7 @@ fun AppSettingsEntity.toDomain(): AppSettings = AppSettings(
 fun AppSettings.toEntity(): AppSettingsEntity = AppSettingsEntity(
     recordingMode = recordingMode,
     serverBaseUrl = serverBaseUrl,
-    serverApiKey = serverApiKey,
+    serverApiKey = EncryptedString(serverApiKey),
     retentionDays = retentionDays,
     transcodeOnExport = transcodeOnExport,
     exportFolderUri = exportFolderUri,

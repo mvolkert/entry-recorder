@@ -6,7 +6,6 @@ import io.github.mvolkert.entryrecorder.data.local.dao.DeviceDao
 import io.github.mvolkert.entryrecorder.data.local.dao.RecordingDao
 import io.github.mvolkert.entryrecorder.data.local.entity.ActiveServerRecordingEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
-import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
 import io.github.mvolkert.entryrecorder.data.mapper.toDomain
 import io.github.mvolkert.entryrecorder.data.mapper.toEntity
@@ -73,9 +72,6 @@ class IntercomRepository @Inject constructor(
      * restore so re-imported devices keep the ids their recordings still reference.
      */
     suspend fun upsertDevice(device: Device): Long = deviceDao.insertDevice(device.toEntity())
-
-    /** Entity-level upsert for backup restore, which carries whole stored rows and must not re-key them. */
-    suspend fun upsertDeviceEntity(entity: DeviceEntity): Long = deviceDao.insertDevice(entity)
 
     /** Entity-level settings write for backup restore; the domain mapping drops declared legacy columns. */
     suspend fun insertOrUpdateSettingsEntity(entity: AppSettingsEntity) = appSettingsDao.insertOrUpdate(entity)
@@ -186,12 +182,6 @@ class IntercomRepository @Inject constructor(
     suspend fun updateSettings(settings: AppSettings) {
         appSettingsDao.insertOrUpdate(settings.toEntity())
     }
-
-    /** Raw current row for the backup export, keeping every declared column's stored value. */
-    suspend fun getSettingsEntity(): AppSettingsEntity = appSettingsDao.getSettings() ?: AppSettingsEntity()
-
-    /** Raw device list for the backup export, including rows a device-type change would otherwise rewrite. */
-    suspend fun getAllDeviceEntities(): List<DeviceEntity> = deviceDao.getAllDevices()
 
     // Active server recordings: transient rows tracking a job the server runs, so a process restart can
     // resume reconciling and auto-stopping it. A row lives only while the app is watching the job.

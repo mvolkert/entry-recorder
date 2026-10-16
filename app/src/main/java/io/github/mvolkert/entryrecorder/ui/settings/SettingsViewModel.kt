@@ -11,7 +11,7 @@ import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.backup.AppBackup
 import io.github.mvolkert.entryrecorder.data.backup.BackupDocumentStore
 import io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory
-import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
+import io.github.mvolkert.entryrecorder.data.mapper.toEntity
 import io.github.mvolkert.entryrecorder.domain.model.AppSettings
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.domain.server.ServerDeleteResult
@@ -415,8 +415,8 @@ class SettingsViewModel @Inject constructor(
             try {
                 val backup = AppBackup(
                     exportedAt = System.currentTimeMillis(),
-                    appSettings = repository.getSettingsEntity(),
-                    devices = repository.getAllDeviceEntities()
+                    appSettings = repository.getSettings(),
+                    devices = repository.getAllDevicesList()
                 )
                 val json = gson.toJson(backup)
                 withContext(ioDispatcher) {
@@ -450,11 +450,11 @@ class SettingsViewModel @Inject constructor(
 
                 backup.appSettings?.let {
                     themeModeStore.setThemeMode(it.themeMode)
-                    repository.insertOrUpdateSettingsEntity(it.normalizedForRestore().copy(id = 1))
+                    repository.insertOrUpdateSettingsEntity(it.toEntity().normalizedForRestore())
                 }
                 // Reset serverDeviceId: a backup may have been taken against a different server, so the
                 // restored devices re-register lazily against whichever server is configured now.
-                backup.devices.forEach { repository.upsertDeviceEntity(it.copy(serverDeviceId = null)) }
+                backup.devices.forEach { repository.upsertDevice(it.copy(serverDeviceId = null)) }
 
                 message(R.string.settings_backup_restore_success, backup.devices.size)
             } catch (e: CancellationException) {
