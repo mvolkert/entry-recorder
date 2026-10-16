@@ -125,54 +125,37 @@ class SipCallManager @Inject constructor(
             message: String
         ) {
             Log.d(tag, "SIP Call State Changed: $state (msg: $message)")
+            val event = SipCallMapper.toEvent(state) ?: return
             val rawCallState = if (message.isBlank()) state?.name else "$state: $message"
-            when (state) {
-                Call.State.IncomingReceived -> {
-                    currentCall = call
-                    val remoteAddress = call.remoteAddress
-                    val caller = remoteAddress.username ?: remoteAddress.asStringUriOnly()
-                    val displayName = remoteAddress.displayName ?: caller
-
-                    _sessionState.value = SipSessionState(
-                        state = CallUiState.RINGING_INCOMING,
-                        rawCallState = rawCallState
-                    )
-                    // Every INVITE is reported; the monitor service's per-device debounce is what collapses
-                    // this against the 2N event stream's own ring notification for the same press.
-                    // Address.domain is the SIP host part, i.e. the intercom's IP in peer-to-peer mode.
-                    onIncomingCall?.invoke(remoteAddress.domain ?: "", displayName)
-                }
-                Call.State.StreamsRunning, Call.State.Connected -> {
-                    currentCall = call
-                    routeAudioToSpeaker(true)
-                    _sessionState.value = _sessionState.value.copy(
-                        state = CallUiState.CONNECTED,
-                        errorMessage = null,
-                        rawCallState = rawCallState
-                    )
-                }
-                Call.State.End, Call.State.Released -> {
-                    currentCall = null
-                    // ENDED has to stay observable: it was previously overwritten by IDLE in the same block,
-                    // so no observer could ever see it and the call screen had no end signal at all.
-                    _sessionState.value = SipSessionState(
-                        state = CallUiState.ENDED,
-                        rawCallState = rawCallState
-                    )
-                    scheduleIdleReset()
-                }
-                Call.State.Error -> {
-                    currentCall = null
-                    _sessionState.value = SipSessionState(
-                        state = CallUiState.ERROR,
-                        errorMessage = message,
-                        rawCallState = rawCallState
-                    )
-                    // Same bounded window as ENDED: a failed call used to stay in the flow forever, so the
-                    // next unrelated screen would render a stale failure with dead accept/decline buttons.
-                    scheduleIdleReset()
-                }
-                else -> {}
+            val result = SipCallReducer.reduce(
+                current = _sessionState.value,
+                event = event,
+                errorMessage = message,
+                rawCallState = rawCallState,
+            )
+            _sessionState.value = result.state
+            // The reducer decided the state; these lines interpret its effects against the native call and audio.
+            if (SipCallEffect.ClearCurrentCall in result.effects) {
+                currentCall = null
+            } else {
+                currentCall = call
+            }
+            if (SipCallEffect.RouteAudioToSpeaker in result.effects) {
+                routeAudioToSpeaker(true)
+            }
+            if (SipCallEffect.ReportIncoming in result.effects) {
+                // Every INVITE is reported; the monitor service's per-device debounce is what collapses this
+                // against the 2N event stream's own ring notification for the same press. Address.domain is
+                // the SIP host part, i.e. the intercom's IP in peer-to-peer mode.
+                val remoteAddress = call.remoteAddress
+                val caller = remoteAddress.username ?: remoteAddress.asStringUriOnly()
+                val displayName = remoteAddress.displayName ?: caller
+                onIncomingCall?.invoke(remoteAddress.domain ?: "", displayName)
+            }
+            if (SipCallEffect.ScheduleIdleReset in result.effects) {
+                // ENDED and ERROR stay observable for a bounded window rather than being overwritten to IDLE
+                // in the same block, which used to leave the call screen with no end or failure signal at all.
+                scheduleIdleReset()
             }
         }
 
@@ -259,7 +242,7 @@ class SipCallManager @Inject constructor(
                     applyPbxRegistrar(
                         sipCore = c,
                         host = host,
-                        port = device.sipServerPort ?: DEFAULT_SIP_PORT,
+                        port = device.sipServerPort ?: SipCallTiming.DEFAULT_SIP_PORT,
                         user = user,
                         password = device.sipPassword ?: ""
                     )
@@ -319,15 +302,13 @@ class SipCallManager @Inject constructor(
      * for why stopping it from inside the registration callback kills the process.
      */
     override suspend fun probeRegistration(device: Device): SipProbeResult = probeLock.withLock {
-        if (device.sipMode != SipMode.PBX_REGISTRAR) {
-            return@withLock SipProbeResult.MissingFields(SipMissingField.CALLING_MODE)
+        val input = when (val probeInput = SipProbeInputValidator.validate(device)) {
+            is SipProbeInput.Missing -> return@withLock SipProbeResult.MissingFields(probeInput.field)
+            is SipProbeInput.Ready -> probeInput
         }
-        val host = device.sipServerHost?.takeIf { it.isNotBlank() }
-            ?: return@withLock SipProbeResult.MissingFields(SipMissingField.PBX_HOST)
-        val user = device.sipUser?.takeIf { it.isNotBlank() }
-            ?: return@withLock SipProbeResult.MissingFields(SipMissingField.SIP_USER)
-
-        val port = device.sipServerPort ?: DEFAULT_SIP_PORT
+        val host = input.host
+        val user = input.user
+        val port = input.port
         val server = "$host:$port"
         probeSlot = (probeSlot + 1) % SipCallTiming.SIP_PROBE_PORT_SLOTS
         val localPort = SipCallTiming.probeLocalPort(probeSlot)
@@ -345,14 +326,12 @@ class SipCallManager @Inject constructor(
             ) {
                 if (state != null) lastState.set(state)
                 Log.i(tag, "SIP probe on $server registration state: $state ($message)")
-                val outcome = when (state) {
-                    RegistrationState.Ok -> SipProbeResult.Registered(server)
-                    // Cleared is where a refused account ends up once its 401/403 retry expires.
-                    RegistrationState.Failed, RegistrationState.Cleared -> {
-                        SipProbeResult.Rejected(state.name, message.ifBlank { state.name })
-                    }
-                    else -> null
-                }
+                val outcome = SipProbeOutcomeMapper.toOutcome(
+                    event = SipCallMapper.registrationEventOf(state),
+                    stateName = state?.name ?: "",
+                    message = message,
+                    server = server,
+                )
                 if (outcome != null) registration.complete(outcome)
             }
         }
@@ -369,7 +348,7 @@ class SipCallManager @Inject constructor(
                 transports.tlsPort = -1
                 probe.transports = transports
 
-                applyPbxRegistrar(probe, host, port, user, device.sipPassword ?: "")
+                applyPbxRegistrar(probe, host, port, user, input.password)
 
                 // Attached before start(): a rejection can arrive on the core thread's very first pass.
                 probe.addListener(listener)
@@ -424,7 +403,7 @@ class SipCallManager @Inject constructor(
         // Accept any pre-answer incoming state. Nothing in this app calls startRinging(), so today the call
         // stays in IncomingReceived; relying on that single value would make the answer button a silent
         // no-op as soon as the core advances the call to early media (Linphone 5 has no IncomingRinging).
-        if (call.state != Call.State.IncomingReceived && call.state != Call.State.IncomingEarlyMedia) {
+        if (!SipCallMapper.shouldAccept(call.state)) {
             Log.w(tag, "Accept ignored: call is in ${call.state}, not incoming")
             return
         }
@@ -497,8 +476,4 @@ class SipCallManager @Inject constructor(
         }
     }
 
-    companion object {
-        /** Registrar port used when the device row carries none; the same default the form starts from. */
-        private const val DEFAULT_SIP_PORT = 5060
-    }
 }

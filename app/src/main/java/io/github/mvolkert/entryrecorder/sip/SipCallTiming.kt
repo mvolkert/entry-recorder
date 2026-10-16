@@ -9,6 +9,8 @@ package io.github.mvolkert.entryrecorder.sip
  * The registration-probe numbers live here too, being the other SIP timeouts this app owns.
  */
 object SipCallTiming {
+    /** Registrar port used when the device row carries none; the same default the form starts from. */
+    const val DEFAULT_SIP_PORT = 5060
     /** How long [CallUiState.ENDED] / [CallUiState.ERROR] stay observable before the session drops to IDLE. */
     const val POST_CALL_IDLE_MS = 2_500L
 
