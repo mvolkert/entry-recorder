@@ -18,6 +18,7 @@
 
 - [x] 4.1 `SipCallReducerTest`: the four transitions + effect sets, terminal states not collapsing to idle, error surfacing its reason, mute/speaker preservation on connect and reset on terminal.
 - [x] 4.2 `SipProbeMappingTest`: validator field priority + port/password defaults; outcome mapper Ok/Failed/Cleared/blank-message/Other.
+- [x] 4.3 `SipCallMapperTest`: the native `Call.State`/`RegistrationState` -> app-event lookup, asserted on enum constants only (no Core/Factory), confirming the collapse, the unmapped early-media/null -> no-event, and the accept guard.
 
 ## 5. Verification
 
