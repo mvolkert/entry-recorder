@@ -6,8 +6,10 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import io.github.mvolkert.entryrecorder.data.server.ServerClient
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
+import io.github.mvolkert.entryrecorder.domain.call.CallScreenLauncher
 import io.github.mvolkert.entryrecorder.sip.SipCallManager
 import io.github.mvolkert.entryrecorder.sip.SipRegistrar
+import io.github.mvolkert.entryrecorder.ui.incoming.IncomingCallLauncher
 import io.github.mvolkert.entryrecorder.video.ExportTranscoder
 import io.github.mvolkert.entryrecorder.video.H264Transcoder
 import io.github.mvolkert.entryrecorder.video.RecordingController
@@ -41,4 +43,8 @@ abstract class BindsModule {
     @Binds
     @Singleton
     abstract fun bindSipRegistrar(impl: SipCallManager): SipRegistrar
+
+    @Binds
+    @Singleton
+    abstract fun bindCallScreenLauncher(impl: IncomingCallLauncher): CallScreenLauncher
 }

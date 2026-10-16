@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 
@@ -42,7 +43,7 @@ private val EVENT_FILTER_OPTIONS: List<Pair<EventType?, Int>> = listOf(
 internal fun RecordingsFilterBar(
     selectedEventType: EventType?,
     onEventTypeSelect: (EventType?) -> Unit,
-    devices: List<DeviceEntity>,
+    devices: List<Device>,
     selectedDeviceId: Long?,
     onDeviceSelect: (Long?) -> Unit,
     modifier: Modifier = Modifier,

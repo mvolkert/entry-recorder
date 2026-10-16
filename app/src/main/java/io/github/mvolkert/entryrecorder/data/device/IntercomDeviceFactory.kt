@@ -1,6 +1,7 @@
 package io.github.mvolkert.entryrecorder.data.device
 
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.DeviceType
 import io.github.mvolkert.entryrecorder.di.ApplicationScope
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
@@ -27,17 +28,17 @@ class IntercomDeviceFactory @Inject constructor(
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val applicationScope: CoroutineScope,
 ) {
-    fun createDevice(entity: DeviceEntity): IntercomDevice {
+    fun createDevice(entity: Device): IntercomDevice {
         return when (entity.deviceType) {
             DeviceType.TWO_N_VERSO -> TwoNIPVersoDevice(
-                deviceEntity = entity,
+                device = entity,
                 eventStreamClient = eventStreamClient,
                 snapshotPollClient = snapshotClient,
                 ioDispatcher = ioDispatcher,
                 parentScope = applicationScope,
             )
             DeviceType.GENERIC_RTSP_ONVIF -> GenericRtspDevice(
-                deviceEntity = entity,
+                device = entity,
                 ioDispatcher = ioDispatcher,
             )
         }

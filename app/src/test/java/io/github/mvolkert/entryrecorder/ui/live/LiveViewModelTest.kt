@@ -1,7 +1,7 @@
 package io.github.mvolkert.entryrecorder.ui.live
 
 import app.cash.turbine.test
-import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
+import io.github.mvolkert.entryrecorder.domain.model.AppSettings
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
@@ -74,8 +74,8 @@ class LiveViewModelTest {
 
     @Test
     fun `uiState fuses devices, active recordings, monitor statuses and event qualities`() = runViewModelTest {
-        deviceDao.insertDevice(testDevice(id = 1L, name = "Doorbell"))
-        deviceDao.insertDevice(testDevice(id = 2L, name = "Garage"))
+        repository.upsertDevice(testDevice(id = 1L, name = "Doorbell"))
+        repository.upsertDevice(testDevice(id = 2L, name = "Garage"))
         recorder.activeIds = setOf(2L)
         registry.update(1L, MonitorStatus.MONITORING)
         registry.updateEventQuality(1L, ConnectionQuality.DEGRADED)
@@ -100,7 +100,7 @@ class LiveViewModelTest {
 
     @Test
     fun `toggleMonitoring persists the flipped flag and never touches an in-flight recording`() = runViewModelTest {
-        deviceDao.insertDevice(testDevice(id = 1L, isEnabled = false))
+        repository.upsertDevice(testDevice(id = 1L, isEnabled = false))
         // A recording that is running on this device while its monitoring is toggled must survive untouched.
         recorder.activeIds = setOf(1L)
 
@@ -120,13 +120,13 @@ class LiveViewModelTest {
 
     @Test
     fun `uiState falls back to the fresh settings row while none is stored`() = runViewModelTest {
-        deviceDao.insertDevice(testDevice(id = 1L))
+        repository.upsertDevice(testDevice(id = 1L))
 
         vm.uiState.test {
             awaitItem()
             val state = awaitItem()
             assertFalse(state.isLoading)
-            assertEquals(AppSettingsEntity(), state.appSettings, "a null settings row reads as the default")
+            assertEquals(AppSettings(), state.appSettings, "a null settings row reads as the default")
             cancelAndIgnoreRemainingEvents()
         }
     }

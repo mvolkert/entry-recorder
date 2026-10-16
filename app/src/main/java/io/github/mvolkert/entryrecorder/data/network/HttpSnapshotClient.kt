@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.di.SnapshotClient
@@ -145,7 +146,7 @@ class HttpSnapshotClient @Inject constructor(
      * 0 instead of a flattering fake rate. Unlike the passive [achievedFps] — which only has a number once
      * the live view or a recording is already polling — this works on an unsaved device built from the form.
      */
-    suspend fun probeSnapshotFps(device: DeviceEntity): Float {
+    suspend fun probeSnapshotFps(device: Device): Float {
         val deadline = System.currentTimeMillis() + PROBE_DURATION_MS
         val durations = ArrayList<Long>()
         var failures = 0
@@ -168,7 +169,7 @@ class HttpSnapshotClient @Inject constructor(
      * Puts the credentials on the request: a remembered Digest challenge is replayed preemptively, and
      * a device with no such history (or a challenge that no longer computes) keeps the Basic fast path.
      */
-    private fun withAuthHeader(device: DeviceEntity, request: Request): Request {
+    private fun withAuthHeader(device: Device, request: Request): Request {
         if (device.username.isBlank() && device.password.isBlank()) return request
         val challenge = digestChallenges[device.id]
         if (challenge != null) {
@@ -191,7 +192,7 @@ class HttpSnapshotClient @Inject constructor(
      * answer a wrong or under-parameterised path with HTTP 200 plus a JSON error document, which would
      * otherwise be muxed into the recording (or silently starve motion analysis) as a "frame".
      */
-    suspend fun fetchSnapshotBytes(device: DeviceEntity): ByteArray? = withContext(ioDispatcher) {
+    suspend fun fetchSnapshotBytes(device: Device): ByteArray? = withContext(ioDispatcher) {
         var outcome = attemptFetch(device, attempt = 1)
         if (outcome is FetchOutcome.Retryable) {
             delay(150.milliseconds)
@@ -215,7 +216,7 @@ class HttpSnapshotClient @Inject constructor(
         }
     }
 
-    private suspend fun attemptFetch(device: DeviceEntity, attempt: Int): FetchOutcome =
+    private suspend fun attemptFetch(device: Device, attempt: Int): FetchOutcome =
         withContext(ioDispatcher) {
             val snapshotUrl = device.snapshotUrl
             try {
@@ -256,7 +257,7 @@ class HttpSnapshotClient @Inject constructor(
             }
         }
 
-    private fun countedFailure(device: DeviceEntity, reason: String) {
+    private fun countedFailure(device: Device, reason: String) {
         val failures = (consecutiveFailures[device.id] ?: 0) + 1
         consecutiveFailures[device.id] = failures
         rateEstimates.remove(device.id)
@@ -286,7 +287,7 @@ class HttpSnapshotClient @Inject constructor(
     /**
      * Fetches snapshot and decodes it directly into a Bitmap.
      */
-    suspend fun fetchSnapshotBitmap(device: DeviceEntity): Bitmap? = withContext(ioDispatcher) {
+    suspend fun fetchSnapshotBitmap(device: Device): Bitmap? = withContext(ioDispatcher) {
         val bytes = fetchSnapshotBytes(device) ?: return@withContext null
         try {
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size)

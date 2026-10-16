@@ -1,13 +1,13 @@
 package io.github.mvolkert.entryrecorder.domain.device
 
-import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The monitor service logs one line per event, and the event is a data class wrapping a [DeviceEntity] —
+ * The monitor service logs one line per event, and the event is a data class wrapping a [Device] —
  * so interpolating the event used to drop the HTTP and the SIP password straight into logcat. These tests
  * pin the contract of the replacement: [logIdentity] says which event arrived from which device, and says
  * nothing that identifies a credential. The entity's own diagnostic form is covered too, because that is
@@ -18,7 +18,7 @@ class IntercomEventLogIdentityTest {
     private val httpPassword = "httptestpw"
     private val sipPassword = "siptestpw"
 
-    private val device = DeviceEntity(
+    private val device = Device(
         id = 7L,
         name = "Front Door",
         ipAddress = "192.168.1.50",

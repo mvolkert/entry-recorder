@@ -20,6 +20,7 @@ import io.github.mvolkert.entryrecorder.data.local.dao.DeviceDao
 import io.github.mvolkert.entryrecorder.data.local.dao.RecordingDao
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.ui.theme.AndroidThemeModeStore
 import io.github.mvolkert.entryrecorder.ui.theme.ThemeModeStore
 import io.github.mvolkert.entryrecorder.util.AndroidExportGateway

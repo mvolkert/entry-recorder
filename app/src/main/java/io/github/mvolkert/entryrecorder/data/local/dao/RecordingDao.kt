@@ -73,6 +73,15 @@ interface RecordingDao {
     @Delete
     suspend fun deleteRecording(recording: RecordingEntity)
 
+    /**
+     * Bulk row delete as one atomic transaction: a multi-select delete either drops every row or none, so a
+     * half-applied batch can never leave a listed clip whose row vanished while its siblings stayed. The
+     * files are reclaimed by the repository around this call, not here.
+     */
+    @Transaction
+    @Delete
+    suspend fun deleteRecordings(recordings: List<RecordingEntity>)
+
     @Query("DELETE FROM recordings WHERE id = :id")
     suspend fun deleteRecordingById(id: Long)
 

@@ -36,7 +36,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
-import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
+import io.github.mvolkert.entryrecorder.domain.model.AppSettings
 import io.github.mvolkert.entryrecorder.ui.adaptive.LocalWindowInfo
 import io.github.mvolkert.entryrecorder.ui.adaptive.WindowInfo
 import io.github.mvolkert.entryrecorder.util.CleanupPolicy
@@ -59,8 +59,8 @@ private enum class QuotaScope { Internal, External }
  */
 @Composable
 internal fun SettingsStorageCard(
-    settings: AppSettingsEntity,
-    onSettingsChange: (AppSettingsEntity) -> Unit,
+    settings: AppSettings,
+    onSettingsChange: (AppSettings) -> Unit,
     internalUsage: StorageUsage,
     externalUsageBytes: Long?,
     exportFolderAccess: ExportFolderAccess,
@@ -128,7 +128,7 @@ internal fun SettingsStorageCard(
                 quotaLabel(settings.internalQuotaMb)
             ),
             quotaMb = settings.internalQuotaMb,
-            unusableFallbackMb = AppSettingsEntity.DEFAULT_INTERNAL_QUOTA_MB,
+            unusableFallbackMb = AppSettings.DEFAULT_INTERNAL_QUOTA_MB,
             onValueClick = { editingQuota = QuotaScope.Internal },
             onQuotaChange = { onSettingsChange(settings.copy(internalQuotaMb = it)) }
         )
@@ -173,7 +173,7 @@ internal fun SettingsStorageCard(
                 quotaLabel(settings.externalQuotaMb)
             ),
             quotaMb = settings.externalQuotaMb,
-            unusableFallbackMb = AppSettingsEntity.DEFAULT_EXTERNAL_QUOTA_MB,
+            unusableFallbackMb = AppSettings.DEFAULT_EXTERNAL_QUOTA_MB,
             onValueClick = { editingQuota = QuotaScope.External },
             onQuotaChange = { onSettingsChange(settings.copy(externalQuotaMb = it)) }
         )

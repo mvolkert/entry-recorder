@@ -8,16 +8,29 @@ import io.github.mvolkert.entryrecorder.data.local.entity.ActiveServerRecordingE
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import io.github.mvolkert.entryrecorder.data.mapper.toDomain
+import io.github.mvolkert.entryrecorder.data.mapper.toEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
+import io.github.mvolkert.entryrecorder.domain.model.AppSettings
+import io.github.mvolkert.entryrecorder.domain.model.Device
+import io.github.mvolkert.entryrecorder.domain.model.Recording
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
 
-/** The single source of truth for devices, recordings and settings; every row read or written goes through it. */
+/**
+ * The single source of truth for devices, recordings and settings; every row read or written goes through it.
+ *
+ * The DAOs keep speaking Room entities; this is the boundary where they become domain models, so nothing
+ * above the data layer has to know about the storage format. The `*Entity` variants below exist only for
+ * the backup restore, which round-trips whole stored rows (legacy columns included) and must not lose
+ * fidelity to the mapping.
+ */
 @Singleton
 class IntercomRepository @Inject constructor(
     private val deviceDao: DeviceDao,
@@ -27,27 +40,28 @@ class IntercomRepository @Inject constructor(
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) {
     // Devices
-    val allDevices: Flow<List<DeviceEntity>> = deviceDao.getAllDevicesFlow()
+    val allDevices: Flow<List<Device>> = deviceDao.getAllDevicesFlow().map { rows -> rows.map { it.toDomain() } }
 
-    suspend fun getAllDevicesList(): List<DeviceEntity> = deviceDao.getAllDevices()
+    suspend fun getAllDevicesList(): List<Device> = deviceDao.getAllDevices().map { it.toDomain() }
 
-    suspend fun getEnabledDevices(): List<DeviceEntity> = deviceDao.getEnabledDevices()
+    suspend fun getEnabledDevices(): List<Device> = deviceDao.getEnabledDevices().map { it.toDomain() }
 
-    suspend fun getDeviceById(id: Long): DeviceEntity? = deviceDao.getDeviceById(id)
+    suspend fun getDeviceById(id: Long): Device? = deviceDao.getDeviceById(id)?.toDomain()
 
-    fun getDeviceByIdFlow(id: Long): Flow<DeviceEntity?> = deviceDao.getDeviceByIdFlow(id)
+    fun getDeviceByIdFlow(id: Long): Flow<Device?> = deviceDao.getDeviceByIdFlow(id).map { it?.toDomain() }
 
-    suspend fun saveDevice(device: DeviceEntity): Long {
+    suspend fun saveDevice(device: Device): Long {
+        val entity = device.toEntity()
         return if (device.id == 0L) {
-            deviceDao.insertDevice(device)
+            deviceDao.insertDevice(entity)
         } else {
-            deviceDao.updateDevice(device)
+            deviceDao.updateDevice(entity)
             device.id
         }
     }
 
-    suspend fun deleteDevice(device: DeviceEntity) {
-        deviceDao.deleteDevice(device)
+    suspend fun deleteDevice(device: Device) {
+        deviceDao.deleteDevice(device.toEntity())
     }
 
     suspend fun deleteDeviceById(id: Long) {
@@ -58,51 +72,66 @@ class IntercomRepository @Inject constructor(
      * Inserts [device] preserving its existing id (Room REPLACE on conflict). Used by backup
      * restore so re-imported devices keep the ids their recordings still reference.
      */
-    suspend fun upsertDevice(device: DeviceEntity): Long = deviceDao.insertDevice(device)
+    suspend fun upsertDevice(device: Device): Long = deviceDao.insertDevice(device.toEntity())
+
+    /** Entity-level upsert for backup restore, which carries whole stored rows and must not re-key them. */
+    suspend fun upsertDeviceEntity(entity: DeviceEntity): Long = deviceDao.insertDevice(entity)
+
+    /** Entity-level settings write for backup restore; the domain mapping drops declared legacy columns. */
+    suspend fun insertOrUpdateSettingsEntity(entity: AppSettingsEntity) = appSettingsDao.insertOrUpdate(entity)
 
     // Recordings
-    val allRecordings: Flow<List<RecordingEntity>> = recordingDao.getAllRecordingsFlow()
+    val allRecordings: Flow<List<Recording>> =
+        recordingDao.getAllRecordingsFlow().map { rows -> rows.map { it.toDomain() } }
 
     fun searchRecordings(
         deviceId: Long? = null,
         eventType: EventType? = null,
         fromTimestamp: Long? = null,
         toTimestamp: Long? = null
-    ): Flow<List<RecordingEntity>> {
-        return recordingDao.searchRecordingsFlow(deviceId, eventType, fromTimestamp, toTimestamp)
-    }
+    ): Flow<List<Recording>> =
+        recordingDao.searchRecordingsFlow(deviceId, eventType, fromTimestamp, toTimestamp)
+            .map { rows -> rows.map { it.toDomain() } }
 
-    suspend fun getRecordingById(id: Long): RecordingEntity? = recordingDao.getRecordingById(id)
+    suspend fun getRecordingById(id: Long): Recording? = recordingDao.getRecordingById(id)?.toDomain()
 
-    fun getRecordingByIdFlow(id: Long): Flow<RecordingEntity?> = recordingDao.getRecordingByIdFlow(id)
+    fun getRecordingByIdFlow(id: Long): Flow<Recording?> = recordingDao.getRecordingByIdFlow(id).map { it?.toDomain() }
 
-    suspend fun insertRecording(recording: RecordingEntity): Long = recordingDao.insertRecording(recording)
+    suspend fun insertRecording(recording: Recording): Long = recordingDao.insertRecording(recording.toEntity())
 
-    suspend fun updateRecording(recording: RecordingEntity) = recordingDao.updateRecording(recording)
+    suspend fun updateRecording(recording: Recording) = recordingDao.updateRecording(recording.toEntity())
 
     /**
      * Deletes [recording]'s row and the files it owned, reporting what actually went. The row goes whatever
      * the files do — a file that survives is an orphan the caller has to know about, because space no row
      * references is space no quota counts either.
      */
-    suspend fun deleteRecording(recording: RecordingEntity): RecordingDeleteResult {
+    suspend fun deleteRecording(recording: Recording): RecordingDeleteResult {
         val orphans = listOfNotNull(
             deleteFile(recording.filePath),
             recording.thumbnailPath?.let { deleteFile(it) },
         )
-        recordingDao.deleteRecording(recording)
+        recordingDao.deleteRecording(recording.toEntity())
         return if (orphans.isEmpty()) RecordingDeleteResult.Deleted
         else RecordingDeleteResult.DeletedWithOrphans(orphans)
     }
 
-    /** Bulk variant used by multi-select delete; returns the aggregate of the whole batch. */
-    suspend fun deleteRecordings(recordings: List<RecordingEntity>): RecordingDeleteReport {
-        val results = recordings.map { deleteRecording(it) }
+    /**
+     * Bulk variant used by multi-select delete. The files go first (each independently, so an undeletable
+     * handle on one clip still lets the rest be reclaimed), then every row drops in a single transaction so
+     * the batch is atomic — no listed clip is left behind by a half-applied delete.
+     */
+    suspend fun deleteRecordings(recordings: List<Recording>): RecordingDeleteReport {
+        val orphanPaths = recordings.flatMap { recording ->
+            listOfNotNull(
+                deleteFile(recording.filePath),
+                recording.thumbnailPath?.let { deleteFile(it) },
+            )
+        }
+        recordingDao.deleteRecordings(recordings.map { it.toEntity() })
         return RecordingDeleteReport(
-            deleted = results.size,
-            orphanPaths = results
-                .filterIsInstance<RecordingDeleteResult.DeletedWithOrphans>()
-                .flatMap { it.orphanPaths },
+            deleted = recordings.size,
+            orphanPaths = orphanPaths,
         )
     }
 
@@ -122,15 +151,14 @@ class IntercomRepository @Inject constructor(
         recordingDao.setProtected(id, isProtected)
     }
 
-    suspend fun getExpiredRecordings(retentionDays: Int): List<RecordingEntity> {
+    suspend fun getExpiredRecordings(retentionDays: Int): List<Recording> {
         if (retentionDays <= 0) return emptyList()
         val cutoffMs = System.currentTimeMillis() - (retentionDays * 24L * 60L * 60L * 1000L)
-        return recordingDao.getExpiredUnprotectedRecordings(cutoffMs)
+        return recordingDao.getExpiredUnprotectedRecordings(cutoffMs).map { it.toDomain() }
     }
 
-    suspend fun getOldestUnprotectedRecordings(): List<RecordingEntity> {
-        return recordingDao.getOldestUnprotectedRecordings()
-    }
+    suspend fun getOldestUnprotectedRecordings(): List<Recording> =
+        recordingDao.getOldestUnprotectedRecordings().map { it.toDomain() }
 
     suspend fun getTotalStorageBytes(): Long {
         return recordingDao.getTotalStorageUsageBytes() ?: 0L
@@ -147,17 +175,23 @@ class IntercomRepository @Inject constructor(
         recordingDao.getAllFilePaths() + recordingDao.getAllThumbnailPaths()
 
     // Settings
-    val settingsFlow: Flow<AppSettingsEntity?> = appSettingsDao.getSettingsFlow()
+    val settingsFlow: Flow<AppSettings?> = appSettingsDao.getSettingsFlow().map { it?.toDomain() }
 
-    suspend fun getSettings(): AppSettingsEntity {
-        return appSettingsDao.getSettings() ?: AppSettingsEntity().also {
-            appSettingsDao.insertOrUpdate(it)
+    suspend fun getSettings(): AppSettings {
+        return appSettingsDao.getSettings()?.toDomain() ?: AppSettings().also {
+            appSettingsDao.insertOrUpdate(it.toEntity())
         }
     }
 
-    suspend fun updateSettings(settings: AppSettingsEntity) {
-        appSettingsDao.insertOrUpdate(settings)
+    suspend fun updateSettings(settings: AppSettings) {
+        appSettingsDao.insertOrUpdate(settings.toEntity())
     }
+
+    /** Raw current row for the backup export, keeping every declared column's stored value. */
+    suspend fun getSettingsEntity(): AppSettingsEntity = appSettingsDao.getSettings() ?: AppSettingsEntity()
+
+    /** Raw device list for the backup export, including rows a device-type change would otherwise rewrite. */
+    suspend fun getAllDeviceEntities(): List<DeviceEntity> = deviceDao.getAllDevices()
 
     // Active server recordings: transient rows tracking a job the server runs, so a process restart can
     // resume reconciling and auto-stopping it. A row lives only while the app is watching the job.

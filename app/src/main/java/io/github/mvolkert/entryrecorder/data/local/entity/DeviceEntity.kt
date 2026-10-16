@@ -80,127 +80,13 @@ data class DeviceEntity(
      */
     val serverDeviceId: Long? = null
 ) {
-    val httpBaseUrl: String
-        get() {
-            val scheme = if (useHttps) "https" else "http"
-            val port = if (useHttps) httpsPort else httpPort
-            return "$scheme://$ipAddress:$port"
-        }
-
-    val rtspStreamUrl: String
-        get() {
-            val authPart = if (username.isNotBlank() && password.isNotBlank()) {
-                "$username:$password@"
-            } else ""
-            
-            // Sanitize path: remove repeated IP addresses or hostnames that users often paste accidentally
-            var sanitizedPath = rtspPath.trim()
-            if (sanitizedPath.contains(ipAddress)) {
-                sanitizedPath = sanitizedPath.replace(ipAddress, "").replace("//", "/")
-            }
-            
-            val cleanPath = when {
-                sanitizedPath.isBlank() || sanitizedPath == "/" -> "/live.sdp" // Default for 2N
-                sanitizedPath.startsWith("/") -> sanitizedPath
-                else -> "/$sanitizedPath"
-            }
-            return "rtsp://$authPart$ipAddress:$rtspPort$cleanPath"
-        }
-
-    val snapshotUrl: String
-        get() {
-            var path = snapshotPath.trim()
-            if (!path.startsWith("/")) path = "/$path"
-            val separator = if (path.contains("?")) "&" else "?"
-            return if (path.contains("width=") || path.contains("height=")) {
-                "$httpBaseUrl$path"
-            } else {
-                "$httpBaseUrl$path${separator}width=1280&height=720"
-            }
-        }
-
-    /**
-     * MJPEG stream URL. The 2N Verso has no dedicated MJPEG endpoint: its firmware serves a
-     * `multipart/x-mixed-replace` server push from the same snapshot URL with an added `fps` param
-     * (2N Streaming manual), so it is derived from [snapshotUrl] rather than read from the stored
-     * [mjpegPath]. Deriving also self-heals devices saved before this whose `/api/camera/mjpeg`
-     * path answers HTTP 200 + JSON and read as a dead camera. Other device types keep their raw path.
-     */
-    val mjpegUrl: String
-        get() {
-            if (deviceType == DeviceType.TWO_N_VERSO) {
-                val fps = effectiveSnapshotFps.coerceIn(MJPEG_FPS_MIN, MJPEG_FPS_MAX)
-                val separator = if (snapshotUrl.contains("?")) "&" else "?"
-                return "$snapshotUrl${separator}fps=$fps"
-            }
-            var path = mjpegPath.trim()
-            if (!path.startsWith("/")) path = "/$path"
-            return "$httpBaseUrl$path"
-        }
-
-    /**
-     * Snapshot polling rate actually worth asking for: [snapshotFps] clamped to [SNAPSHOT_FPS_HARD_MAX].
-     * The ceiling used to be a per-device-type guess (6 for the 2N), which fought real cameras that can
-     * serve more — the device form now measures each endpoint directly ("Get FPS"), so only this sanity
-     * bound remains: past it the poll interval falls below a realistic HTTP round trip.
-     */
-    val effectiveSnapshotFps: Int
-        get() = snapshotFps.coerceIn(1, maxSnapshotFps)
-
-    /** Upper bound [effectiveSnapshotFps] clamps to, surfaced to the user wherever the rate is edited. */
-    val maxSnapshotFps: Int
-        get() = SNAPSHOT_FPS_HARD_MAX
-
-    /**
-     * Pre-roll ring size actually used by the analyzer: [motionPreRollFrames] clamped into the supported
-     * range. The ceiling is a heap bound — the ring holds full JPEG frames on a 24/7 loop — not a
-     * per-device-type guess, mirroring how [effectiveSnapshotFps] works.
-     */
-    val effectiveMotionPreRollFrames: Int
-        get() = motionPreRollFrames.coerceIn(MOTION_PRE_ROLL_FRAMES_MIN, MOTION_PRE_ROLL_FRAMES_MAX)
-
-    /**
-     * Diagnostic form of the row. Replaces the data-class `toString()`, which would print the HTTP and the
-     * SIP password in clear wherever an entity is interpolated into a log, so this masks both credentials
-     * and stays safe even if some future log site prints the device.
-     */
-    override fun toString(): String = buildString {
-        append("DeviceEntity(id=$id, name=$name, deviceType=$deviceType, isEnabled=$isEnabled")
-        append(", address=$ipAddress, httpPort=$httpPort, httpsPort=$httpsPort, useHttps=$useHttps")
-        append(", rtspPort=$rtspPort, rtspPath=$rtspPath, username=$username, password=$REDACTED")
-        append(", streamProtocol=$streamProtocol, mjpegPath=$mjpegPath, snapshotPath=$snapshotPath")
-        append(", snapshotFps=$snapshotFps")
-        append(", sipMode=$sipMode, sipLocalPort=$sipLocalPort, sipServerHost=$sipServerHost")
-        append(", sipServerPort=$sipServerPort, sipUser=$sipUser, sipPassword=${sipPassword?.let { REDACTED }}")
-        append(", recordOnMotion=$recordOnMotion, recordOnRing=$recordOnRing, recordOnNoise=$recordOnNoise")
-        append(", recordOnMotionOnDevice=$recordOnMotionOnDevice, motionSensitivity=$motionSensitivity")
-        append(", motionPreRollFrames=$motionPreRollFrames")
-        append(", motionPostRecordSeconds=$motionPostRecordSeconds, noisePostRecordSeconds=$noisePostRecordSeconds")
-        append(", ringRecordSeconds=$ringRecordSeconds")
-        append(", wakeOnRing=$wakeOnRing, soundOnRing=$soundOnRing, vibrateOnRing=$vibrateOnRing")
-        append(", wakeOnMotion=$wakeOnMotion, wakeOnNoise=$wakeOnNoise, keepLocksHeld=$keepLocksHeld")
-        append(", serverDeviceId=$serverDeviceId)")
-    }
-
     companion object {
-        /** Placeholder both credential fields collapse to in [toString]. */
-        private const val REDACTED = "<redacted>"
-
-        // Single sanity ceiling for every device: beyond it the frame interval drops below a realistic
-        // HTTP round trip, so no snapshot endpoint can deliver it. Per-camera capability is measured in
-        // the device form rather than guessed from the type (a 2N once forced this down to a static 6).
+        // Sanity bounds behind the derived getters — the URL/clamping rules themselves live in
+        // io.github.mvolkert.entryrecorder.domain.model.DeviceEndpointResolver.
         const val SNAPSHOT_FPS_HARD_MAX = 30
 
-        // Pre-roll ring: the default is the analyzer's original fixed size, so devices saved before the
-        // setting existed keep capturing exactly as before. The ceiling bounds the heap the 24/7
-        // analyzer loop holds in full-res JPEGs (each frame is a camera snapshot).
         const val DEFAULT_MOTION_PRE_ROLL_FRAMES = 6
         const val MOTION_PRE_ROLL_FRAMES_MIN = 1
         const val MOTION_PRE_ROLL_FRAMES_MAX = 30
-
-        // The 2N MJPEG server push accepts an fps param in 1–10 (2N Streaming manual); the configured
-        // snapshot rate is clamped into it when the stream URL is derived.
-        private const val MJPEG_FPS_MIN = 1
-        private const val MJPEG_FPS_MAX = 10
     }
 }

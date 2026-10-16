@@ -21,7 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
-import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
+import io.github.mvolkert.entryrecorder.domain.model.AppSettings
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.ui.components.LoadingSpinner
 
@@ -31,8 +31,8 @@ import io.github.mvolkert.entryrecorder.ui.components.LoadingSpinner
  */
 @Composable
 internal fun SettingsEngineCard(
-    settings: AppSettingsEntity,
-    onSettingsChange: (AppSettingsEntity) -> Unit,
+    settings: AppSettings,
+    onSettingsChange: (AppSettings) -> Unit,
     isTestingServer: Boolean,
     onTestServer: () -> Unit,
 ) {

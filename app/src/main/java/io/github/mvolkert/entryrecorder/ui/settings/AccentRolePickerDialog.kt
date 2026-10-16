@@ -38,7 +38,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import io.github.mvolkert.entryrecorder.R
-import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
+import io.github.mvolkert.entryrecorder.domain.model.AppSettings
 import io.github.mvolkert.entryrecorder.ui.theme.LocalDarkTheme
 import io.github.mvolkert.entryrecorder.ui.theme.accentPresets
 
@@ -53,8 +53,8 @@ import io.github.mvolkert.entryrecorder.ui.theme.accentPresets
  */
 @Composable
 internal fun AccentRolePickerDialog(
-    settings: AppSettingsEntity,
-    onSettingsChange: (AppSettingsEntity) -> Unit,
+    settings: AppSettings,
+    onSettingsChange: (AppSettings) -> Unit,
     onDismiss: () -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss) {

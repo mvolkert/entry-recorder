@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dagger.hilt.android.AndroidEntryPoint
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
@@ -102,7 +103,7 @@ class IncomingCallActivity : ComponentActivity() {
                 tertiaryIndex = settings?.themeTertiaryIndex ?: 0,
                 useDynamicColor = settings?.themeUseDynamicColor ?: false,
             ) {
-                var device by remember { mutableStateOf<DeviceEntity?>(null) }
+                var device by remember { mutableStateOf<Device?>(null) }
                 val sipState by sipManager.sessionState.collectAsStateWithLifecycle()
                 var sawConnected by remember { mutableStateOf(false) }
 
@@ -199,7 +200,7 @@ class IncomingCallActivity : ComponentActivity() {
 
 @Composable
 fun IncomingCallContent(
-    device: DeviceEntity?,
+    device: Device?,
     eventType: EventType,
     caller: String?,
     sipState: SipSessionState,

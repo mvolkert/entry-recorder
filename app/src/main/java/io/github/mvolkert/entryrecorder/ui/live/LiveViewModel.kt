@@ -3,8 +3,8 @@ package io.github.mvolkert.entryrecorder.ui.live
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
-import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.AppSettings
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class LiveUiState(
-    val devices: List<DeviceEntity> = emptyList(),
+    val devices: List<Device> = emptyList(),
     /** Ids of devices with an active recording (local or server) — drives the REC badge. */
     val recordingDeviceIds: Set<Long> = emptySet(),
     /** Per-device monitoring status published by IntercomMonitorService — drives the status dot. */
@@ -29,7 +29,7 @@ data class LiveUiState(
     /** Health of each device's own event stream — dims the doorbell / camera-motion / noise glyphs. */
     val eventQualities: Map<Long, ConnectionQuality> = emptyMap(),
     /** App settings so the Live screen knows whether to pull live view through the server (Phase S). */
-    val appSettings: AppSettingsEntity = AppSettingsEntity(),
+    val appSettings: AppSettings = AppSettings(),
     val isLoading: Boolean = true
 )
 
@@ -59,27 +59,32 @@ class LiveViewModel @Inject constructor(
             recordingDeviceIds = recordingIds,
             monitorStatuses = monitorStatuses,
             eventQualities = eventQualities,
-            appSettings = settings ?: AppSettingsEntity(),
+            appSettings = settings ?: AppSettings(),
             isLoading = false
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), LiveUiState())
 
-    fun startManualRecording(device: DeviceEntity) {
-        recorder.startRecording(device, EventType.MANUAL, 120)
+    fun startManualRecording(device: Device) {
+        recorder.startRecording(device, EventType.MANUAL, DEFAULT_MANUAL_RECORD_SECONDS)
     }
 
-    fun stopManualRecording(device: DeviceEntity) {
+    fun stopManualRecording(device: Device) {
         recorder.stopRecording(device.id)
     }
 
     /**
-     * Arms or disarms event monitoring for [device] by persisting its isEnabled flag; the monitor
+     * Arms or disarms event monitoring for [Device] by persisting its isEnabled flag; the monitor
      * service reacts to the device flow and starts/stops it. Only touches monitoring, never an
      * in-flight recording — a triggered/manual capture is allowed to run out on its own.
      */
-    fun toggleMonitoring(device: DeviceEntity) {
+    fun toggleMonitoring(device: Device) {
         viewModelScope.launch {
             repository.saveDevice(device.copy(isEnabled = !device.isEnabled))
         }
+    }
+
+    companion object {
+        /** Length of a manual recording started from the Live screen. */
+        private const val DEFAULT_MANUAL_RECORD_SECONDS = 120
     }
 }

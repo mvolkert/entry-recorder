@@ -1,6 +1,7 @@
 package io.github.mvolkert.entryrecorder.data.server
 
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import java.io.File
 
@@ -28,19 +29,19 @@ interface ServerClient {
         durationSeconds: Int
     ): Result<ServerStartResponse>
 
-    /** Registers [device] on the server and returns the server-assigned row id. */
+    /** Registers [Device] on the server and returns the server-assigned row id. */
     suspend fun registerDevice(
         serverUrl: String,
         apiKey: String?,
-        device: DeviceEntity
+        device: Device
     ): Result<Long>
 
-    /** Pushes the current [device] config onto an already-registered server row. */
+    /** Pushes the current [Device] config onto an already-registered server row. */
     suspend fun updateServerDevice(
         serverUrl: String,
         apiKey: String?,
         serverDeviceId: Long,
-        device: DeviceEntity
+        device: Device
     ): Result<Unit>
 
     /** Best-effort removal of a previously-registered server row; a missing row counts as success. */

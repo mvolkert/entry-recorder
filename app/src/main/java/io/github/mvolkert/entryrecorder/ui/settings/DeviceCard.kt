@@ -29,6 +29,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.DeviceType
 import io.github.mvolkert.entryrecorder.ui.theme.sipModeLabel
@@ -42,7 +43,7 @@ import io.github.mvolkert.entryrecorder.ui.theme.sipModeLabel
 @Composable
 @OptIn(ExperimentalSharedTransitionApi::class)
 internal fun DeviceCard(
-    device: DeviceEntity,
+    device: Device,
     eventQuality: ConnectionQuality?,
     snapshotQuality: ConnectionQuality?,
     onEdit: () -> Unit,

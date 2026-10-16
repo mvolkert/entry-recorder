@@ -3,7 +3,8 @@ package io.github.mvolkert.entryrecorder.ui.settings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
+import io.github.mvolkert.entryrecorder.domain.model.DeviceEndpointResolver
 import io.github.mvolkert.entryrecorder.data.model.DeviceType
 import io.github.mvolkert.entryrecorder.data.model.MotionSensitivity
 import io.github.mvolkert.entryrecorder.data.model.SipMode
@@ -20,10 +21,10 @@ internal enum class MotionSource { OFF, CAMERA, APP }
  * Numeric fields are deliberately kept as the strings the text fields show, so typing into a port
  * is never re-parsed mid-edit; the parse-with-fallback only happens in [buildDevice] and
  * [buildTestCandidate]. The whole initial-value table lives here on purpose — it is the part of the
- * form that has to stay in sync with [DeviceEntity]'s own defaults.
+ * form that has to stay in sync with [Device]'s own defaults.
  */
 class DeviceFormState(
-    private val initial: DeviceEntity?,
+    private val initial: Device?,
     defaultName: String
 ) {
     var name by mutableStateOf(initial?.name ?: defaultName)
@@ -57,7 +58,7 @@ class DeviceFormState(
     var recordOnMotionOnDevice by mutableStateOf(initial?.recordOnMotionOnDevice ?: false)
     var motionSensitivity by mutableStateOf(initial?.motionSensitivity ?: MotionSensitivity.BALANCED)
     var motionPreRollFrames by mutableStateOf(
-        (initial?.motionPreRollFrames ?: DeviceEntity.DEFAULT_MOTION_PRE_ROLL_FRAMES).toString()
+        (initial?.motionPreRollFrames ?: DeviceEndpointResolver.DEFAULT_MOTION_PRE_ROLL_FRAMES).toString()
     )
 
     // Per-device alert & lockscreen behavior (moved off the global app settings).
@@ -103,7 +104,7 @@ class DeviceFormState(
     val deviceId: Long get() = initial?.id ?: 0L
 
     /** Snapshot rate sanity ceiling; what a higher input will be clamped to. */
-    val maxSnapshotFps: Int get() = DeviceEntity.SNAPSHOT_FPS_HARD_MAX
+    val maxSnapshotFps: Int get() = DeviceEndpointResolver.SNAPSHOT_FPS_HARD_MAX
 
     /** True while the typed rate is above the ceiling, so the field can say it will not be honoured. */
     val isSnapshotFpsAboveCeiling: Boolean
@@ -119,7 +120,7 @@ class DeviceFormState(
      * SIP registrar ones the registration probe reads. `useHttps`/`httpsPort` stay out on purpose: the HTTP
      * probe has always run against the typed HTTP port, and changing that is a different decision.
      */
-    fun buildTestCandidate(): DeviceEntity = DeviceEntity(
+    fun buildTestCandidate(): Device = Device(
         id = initial?.id ?: 0,
         name = name,
         deviceType = deviceType,
@@ -145,11 +146,11 @@ class DeviceFormState(
      * and only overwrites the fields this dialog exposes, so anything the form does not show keeps its
      * current value instead of being reset to an entity default.
      */
-    fun buildDevice(): DeviceEntity {
+    fun buildDevice(): Device {
         val trimmedName = name.trim()
         val trimmedIp = ipAddress.trim()
         val cameraEventsDeliverable = supportsCameraEvents(deviceType)
-        val base = initial ?: DeviceEntity(name = trimmedName, ipAddress = trimmedIp)
+        val base = initial ?: Device(name = trimmedName, ipAddress = trimmedIp)
         return base.copy(
             name = trimmedName,
             deviceType = deviceType,
@@ -181,8 +182,8 @@ class DeviceFormState(
             // Parsed and clamped on save exactly like the snapshot rate: unparseable input falls back to
             // the shipped default, out-of-range input is clamped into the analyzer's supported range.
             motionPreRollFrames = (motionPreRollFrames.toIntOrNull()
-                ?: DeviceEntity.DEFAULT_MOTION_PRE_ROLL_FRAMES)
-                .coerceIn(DeviceEntity.MOTION_PRE_ROLL_FRAMES_MIN, DeviceEntity.MOTION_PRE_ROLL_FRAMES_MAX),
+                ?: DeviceEndpointResolver.DEFAULT_MOTION_PRE_ROLL_FRAMES)
+                .coerceIn(DeviceEndpointResolver.MOTION_PRE_ROLL_FRAMES_MIN, DeviceEndpointResolver.MOTION_PRE_ROLL_FRAMES_MAX),
             wakeOnRing = wakeOnRing,
             soundOnRing = soundOnRing,
             vibrateOnRing = vibrateOnRing,

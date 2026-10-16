@@ -1,7 +1,7 @@
 package io.github.mvolkert.entryrecorder.util
 
 import android.util.Log
-import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
+import io.github.mvolkert.entryrecorder.domain.model.AppSettings
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.data.repository.RecordingDeleteResult
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
@@ -48,7 +48,7 @@ class CleanupRunner @Inject constructor(
         private const val TAG = "CleanupRunner"
     }
 
-    suspend fun run(settings: AppSettingsEntity): CleanupReport = withContext(ioDispatcher) {
+    suspend fun run(settings: AppSettings): CleanupReport = withContext(ioDispatcher) {
         if (!settings.internalCleanupEnabled && !settings.externalCleanupEnabled) {
             Log.i(TAG, "Both cleanup passes are disabled in settings, skipping.")
             return@withContext CleanupReport()
@@ -96,7 +96,7 @@ class CleanupRunner @Inject constructor(
      * Age is day-exact and part of cleaning the phone's own storage, so the internal switch covers it —
      * turning "Auto-Clean Phone Storage" off means nothing on the phone is deleted, quota or not.
      */
-    private suspend fun purgeExpired(settings: AppSettingsEntity) {
+    private suspend fun purgeExpired(settings: AppSettings) {
         if (!settings.internalCleanupEnabled) return
         if (settings.retentionDays <= 0) return
         val expired = repository.getExpiredRecordings(settings.retentionDays)
@@ -110,7 +110,7 @@ class CleanupRunner @Inject constructor(
      * that are deleted together with them — so protected footage and leftover thumbnails can never be paid
      * for with recordings the user did not lock away.
      */
-    private suspend fun purgeInternal(settings: AppSettingsEntity) {
+    private suspend fun purgeInternal(settings: AppSettings) {
         if (!settings.internalCleanupEnabled) {
             Log.i(TAG, "Internal cleanup disabled, skipping the quota pass")
             return
@@ -156,7 +156,7 @@ class CleanupRunner @Inject constructor(
      * flag lives on the server, which this pass does not call. The ordering, bound and exclusion all live in
      * [CleanupPlan.external], which is the tested half of this decision.
      */
-    private suspend fun purgeExternal(settings: AppSettingsEntity) {
+    private suspend fun purgeExternal(settings: AppSettings) {
         if (!settings.externalCleanupEnabled) return
         val folderUri = settings.exportFolderUri
         if (folderUri.isBlank()) return

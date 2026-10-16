@@ -4,6 +4,7 @@ import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 import io.github.mvolkert.entryrecorder.di.ControlClient
@@ -239,11 +240,11 @@ class ServerRecordingClient @Inject constructor(
     }
 
     /**
-     * Builds the `POST/PUT /api/devices` body from a local [device]. `live_mode` is `snapshot` only for a
+     * Builds the `POST/PUT /api/devices` body from a local [Device]. `live_mode` is `snapshot` only for a
      * device pinned to HTTP-snapshot polling; every other protocol has a usable RTSP URL (the entity
      * always derives one), so the server can pull RTSP for live view.
      */
-    private fun serverDevicePayload(device: DeviceEntity): ServerDevicePayload = ServerDevicePayload(
+    private fun serverDevicePayload(device: Device): ServerDevicePayload = ServerDevicePayload(
         name = device.name,
         rtspUrl = device.rtspStreamUrl,
         snapshotUrl = device.snapshotUrl,
@@ -253,14 +254,14 @@ class ServerRecordingClient @Inject constructor(
     )
 
     /**
-     * Registers [device] on the server (`POST /api/devices`) and returns the server-assigned row id, which
-     * the caller persists as `DeviceEntity.serverDeviceId`. The server rejects a device with neither an
+     * Registers [Device] on the server (`POST /api/devices`) and returns the server-assigned row id, which
+     * the caller persists as `device.serverDeviceId`. The server rejects a device with neither an
      * RTSP nor a snapshot URL, so a fully-blank camera surfaces here as a failure the caller can fall back on.
      */
     override suspend fun registerDevice(
         serverUrl: String,
         apiKey: String?,
-        device: DeviceEntity
+        device: Device
     ): Result<Long> = withContext(ioDispatcher) {
         try {
             val base = normalizeUrl(serverUrl)
@@ -287,12 +288,12 @@ class ServerRecordingClient @Inject constructor(
         }
     }
 
-    /** Pushes the current [device] config onto an already-registered server row (`PUT /api/devices/{id}`). */
+    /** Pushes the current [Device] config onto an already-registered server row (`PUT /api/devices/{id}`). */
     override suspend fun updateServerDevice(
         serverUrl: String,
         apiKey: String?,
         serverDeviceId: Long,
-        device: DeviceEntity
+        device: Device
     ): Result<Unit> = withContext(ioDispatcher) {
         try {
             val base = normalizeUrl(serverUrl)

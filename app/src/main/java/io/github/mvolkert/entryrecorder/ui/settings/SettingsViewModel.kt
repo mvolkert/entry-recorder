@@ -12,10 +12,13 @@ import io.github.mvolkert.entryrecorder.data.backup.AppBackup
 import io.github.mvolkert.entryrecorder.data.backup.BackupDocumentStore
 import io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory
 import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
-import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.AppSettings
+import io.github.mvolkert.entryrecorder.domain.model.Device
+import io.github.mvolkert.entryrecorder.domain.server.ServerDeleteResult
+import io.github.mvolkert.entryrecorder.domain.server.ServerSyncResult
+import io.github.mvolkert.entryrecorder.domain.server.SyncDeviceUseCase
 import io.github.mvolkert.entryrecorder.data.local.entity.normalizedForRestore
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
-import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.data.server.ServerClient
@@ -59,8 +62,8 @@ sealed interface SettingsUiEvent {
 }
 
 data class SettingsUiState(
-    val devices: List<DeviceEntity> = emptyList(),
-    val appSettings: AppSettingsEntity = AppSettingsEntity(),
+    val devices: List<Device> = emptyList(),
+    val appSettings: AppSettings = AppSettings(),
     /** Per-device health of the camera event stream (doorbell / camera-motion / noise), for capability display. */
     val eventQualities: Map<Long, ConnectionQuality> = emptyMap(),
     /** Per-device health of the HTTP snapshot path (live view / recording / in-app motion analysis). */
@@ -72,6 +75,7 @@ data class SettingsUiState(
 class SettingsViewModel @Inject constructor(
     private val repository: IntercomRepository,
     private val serverClient: ServerClient,
+    private val syncDevice: SyncDeviceUseCase,
     private val monitorStatusRegistry: MonitorStatusRegistry,
     private val gson: Gson,
     private val strings: UiStrings,
@@ -108,7 +112,7 @@ class SettingsViewModel @Inject constructor(
     ) { devices, settings, eventQualities, snapshotQualities ->
         SettingsUiState(
             devices = devices,
-            appSettings = settings ?: AppSettingsEntity(),
+            appSettings = settings ?: AppSettings(),
             eventQualities = eventQualities,
             snapshotQualities = snapshotQualities,
             isLoading = false
@@ -200,49 +204,39 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
     /**
-     * Persists [device] locally, then — only in PYTHON_SERVER mode — best-effort syncs it to the server
-     * (register the first time, update thereafter) so the server row carries the same capture config. The
-     * local save is authoritative and never blocked by the server: a registration failure just leaves
-     * `serverDeviceId` null, and the record-time path in RtspStreamRecorder registers just in time.
+     * Persists [device] locally (authoritative), then best-effort syncs it to the server through
+     * [SyncDeviceUseCase]; the local save is never blocked by the server. Only the messaging/logging of the
+     * sync outcome is the ViewModel's job here.
      */
-    fun saveDevice(device: DeviceEntity) {
+    fun saveDevice(device: Device) {
         viewModelScope.launch {
-            val savedId = repository.saveDevice(device)
-            val settings = repository.getSettings()
-            if (settings.recordingMode != RecordingMode.PYTHON_SERVER) return@launch
-            val current = repository.getDeviceById(savedId) ?: return@launch
-            val serverUrl = settings.serverBaseUrl
-            val apiKey = settings.serverApiKey.ifBlank { null }
-            val serverDeviceId = current.serverDeviceId
-            if (serverDeviceId == null) {
-                serverClient.registerDevice(serverUrl, apiKey, current)
-                    .onSuccess { id -> repository.saveDevice(current.copy(serverDeviceId = id)) }
-                    .onFailure { Log.w(tag, "Server registration for ${current.name} deferred to record time", it) }
-            } else {
-                serverClient.updateServerDevice(serverUrl, apiKey, serverDeviceId, current)
-                    .onFailure { Log.w(tag, "Server update for ${current.name} (id $serverDeviceId) failed", it) }
+            when (val sync = syncDevice.saveAndSync(device).sync) {
+                ServerSyncResult.Skipped -> Unit
+                is ServerSyncResult.Registered ->
+                    Log.i(tag, "Registered ${device.name} on the server as id ${sync.serverDeviceId}")
+                is ServerSyncResult.Updated ->
+                    Log.d(tag, "Updated ${device.name} on the server (id ${sync.serverDeviceId})")
+                is ServerSyncResult.RegistrationDeferred ->
+                    Log.w(tag, "Server registration for ${device.name} deferred to record time", sync.cause)
+                is ServerSyncResult.UpdateFailed ->
+                    Log.w(tag, "Server update for ${device.name} (id ${sync.serverDeviceId}) failed", sync.cause)
             }
         }
     }
 
-    fun deleteDevice(device: DeviceEntity) {
+    /** Drops the server row when one was assigned (best-effort), then deletes locally regardless. */
+    fun deleteDevice(device: Device) {
         viewModelScope.launch {
-            // Best-effort: drop the server row too when one was assigned, then delete locally regardless.
-            // The server intentionally keeps the device's recordings (no cascade).
-            val serverDeviceId = device.serverDeviceId
-            if (serverDeviceId != null) {
-                val settings = repository.getSettings()
-                serverClient.deleteServerDevice(
-                    settings.serverBaseUrl,
-                    settings.serverApiKey.ifBlank { null },
-                    serverDeviceId
-                ).onFailure { Log.w(tag, "Server delete for ${device.name} (id $serverDeviceId) failed", it) }
+            when (val sync = syncDevice.deleteAndSync(device)) {
+                ServerDeleteResult.NotRegistered -> Unit
+                ServerDeleteResult.Deleted -> Log.i(tag, "Deleted ${device.name} from the server")
+                is ServerDeleteResult.Failed ->
+                    Log.w(tag, "Server delete for ${device.name} (id ${sync.serverDeviceId}) failed", sync.cause)
             }
-            repository.deleteDevice(device)
         }
     }
 
-    fun updateSettings(settings: AppSettingsEntity) {
+    fun updateSettings(settings: AppSettings) {
         // Mirror the mode into the synchronous SharedPreferences store first: MainActivity reads it
         // in attachBaseContext, which runs before Room is even opened on the next cold start.
         themeModeStore.setThemeMode(settings.themeMode)
@@ -343,7 +337,7 @@ class SettingsViewModel @Inject constructor(
      * saved. A second call while one is in flight is ignored rather than queued: two probes against the
      * same serial endpoint only slow both of them down.
      */
-    fun testDeviceConnection(candidate: DeviceEntity) {
+    fun testDeviceConnection(candidate: Device) {
         if (_connectionTest.value is DeviceTestState.Running) return
         viewModelScope.launch {
             _connectionTest.value = DeviceTestState.Running
@@ -363,7 +357,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     /** Asks a registrar whether the typed SIP account would register. See [SipRegistrar.probeRegistration]. */
-    fun testSipRegistration(candidate: DeviceEntity) {
+    fun testSipRegistration(candidate: Device) {
         if (_sipTest.value is SipTestState.Running) return
         viewModelScope.launch {
             _sipTest.value = SipTestState.Running
@@ -375,7 +369,7 @@ class SettingsViewModel @Inject constructor(
      * Burst-measures what the snapshot endpoint can serve, for the typed path and credentials. Writes
      * nothing: the form owns its own fields, so the screen decides how to use the number.
      */
-    fun probeSnapshotFps(candidate: DeviceEntity) {
+    fun probeSnapshotFps(candidate: Device) {
         if (_snapshotProbe.value is SnapshotProbeState.Running) return
         viewModelScope.launch {
             _snapshotProbe.value = SnapshotProbeState.Running
@@ -421,8 +415,8 @@ class SettingsViewModel @Inject constructor(
             try {
                 val backup = AppBackup(
                     exportedAt = System.currentTimeMillis(),
-                    appSettings = repository.getSettings(),
-                    devices = repository.getAllDevicesList()
+                    appSettings = repository.getSettingsEntity(),
+                    devices = repository.getAllDeviceEntities()
                 )
                 val json = gson.toJson(backup)
                 withContext(ioDispatcher) {
@@ -456,11 +450,11 @@ class SettingsViewModel @Inject constructor(
 
                 backup.appSettings?.let {
                     themeModeStore.setThemeMode(it.themeMode)
-                    repository.updateSettings(it.normalizedForRestore().copy(id = 1))
+                    repository.insertOrUpdateSettingsEntity(it.normalizedForRestore().copy(id = 1))
                 }
                 // Reset serverDeviceId: a backup may have been taken against a different server, so the
                 // restored devices re-register lazily against whichever server is configured now.
-                backup.devices.forEach { repository.upsertDevice(it.copy(serverDeviceId = null)) }
+                backup.devices.forEach { repository.upsertDeviceEntity(it.copy(serverDeviceId = null)) }
 
                 message(R.string.settings_backup_restore_success, backup.devices.size)
             } catch (e: CancellationException) {

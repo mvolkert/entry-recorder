@@ -56,6 +56,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
@@ -196,7 +197,7 @@ fun LiveCamerasScreen(
 
 @Composable
 fun LiveDeviceCard(
-    device: DeviceEntity,
+    device: Device,
     mjpegReader: MjpegStreamReader,
     snapshotClient: HttpSnapshotClient,
     active: Boolean,
@@ -396,7 +397,7 @@ private fun MonitorStatusPill(status: MonitorStatus) {
 }
 
 /**
- * Tiny per-trigger indicators for every recording trigger configured on [device]:
+ * Tiny per-trigger indicators for every recording trigger configured on [Device]:
  * bell = record on doorbell ring, walking man = record on motion (native or on-device
  * analysis; turns amber while motion is currently detected), speaker = record on noise.
  *
@@ -407,7 +408,7 @@ private fun MonitorStatusPill(status: MonitorStatus) {
  */
 @Composable
 private fun TriggerIndicators(
-    device: DeviceEntity,
+    device: Device,
     monitorStatus: MonitorStatus,
     eventQuality: ConnectionQuality?
 ) {

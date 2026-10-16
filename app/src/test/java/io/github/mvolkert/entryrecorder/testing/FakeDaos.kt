@@ -125,6 +125,10 @@ class FakeRecordingDao : RecordingDao {
         store.update { it - recording.id }
     }
 
+    override suspend fun deleteRecordings(recordings: List<RecordingEntity>) {
+        store.update { snap -> snap - recordings.map { it.id }.toSet() }
+    }
+
     override suspend fun deleteRecordingById(id: Long) {
         store.update { it - id }
     }

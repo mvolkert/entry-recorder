@@ -98,7 +98,7 @@ internal fun RecordingCardItem(
     val dateStr = galleryDateStr(item.timestamp)
     val sizeStr = Formatter.formatFileSize(context, item.sizeBytes)
     val isRemote = item is GalleryItem.Remote
-    val entity = (item as? GalleryItem.Local)?.entity
+    val recording = (item as? GalleryItem.Local)?.recording
     val selectedContainer = MaterialTheme.colorScheme.secondaryContainer
     val restingContainer = MaterialTheme.colorScheme.surfaceContainerHigh
     val containerColor by animateColorAsState(
@@ -152,7 +152,7 @@ internal fun RecordingCardItem(
             // Local and server rows share the same menu; the origin only changes what each handler does
             // (a server action calls the API, a local action reads/writes the on-device file).
             RecordingActionsMenu(
-                isProtected = entity?.isProtected ?: (item as? GalleryItem.Remote)?.dto?.isProtected ?: false,
+                isProtected = recording?.isProtected ?: (item as? GalleryItem.Remote)?.dto?.isProtected ?: false,
                 onExportFolder = onExportFolder,
                 onExportRawFolder = onExportRawFolder,
                 onShare = onShare,
@@ -166,7 +166,7 @@ internal fun RecordingCardItem(
 
 /** Coil model for a row's thumbnail: a local File or an absolute server URL; null when unavailable. */
 internal fun galleryThumbnailModel(item: GalleryItem): Any? = when (item) {
-    is GalleryItem.Local -> item.entity.thumbnailPath?.let { if (File(it).exists()) File(it) else null }
+    is GalleryItem.Local -> item.recording.thumbnailPath?.let { if (File(it).exists()) File(it) else null }
     is GalleryItem.Remote -> item.thumbnailAbsoluteUrl
 }
 

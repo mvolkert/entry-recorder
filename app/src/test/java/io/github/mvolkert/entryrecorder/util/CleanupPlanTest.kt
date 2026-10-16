@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.util
 
-import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import io.github.mvolkert.entryrecorder.domain.model.Recording
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -245,7 +245,7 @@ class CleanupPlanTest {
         ExportEntry(name, sizeBytes = sizeMb * mb, lastModifiedMillis = 0L)
 
     private fun candidate(id: Long, videoMb: Long, thumbnailMb: Long) = InternalCandidate(
-        recording = RecordingEntity(
+        recording = Recording(
             id = id,
             deviceId = 1L,
             deviceName = "Doorbell",

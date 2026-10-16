@@ -2,8 +2,8 @@ package io.github.mvolkert.entryrecorder.testing
 
 import android.net.Uri
 import io.github.mvolkert.entryrecorder.data.backup.BackupDocumentStore
-import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
-import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
+import io.github.mvolkert.entryrecorder.domain.model.Recording
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.server.ServerActiveRecording
 import io.github.mvolkert.entryrecorder.data.server.ServerClient
@@ -16,6 +16,7 @@ import io.github.mvolkert.entryrecorder.ui.theme.ThemeModeStore
 import io.github.mvolkert.entryrecorder.util.ExportEntry
 import io.github.mvolkert.entryrecorder.util.ExportFolderAccess
 import io.github.mvolkert.entryrecorder.util.ExportGateway
+import io.github.mvolkert.entryrecorder.util.ExportMetadata
 import io.github.mvolkert.entryrecorder.util.UiStrings
 import io.github.mvolkert.entryrecorder.video.H264Transcoder
 import io.github.mvolkert.entryrecorder.video.PreRollFrame
@@ -78,9 +79,9 @@ class FakeRetentionCleanupScheduler : RetentionCleanupScheduler {
 class FakeSipRegistrar : SipRegistrar {
     override var hasActiveCore: Boolean = false
     var probeResult: SipProbeResult = SipProbeResult.Registered("fake-registrar")
-    val probeCalls = mutableListOf<DeviceEntity>()
+    val probeCalls = mutableListOf<Device>()
 
-    override suspend fun probeRegistration(device: DeviceEntity): SipProbeResult {
+    override suspend fun probeRegistration(device: Device): SipProbeResult {
         probeCalls += device
         return probeResult
     }
@@ -113,10 +114,10 @@ class FakeRecordingController : RecordingController {
 
     val startCalls = mutableListOf<Start>()
     val stopCalls = mutableListOf<Pair<Long, EventType?>>()
-    val resumeCalls = mutableListOf<List<DeviceEntity>>()
+    val resumeCalls = mutableListOf<List<Device>>()
 
     override fun startRecording(
-        device: DeviceEntity,
+        device: Device,
         eventType: EventType,
         maxDurationSeconds: Int,
         preRoll: List<PreRollFrame>
@@ -128,7 +129,7 @@ class FakeRecordingController : RecordingController {
         stopCalls += deviceId to reason
     }
 
-    override suspend fun resumePersistedServerRecordings(devices: List<DeviceEntity>) {
+    override suspend fun resumePersistedServerRecordings(devices: List<Device>) {
         resumeCalls += devices
     }
 }
@@ -152,8 +153,8 @@ class FakeServerClient : ServerClient {
     var downloadResult: Result<File> = Result.success(File("downloaded.mkv"))
 
     val testConnectionCalls = mutableListOf<Pair<String, String?>>()
-    val registerCalls = mutableListOf<DeviceEntity>()
-    val updateCalls = mutableListOf<Pair<Long, DeviceEntity>>()
+    val registerCalls = mutableListOf<Device>()
+    val updateCalls = mutableListOf<Pair<Long, Device>>()
     val deleteDeviceCalls = mutableListOf<Long>()
     val listCalls = mutableListOf<Pair<String, String?>>()
     val setProtectedCalls = mutableListOf<Triple<Long, Boolean, String>>()
@@ -177,7 +178,7 @@ class FakeServerClient : ServerClient {
     override suspend fun registerDevice(
         serverUrl: String,
         apiKey: String?,
-        device: DeviceEntity
+        device: Device
     ): Result<Long> {
         registerCalls += device
         return registerResult
@@ -187,7 +188,7 @@ class FakeServerClient : ServerClient {
         serverUrl: String,
         apiKey: String?,
         serverDeviceId: Long,
-        device: DeviceEntity
+        device: Device
     ): Result<Unit> {
         updateCalls += serverDeviceId to device
         return updateResult
@@ -260,14 +261,14 @@ class FakeServerClient : ServerClient {
  * exercise cancellation and the busy guard.
  */
 class FakeH264Transcoder : H264Transcoder {
-    val transcodeCalls = mutableListOf<RecordingEntity>()
+    val transcodeCalls = mutableListOf<Recording>()
     var blockTranscode: CompletableDeferred<Unit>? = null
 
     override fun outputFor(source: File): File =
         File(source.parentFile, "${source.nameWithoutExtension}_h264_fake.mp4")
 
     override suspend fun transcodeToH264(
-        recording: RecordingEntity,
+        recording: Recording,
         onProgress: (done: Int, total: Int) -> Unit
     ): File {
         transcodeCalls += recording
@@ -293,23 +294,9 @@ class FakeExportGateway : ExportGateway {
     override fun shareFile(
         context: android.content.Context,
         file: File,
-        recording: RecordingEntity,
+        metadata: ExportMetadata,
         onMessage: (String) -> Unit,
     ) = Unit
-
-    override fun shareFile(
-        context: android.content.Context,
-        file: File,
-        deviceName: String,
-        eventTypeLabel: String,
-        onMessage: (String) -> Unit,
-    ) = Unit
-
-    override fun saveFileToGallery(
-        sourceFile: File,
-        recording: RecordingEntity,
-        onMessage: (String) -> Unit,
-    ): Boolean = gallerySaveResult
 
     override fun saveFileToGallery(
         sourceFile: File,
@@ -363,7 +350,7 @@ fun testDevice(
     name: String = "Doorbell",
     isEnabled: Boolean = true,
     serverDeviceId: Long? = null,
-): DeviceEntity = DeviceEntity(
+): Device = Device(
     id = id,
     name = name,
     ipAddress = "192.168.1.50",
@@ -378,7 +365,7 @@ fun testRecording(
     eventType: EventType = EventType.MOTION,
     timestamp: Long = 1_700_000_000_000L,
     filePath: String,
-): RecordingEntity = RecordingEntity(
+): Recording = Recording(
     id = id,
     deviceId = deviceId,
     deviceName = deviceName,

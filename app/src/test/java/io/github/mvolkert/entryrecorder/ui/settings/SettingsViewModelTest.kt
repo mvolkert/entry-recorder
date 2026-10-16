@@ -1,7 +1,8 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
 import com.google.gson.Gson
-import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
+import io.github.mvolkert.entryrecorder.domain.model.AppSettings
+import io.github.mvolkert.entryrecorder.domain.server.SyncDeviceUseCase
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
@@ -66,6 +67,7 @@ class SettingsViewModelTest {
         vm = SettingsViewModel(
             repository = repository,
             serverClient = server,
+            syncDevice = SyncDeviceUseCase(repository, server),
             monitorStatusRegistry = MonitorStatusRegistry(),
             gson = Gson(),
             strings = FakeUiStrings(),
@@ -96,7 +98,7 @@ class SettingsViewModelTest {
     /** Switches the stored settings to server mode with a key set, as the save paths expect. */
     private suspend fun enterServerMode() {
         repository.updateSettings(
-            AppSettingsEntity(recordingMode = RecordingMode.PYTHON_SERVER, serverApiKey = "k")
+            AppSettings(recordingMode = RecordingMode.PYTHON_SERVER, serverApiKey = "k")
         )
     }
 
@@ -130,7 +132,7 @@ class SettingsViewModelTest {
     @Test
     fun `saving an already registered device updates its server row instead of registering again`() = runViewModelTest {
         enterServerMode()
-        deviceDao.insertDevice(testDevice(id = 1L, serverDeviceId = 55L))
+        repository.upsertDevice(testDevice(id = 1L, serverDeviceId = 55L))
 
         vm.saveDevice(testDevice(id = 1L, name = "Renamed", serverDeviceId = 55L))
         advanceUntilIdle()
@@ -143,7 +145,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `updateSettings mirrors the theme mode and writes the repository row`() = runViewModelTest {
-        vm.updateSettings(AppSettingsEntity(themeMode = 2))
+        vm.updateSettings(AppSettings(themeMode = 2))
         advanceUntilIdle()
 
         assertEquals(2, themeModes.lastMode, "the synchronous mirror must see the mode")
@@ -154,7 +156,7 @@ class SettingsViewModelTest {
     fun `deleting a registered device drops the server row and the local one`() = runViewModelTest {
         enterServerMode()
         val device = testDevice(id = 1L, serverDeviceId = 55L)
-        deviceDao.insertDevice(device)
+        repository.upsertDevice(device)
 
         vm.deleteDevice(device)
         advanceUntilIdle()
@@ -168,7 +170,7 @@ class SettingsViewModelTest {
         enterServerMode()
         server.deleteDeviceResult = Result.failure(IllegalStateException("server offline"))
         val device = testDevice(id = 1L, serverDeviceId = 55L)
-        deviceDao.insertDevice(device)
+        repository.upsertDevice(device)
 
         vm.deleteDevice(device)
         advanceUntilIdle()
@@ -181,7 +183,7 @@ class SettingsViewModelTest {
     fun `deleting an unregistered device never dials the server`() = runViewModelTest {
         enterServerMode()
         val device = testDevice(id = 1L)
-        deviceDao.insertDevice(device)
+        repository.upsertDevice(device)
 
         vm.deleteDevice(device)
         advanceUntilIdle()

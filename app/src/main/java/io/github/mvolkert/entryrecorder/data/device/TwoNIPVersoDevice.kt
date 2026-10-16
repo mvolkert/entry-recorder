@@ -5,6 +5,7 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.network.DigestAuthenticator
 import io.github.mvolkert.entryrecorder.data.network.withCancellableResponse
@@ -37,7 +38,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * The 2N IP Verso's real event mechanism: the **Logging API**.
  *
  * Constructed per device by [IntercomDeviceFactory] rather than by Hilt, because a device instance belongs
- * to one `DeviceEntity`. The two OkHttp profiles and the IO dispatcher come from the graph, so every
+ * to one `device`. The two OkHttp profiles and the IO dispatcher come from the graph, so every
  * watched camera shares one connection pool instead of each opening its own.
  *
  * The device has no SSE on this firmware (the `/api/event` endpoints answer `invalid request path`), so events are
@@ -45,14 +46,14 @@ import kotlin.time.Duration.Companion.milliseconds
  * before its duration lapses.
  */
 class TwoNIPVersoDevice(
-    override val deviceEntity: DeviceEntity,
+    override val device: Device,
     eventStreamClient: OkHttpClient,
     snapshotPollClient: OkHttpClient,
     private val ioDispatcher: CoroutineDispatcher,
     parentScope: CoroutineScope,
 ) : IntercomDevice {
 
-    private val tag = "2N_Verso_${deviceEntity.id}"
+    private val tag = "2N_Verso_${device.id}"
 
     // The device's work is a child of the application scope, so a process teardown cannot leave the
     // reconnect loop running, while stopMonitoring can still cancel this device on its own.
@@ -69,10 +70,12 @@ class TwoNIPVersoDevice(
     // extend the channel, so the loop re-subscribes before [channelExpiresAtMs] instead of after a lapse.
     @Volatile
     private var channelId: String? = null
+    @Volatile
     private var channelExpiresAtMs = 0L
 
     // Whether the current failure has already been surfaced, so a stubborn endpoint is reported once rather
     // than re-flooded into the UI on every retry.
+    @Volatile
     private var transportReportedDown = false
 
     private fun newScope() = CoroutineScope(ioDispatcher + SupervisorJob(parentJob))
@@ -92,7 +95,7 @@ class TwoNIPVersoDevice(
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .writeTimeout(10, TimeUnit.SECONDS)
-            .authenticator(DigestAuthenticator(deviceEntity.username, deviceEntity.password))
+            .authenticator(DigestAuthenticator(device.username, device.password))
             .retryOnConnectionFailure(true)
             .build()
     }
@@ -101,17 +104,17 @@ class TwoNIPVersoDevice(
     // cannot hold the loop longer than a snapshot would have.
     private val pollClient: OkHttpClient by lazy {
         snapshotPollClient.newBuilder()
-            .authenticator(DigestAuthenticator(deviceEntity.username, deviceEntity.password))
+            .authenticator(DigestAuthenticator(device.username, device.password))
             .build()
     }
 
     /** Camera motion is only worth asking the device about while a trigger consumes it. */
     private val motionEventRequested: Boolean
-        get() = deviceEntity.recordOnMotion || deviceEntity.wakeOnMotion
+        get() = device.recordOnMotion || device.wakeOnMotion
 
     /** Same rule for noise; in-app analysis rides the snapshot path and never sets either flag. */
     private val noiseEventRequested: Boolean
-        get() = deviceEntity.recordOnNoise || deviceEntity.wakeOnNoise
+        get() = device.recordOnNoise || device.wakeOnNoise
 
     /**
      * Event classes the subscribe filter asks the device for. The same one rule that gated the old poll now
@@ -128,14 +131,14 @@ class TwoNIPVersoDevice(
 
     override suspend fun testConnection(): Result<Boolean> = withContext(ioDispatcher) {
         try {
-            val url = "${deviceEntity.httpBaseUrl}/api/system/info"
+            val url = "${device.httpBaseUrl}/api/system/info"
             val request = Request.Builder().url(url).get().build()
             client.withCancellableResponse(request) { response ->
                 if (response.isSuccessful) {
                     Result.success(true)
                 } else {
                     // Try fallback info endpoint
-                    val fallbackUrl = "${deviceEntity.httpBaseUrl}/api/info/status"
+                    val fallbackUrl = "${device.httpBaseUrl}/api/info/status"
                     val fallbackReq = Request.Builder().url(fallbackUrl).get().build()
                     client.withCancellableResponse(fallbackReq) { fbResponse ->
                         if (fbResponse.isSuccessful) Result.success(true)
@@ -154,7 +157,7 @@ class TwoNIPVersoDevice(
     override suspend fun startMonitoring(listener: IntercomEventListener) = withContext(ioDispatcher) {
         if (isMonitoring.getAndSet(true)) return@withContext
 
-        Log.i(tag, "Starting 2N IP Verso monitoring on ${deviceEntity.ipAddress} (FW 2.50+, Logging API)")
+        Log.i(tag, "Starting 2N IP Verso monitoring on ${device.ipAddress} (FW 2.50+, Logging API)")
 
         // The Logging subscription exists to carry camera-reported motion and noise, the two events with no
         // on-device fallback. A ring needs no HTTP subscription at all: it arrives over the SIP INVITE, and
@@ -167,7 +170,7 @@ class TwoNIPVersoDevice(
 
         listener.onEvent(
             IntercomEvent.ConnectionState(
-                deviceEntity,
+                device,
                 ConnectionQuality.ONLINE,
                 "Connecting to 2N IP Verso (Logging API)...",
             )
@@ -241,7 +244,7 @@ class TwoNIPVersoDevice(
      */
     private suspend fun subscribe(eventNames: List<String>): SubscribeResult = try {
         val filter = eventNames.joinToString(",")
-        val url = "${deviceEntity.httpBaseUrl}/api/log/subscribe" +
+        val url = "${device.httpBaseUrl}/api/log/subscribe" +
             "?filter=$filter&include=new&duration=$LOG_CHANNEL_DURATION_S"
         val request = Request.Builder()
             .url(url)
@@ -272,7 +275,7 @@ class TwoNIPVersoDevice(
 
     /** Drain the channel's queue and route each log entry through the shared decode. */
     private suspend fun pull(channel: String, listener: IntercomEventListener): PullResult = try {
-        val url = "${deviceEntity.httpBaseUrl}/api/log/pull?channel=$channel"
+        val url = "${device.httpBaseUrl}/api/log/pull?channel=$channel"
         val request = Request.Builder().url(url).get().build()
         pollClient.withCancellableResponse(request) { response ->
             val body = response.body.string()
@@ -293,7 +296,7 @@ class TwoNIPVersoDevice(
 
     /** Release the channel. Best-effort and non-blocking: teardown must not wait on the device. */
     private fun fireUnsubscribe(channel: String) {
-        val url = "${deviceEntity.httpBaseUrl}/api/log/unsubscribe"
+        val url = "${device.httpBaseUrl}/api/log/unsubscribe"
         val body = JsonObject().apply { addProperty("id", channel) }.toString()
             .toRequestBody(JSON_MEDIA_TYPE)
         val request = Request.Builder().url(url).post(body).build()
@@ -329,7 +332,7 @@ class TwoNIPVersoDevice(
         if (!transportReportedDown) {
             transportReportedDown = true
             listener.onEvent(
-                IntercomEvent.ConnectionState(deviceEntity, ConnectionQuality.OFFLINE, message)
+                IntercomEvent.ConnectionState(device, ConnectionQuality.OFFLINE, message)
             )
         }
     }
@@ -338,7 +341,7 @@ class TwoNIPVersoDevice(
         if (transportReportedDown) {
             transportReportedDown = false
             listener.onEvent(
-                IntercomEvent.ConnectionState(deviceEntity, ConnectionQuality.ONLINE, "Connected")
+                IntercomEvent.ConnectionState(device, ConnectionQuality.ONLINE, "Connected")
             )
         }
     }
@@ -391,8 +394,8 @@ class TwoNIPVersoDevice(
                 // (`?.asBoolean ?: (asString == "active")`) fabricated a MotionEnded for every payload
                 // it did not understand, so an unexpected field shape killed the trigger silently.
                 when (triState(params.get("state")) ?: triState(params.get("active"))) {
-                    true -> listener.onEvent(IntercomEvent.MotionStarted(deviceEntity))
-                    false -> listener.onEvent(IntercomEvent.MotionEnded(deviceEntity))
+                    true -> listener.onEvent(IntercomEvent.MotionStarted(device))
+                    false -> listener.onEvent(IntercomEvent.MotionEnded(device))
                     null -> Log.w(tag, "MotionDetected without a usable state field: ${eventObj.toString().take(160)}")
                 }
             }
@@ -400,8 +403,8 @@ class TwoNIPVersoDevice(
                 // `active` is the field name the status endpoints of this API use, so accept it as an
                 // alternative spelling of the same boolean instead of guessing a new one.
                 when (triState(params.get("state")) ?: triState(params.get("active"))) {
-                    true -> listener.onEvent(IntercomEvent.NoiseStarted(deviceEntity))
-                    false -> listener.onEvent(IntercomEvent.NoiseEnded(deviceEntity))
+                    true -> listener.onEvent(IntercomEvent.NoiseStarted(device))
+                    false -> listener.onEvent(IntercomEvent.NoiseEnded(device))
                     null -> Log.w(tag, "NoiseDetected without a usable state field: ${eventObj.toString().take(160)}")
                 }
             }
@@ -415,7 +418,7 @@ class TwoNIPVersoDevice(
                 if (action in KEY_RELEASE_ACTIONS) {
                     Log.d(tag, "KeyPressed action=$action ignored (not a press edge)")
                 } else {
-                    listener.onEvent(IntercomEvent.DoorbellRung(deviceEntity, callerNumber = "Doorbell Button"))
+                    listener.onEvent(IntercomEvent.DoorbellRung(device, callerNumber = "Doorbell Button"))
                 }
             }
             "CallStateChanged" -> {
@@ -427,7 +430,7 @@ class TwoNIPVersoDevice(
                 // direction would therefore discard the primary ring path; the debounce upstream is
                 // what makes the overlap with KeyPressed harmless.
                 if (state.equals("incoming", ignoreCase = true) || state.equals("ringing", ignoreCase = true) || state.equals("dialing", ignoreCase = true)) {
-                    listener.onEvent(IntercomEvent.DoorbellRung(deviceEntity, callerNumber = params.get("peer")?.asString))
+                    listener.onEvent(IntercomEvent.DoorbellRung(device, callerNumber = params.get("peer")?.asString))
                 }
             }
         }

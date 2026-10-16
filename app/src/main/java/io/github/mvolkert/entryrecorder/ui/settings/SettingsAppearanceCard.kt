@@ -35,7 +35,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
-import io.github.mvolkert.entryrecorder.data.local.entity.AppSettingsEntity
+import io.github.mvolkert.entryrecorder.domain.model.AppSettings
 import io.github.mvolkert.entryrecorder.ui.theme.LocalDarkTheme
 import io.github.mvolkert.entryrecorder.ui.theme.ThemeMode
 import io.github.mvolkert.entryrecorder.ui.theme.accentPresetAt
@@ -50,8 +50,8 @@ import io.github.mvolkert.entryrecorder.ui.theme.accentPresets
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 internal fun SettingsAppearanceCard(
-    settings: AppSettingsEntity,
-    onSettingsChange: (AppSettingsEntity) -> Unit,
+    settings: AppSettings,
+    onSettingsChange: (AppSettings) -> Unit,
 ) {
     var showRoleDialog by remember { mutableStateOf(false) }
     SettingsCard {

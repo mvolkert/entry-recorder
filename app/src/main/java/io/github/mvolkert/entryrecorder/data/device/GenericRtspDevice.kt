@@ -2,6 +2,7 @@ package io.github.mvolkert.entryrecorder.data.device
 
 import android.util.Log
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.domain.device.IntercomDevice
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
@@ -18,11 +19,11 @@ import java.net.Socket
  * Allows extending EntryRecorder to any standard IP camera or video doorbell.
  */
 class GenericRtspDevice(
-    override val deviceEntity: DeviceEntity,
+    override val device: Device,
     private val ioDispatcher: CoroutineDispatcher,
 ) : IntercomDevice {
 
-    private val tag = "GenericRtsp_${deviceEntity.id}"
+    private val tag = "GenericRtsp_${device.id}"
 
     override suspend fun testConnection(): Result<Boolean> = withContext(ioDispatcher) {
         try {
@@ -30,7 +31,7 @@ class GenericRtspDevice(
             // thread, so the only way to honour a cancelled test is to refuse to start one.
             coroutineContext.ensureActive()
             Socket().use { socket ->
-                socket.connect(InetSocketAddress(deviceEntity.ipAddress, deviceEntity.rtspPort), 5000)
+                socket.connect(InetSocketAddress(device.ipAddress, device.rtspPort), 5000)
                 Result.success(true)
             }
         } catch (e: CancellationException) {
@@ -47,7 +48,7 @@ class GenericRtspDevice(
         // auto-recorded through the device-agnostic app-side OnDeviceMotionAnalyzer (enabled per
         // device via recordOnMotionOnDevice), plus manual recording from the Live view. This is a
         // documented limitation rather than a bug.
-        listener.onEvent(IntercomEvent.ConnectionState(deviceEntity, ConnectionQuality.ONLINE, "RTSP Ready"))
+        listener.onEvent(IntercomEvent.ConnectionState(device, ConnectionQuality.ONLINE, "RTSP Ready"))
     }
 
     /**

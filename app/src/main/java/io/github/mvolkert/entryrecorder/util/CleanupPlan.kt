@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.util
 
-import io.github.mvolkert.entryrecorder.data.local.entity.RecordingEntity
+import io.github.mvolkert.entryrecorder.domain.model.Recording
 import java.io.File
 
 /**
@@ -23,7 +23,7 @@ data class ExportEntry(
  * pass believe it is still short after every deletion and remove recordings the quota did not ask for.
  */
 data class InternalCandidate(
-    val recording: RecordingEntity,
+    val recording: Recording,
     val reclaimableBytes: Long,
 )
 
