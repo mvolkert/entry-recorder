@@ -10,7 +10,6 @@ import android.os.PowerManager
 import android.util.Log
 import dagger.hilt.android.AndroidEntryPoint
 import io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory
-import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.model.ConnectionCapability
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.EventType
@@ -21,23 +20,35 @@ import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.domain.device.IntercomDevice
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
+import io.github.mvolkert.entryrecorder.domain.call.CallScreenLauncher
 import io.github.mvolkert.entryrecorder.domain.device.logIdentity
+import io.github.mvolkert.entryrecorder.domain.model.Device
+import io.github.mvolkert.entryrecorder.domain.triggers.TriggerCoordinator
 import io.github.mvolkert.entryrecorder.notification.NotificationHelper
 import io.github.mvolkert.entryrecorder.sip.SipCallManager
-import io.github.mvolkert.entryrecorder.ui.incoming.IncomingCallActivity
 import io.github.mvolkert.entryrecorder.video.OnDeviceMotionAnalyzer
 import io.github.mvolkert.entryrecorder.video.PreRollFrame
 import io.github.mvolkert.entryrecorder.video.RecorderEvent
 import io.github.mvolkert.entryrecorder.video.RecordingController
 import javax.inject.Inject
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration.Companion.milliseconds
 
 @AndroidEntryPoint
 class IntercomMonitorService : Service(), IntercomEventListener {
 
-    private val tag = "IntercomMonitorService"
+    private val tag = TAG
 
     // Built lazily because Hilt injects the fields after the constructor returns: reading ioDispatcher
     // from a property initialiser would hit an uninitialised lateinit.
@@ -48,8 +59,9 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     // At most one pending post-record stop per device, so a new episode of the same event supersedes
     // the timer of the previous one instead of truncating the running recording.
     private val pendingPostRecordStops = ConcurrentHashMap<Long, Job>()
-    // Last handled doorbell ring per device, in wall-clock ms, for the duplicate-ring debounce.
-    private val lastRingHandledAt = ConcurrentHashMap<Long, Long>()
+    // Pure trigger-routing policy (ring debounce + duration decisions): no Android deps, so it is built at
+    // construction and unit-testable without the service.
+    private val triggerCoordinator = TriggerCoordinator()
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     // True while at least one monitored device opts into holding the locks through idle periods.
@@ -64,6 +76,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     @Inject lateinit var deviceFactory: IntercomDeviceFactory
     @Inject lateinit var snapshotClient: HttpSnapshotClient
     @Inject lateinit var monitorStatusRegistry: MonitorStatusRegistry
+    @Inject lateinit var callScreenLauncher: CallScreenLauncher
     @Inject @IoDispatcher lateinit var ioDispatcher: CoroutineDispatcher
 
     override fun onCreate() {
@@ -125,7 +138,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         return START_STICKY
     }
 
-    private suspend fun updateMonitoredDevices(enabledDevices: List<DeviceEntity>) = withContext(ioDispatcher) {
+    private suspend fun updateMonitoredDevices(enabledDevices: List<Device>) = withContext(ioDispatcher) {
         val currentIds = activeDevices.keys.toSet()
         val newIds = enabledDevices.map { it.id }.toSet()
 
@@ -137,7 +150,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             // Per-device bookkeeping of the two maps below has to go with the device, otherwise a pending
             // post-record stop could still fire for it and a re-added id would inherit the old ring stamp.
             pendingPostRecordStops.remove(id)?.cancel()
-            lastRingHandledAt.remove(id)
+            triggerCoordinator.forgetDevice(id)
             // Snapshot health is per device id too: a re-added id must not inherit the old failure streak.
             snapshotClient.forgetDevice(id)
         }
@@ -145,7 +158,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         // Add or update active devices
         for (entity in enabledDevices) {
             val existing = activeDevices[entity.id]
-            if (existing == null || existing.deviceEntity != entity) {
+            if (existing == null || existing.device != entity) {
                 existing?.stopMonitoring()
                 val newDevice = deviceFactory.createDevice(entity)
                 activeDevices[entity.id] = newDevice
@@ -161,7 +174,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             // credentials captured at creation time and a settings edit only takes effect after a restart.
             val existingAnalyzer = activeMotionAnalyzers[entity.id]
             if (entity.recordOnMotionOnDevice) {
-                if (existingAnalyzer == null || existingAnalyzer.deviceEntity != entity) {
+                if (existingAnalyzer == null || existingAnalyzer.device != entity) {
                     existingAnalyzer?.stop()
                     val analyzer = OnDeviceMotionAnalyzer(
                         entity,
@@ -227,10 +240,8 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     // One press arrives from several sources at once (2N KeyPressed, 2N CallStateChanged and
                     // the SIP INVITE), so collapse rings per device. The first ring wins; a clip already running
                     // for another trigger folds this ring into itself instead of being replaced.
-                    val ringAt = System.currentTimeMillis()
-                    val previousRingAt = lastRingHandledAt.put(device.id, ringAt)
-                    if (previousRingAt != null && ringAt - previousRingAt < RING_DEBOUNCE_MS) {
-                        Log.i(tag, "Duplicate ring on ${device.name} ${ringAt - previousRingAt}ms after the previous one, ignoring")
+                    if (!triggerCoordinator.shouldHandleRing(device.id)) {
+                        Log.i(tag, "Duplicate ring on ${device.name} within the debounce window, ignoring")
                         return@launch
                     }
 
@@ -238,12 +249,12 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     // This deliberately does not cancel the device's pending post-record stop: that timer belongs
                     // to the motion/noise clip, and stopRecording refuses to end a clip filed under RING.
                     // An active ring holds the CPU and radio awake for its full clip plus the stop margin.
-                    holdLocksFor(device.ringRecordSeconds * 1000L + TRIGGER_LOCK_MARGIN_MS)
+                    holdLocksFor(triggerCoordinator.lockHoldDurationMs(triggerCoordinator.ringRecordDurationSeconds(device)))
                     if (device.recordOnRing) {
                         recorder.startRecording(
                             device = device,
                             eventType = EventType.RING,
-                            maxDurationSeconds = device.ringRecordSeconds
+                            maxDurationSeconds = triggerCoordinator.ringRecordDurationSeconds(device)
                         )
                     }
 
@@ -264,7 +275,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
                     // direct startActivity is best-effort. With wakeOnRing on, the full-screen intent
                     // attached above is the reliable path to the call screen.
                     if (device.wakeOnRing) {
-                        startActivity(callActivityIntent(device, EventType.RING, event.callerNumber ?: "2N IP Verso"))
+                        callScreenLauncher.launch(device, EventType.RING, event.callerNumber ?: "2N IP Verso")
                     }
                 }
 
@@ -349,7 +360,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
      * the on-device one drained pre-roll), so the differences stay as explicit arguments here.
      */
     private fun handleTriggerStarted(
-        device: DeviceEntity,
+        device: Device,
         eventType: EventType,
         record: Boolean,
         preRollFrames: () -> List<PreRollFrame> = { emptyList() }
@@ -359,20 +370,21 @@ class IntercomMonitorService : Service(), IntercomEventListener {
 
         cancelPostRecordStop(device.id)
         if (record) {
-            val maxDurationSeconds = postRecordSecondsFor(device, eventType) + TRIGGER_RECORD_HEADROOM_SECONDS
+            val maxDurationSeconds = triggerCoordinator.triggerRecordDurationSeconds(device, eventType)
             recorder.startRecording(
                 device = device,
                 eventType = eventType,
                 maxDurationSeconds = maxDurationSeconds,
                 preRoll = preRollFrames()
             )
-            holdLocksFor(maxDurationSeconds * 1000L + TRIGGER_LOCK_MARGIN_MS)
+            holdLocksFor(triggerCoordinator.lockHoldDurationMs(maxDurationSeconds))
         }
 
         val wake = when (eventType) {
             EventType.MOTION -> device.wakeOnMotion
             EventType.NOISE -> device.wakeOnNoise
             EventType.RING, EventType.MANUAL -> device.wakeOnRing
+            EventType.UNKNOWN -> false
         }
         if (!wake) return
 
@@ -380,35 +392,18 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             EventType.MOTION -> NotificationHelper.showMotionNotification(this@IntercomMonitorService, device)
             EventType.NOISE -> NotificationHelper.showNoiseNotification(this@IntercomMonitorService, device)
             // The doorbell owns its richer notification and full-screen intent in the DoorbellRung branch.
-            EventType.RING, EventType.MANUAL -> Unit
+            EventType.RING, EventType.MANUAL, EventType.UNKNOWN -> Unit
         }
-        startActivity(callActivityIntent(device, eventType))
+        callScreenLauncher.launch(device, eventType)
     }
 
     /** Routes a "trigger ended" event: only the post-record buffer length and the log wording differ. */
-    private fun handleTriggerEnded(device: DeviceEntity, label: String, eventType: EventType) {
+    private fun handleTriggerEnded(device: Device, label: String, eventType: EventType) {
         Log.i(tag, "$label ended on ${device.name}")
         if (eventType == EventType.MOTION) monitorStatusRegistry.update(device.id, MonitorStatus.MONITORING)
         // Allow post-record time buffer then stop
-        schedulePostRecordStop(device, eventType, postRecordSecondsFor(device, eventType))
+        schedulePostRecordStop(device, eventType, triggerCoordinator.postRecordSeconds(device, eventType))
     }
-
-    private fun postRecordSecondsFor(device: DeviceEntity, eventType: EventType): Int = when (eventType) {
-        EventType.MOTION -> device.motionPostRecordSeconds
-        EventType.NOISE -> device.noisePostRecordSeconds
-        EventType.RING, EventType.MANUAL -> device.ringRecordSeconds
-    }
-
-    /** Full-screen call/preview activity for [device]; only a ring carries a caller to display. */
-    private fun callActivityIntent(device: DeviceEntity, eventType: EventType, caller: String? = null) =
-        Intent(this@IntercomMonitorService, IncomingCallActivity::class.java).apply {
-            putExtra(IncomingCallActivity.EXTRA_DEVICE_ID, device.id)
-            putExtra(IncomingCallActivity.EXTRA_EVENT_TYPE, eventType.name)
-            caller?.let { putExtra(IncomingCallActivity.EXTRA_CALLER, it) }
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
 
     /**
      * Handles a ring signalled by an incoming SIP call rather than by the 2N HTTP event stream. This keeps
@@ -417,7 +412,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
      * notification and wake handling stay in one place, and through the same ring debounce.
      */
     private fun handleSipRing(remoteHost: String, caller: String) {
-        val devices = activeDevices.values.map { it.deviceEntity }
+        val devices = activeDevices.values.map { it.device }
         val device = devices.firstOrNull { it.ipAddress == remoteHost }
             ?: devices.singleOrNull()?.also {
                 Log.i(tag, "SIP ring from $remoteHost attributed to the only monitored device ${it.name}")
@@ -436,10 +431,10 @@ class IntercomMonitorService : Service(), IntercomEventListener {
      * a trailing stop from the previous episode cut the next one short, often into a 0-byte file that
      * the recorder then discarded as "empty".
      */
-    private fun schedulePostRecordStop(device: DeviceEntity, eventType: EventType, seconds: Int) {
+    private fun schedulePostRecordStop(device: Device, eventType: EventType, seconds: Int) {
         pendingPostRecordStops.remove(device.id)?.cancel()
         pendingPostRecordStops[device.id] = serviceScope.launch {
-            delay((seconds * 1000L).milliseconds)
+            delay(seconds * 1000L)
             pendingPostRecordStops.remove(device.id)
             recorder.stopRecording(device.id, eventType)
             releaseLocksIfIdle()
@@ -486,7 +481,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         acquireLocks()
         lockSafetyRelease?.cancel()
         lockSafetyRelease = serviceScope.launch {
-            delay(durationMs.milliseconds)
+            delay(durationMs)
             lockSafetyRelease = null
             releaseLocksIfIdle()
         }
@@ -539,7 +534,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         releaseLocks()
 
         pendingPostRecordStops.clear()
-        lastRingHandledAt.clear()
+        triggerCoordinator.reset()
         sipManager.onIncomingCall = null
 
         sipManager.destroy()
@@ -548,21 +543,10 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
+        private const val TAG = "IntercomMonitorService"
+
         /** Action used by the persistent foreground notification to stop monitoring in place. */
         const val ACTION_STOP = "io.github.mvolkert.entryrecorder.service.ACTION_STOP"
-
-        // Rings from one doorbell press reach the app from up to three sources within a second; anything
-        // arriving inside this window after a handled ring is treated as the same press. Note that this also
-        // swallows a genuine second press inside the window (the recording keeps running, no second alert).
-        private const val RING_DEBOUNCE_MS = 5000L
-
-        // Trigger recordings run to the post-record buffer plus this headroom: the *Ended event is what
-        // normally stops them, so the timer only has to outlive a missing end event.
-        private const val TRIGGER_RECORD_HEADROOM_SECONDS = 30
-
-        // A trigger's lock is held for the full clip deadline plus this margin, so a finalising stop
-        // never races the safety release and drops the CPU mid-write.
-        private const val TRIGGER_LOCK_MARGIN_MS = 15_000L
 
         fun start(context: Context) {
             val intent = Intent(context, IntercomMonitorService::class.java)
@@ -571,7 +555,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             } catch (e: Exception) {
                 // Android 12+/14 may reject background FGS starts (e.g. from BOOT) with
                 // ForegroundServiceStartNotAllowedException. Log instead of crashing the receiver.
-                Log.e("IntercomMonitorService", "Foreground service start not allowed", e)
+                Log.e(TAG, "Foreground service start not allowed", e)
             }
         }
 

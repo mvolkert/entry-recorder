@@ -12,6 +12,7 @@ import android.media.RingtoneManager
 import androidx.core.app.NotificationCompat
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.service.IntercomMonitorService
 import io.github.mvolkert.entryrecorder.ui.MainActivity
@@ -138,7 +139,7 @@ object NotificationHelper {
     @SuppressLint("FullScreenIntentPolicy")
     fun showDoorbellNotification(
         context: Context,
-        device: DeviceEntity,
+        device: Device,
         caller: String?,
         playSound: Boolean = true,
         vibrate: Boolean = true,
@@ -188,7 +189,7 @@ object NotificationHelper {
         manager.notify(eventNotificationId(SLOT_DOORBELL, device.id), builder.build())
     }
 
-    fun showMotionNotification(context: Context, device: DeviceEntity) {
+    fun showMotionNotification(context: Context, device: Device) {
         val intent = Intent(context, IncomingCallActivity::class.java).apply {
             putExtra(IncomingCallActivity.EXTRA_DEVICE_ID, device.id)
             putExtra(IncomingCallActivity.EXTRA_EVENT_TYPE, EventType.MOTION.name)
@@ -216,7 +217,7 @@ object NotificationHelper {
         manager.notify(eventNotificationId(SLOT_MOTION, device.id), notification)
     }
 
-    fun showNoiseNotification(context: Context, device: DeviceEntity) {
+    fun showNoiseNotification(context: Context, device: Device) {
         val intent = Intent(context, IncomingCallActivity::class.java).apply {
             putExtra(IncomingCallActivity.EXTRA_DEVICE_ID, device.id)
             putExtra(IncomingCallActivity.EXTRA_EVENT_TYPE, EventType.NOISE.name)
