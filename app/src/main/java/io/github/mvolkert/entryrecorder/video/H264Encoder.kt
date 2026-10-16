@@ -3,7 +3,6 @@ package io.github.mvolkert.entryrecorder.video
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaCodec
-import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.util.Log
 import java.io.ByteArrayOutputStream
@@ -62,6 +61,12 @@ class H264Encoder(
     private var pps: ByteArray? = null
     private var started = false
 
+    // The raw-input geometry the platform encoder negotiated, honoured when packing every frame.
+    // Default to a tightly-packed picture so the first frame is correct even before the format is read.
+    private var layout: YuvEncoder.Layout = YuvEncoder.Layout.I420
+    private var stride: Int = width
+    private var sliceHeight: Int = height
+
     /** The built `AVCDecoderConfigurationRecord`, or null until SPS/PPS have been observed. */
     val codecPrivate: ByteArray?
         get() {
@@ -72,23 +77,43 @@ class H264Encoder(
 
     fun start() {
         val safeFps = fps.coerceIn(1, 30)
+        val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        // Ask the device's encoder which YUV420 layouts it accepts instead of assuming a planar one:
+        // hardware that only takes NV12 used to fail configure() here, so the promised H.264 export never
+        // happened. Selection order (NV12 -> planar -> flexible) lives in the testable YuvEncoder seam.
+        val chosen = encoder.codecInfo
+            .getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC)
+            .colorFormats
+            .let(YuvEncoder::selectColorFormat)
+            ?: run {
+                encoder.release()
+                error("AVC encoder exposes no supported YUV420 input color format")
+            }
+        layout = chosen.layout
+
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
-            setInteger(
-                MediaFormat.KEY_COLOR_FORMAT,
-                MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar
-            )
+            setInteger(MediaFormat.KEY_COLOR_FORMAT, chosen.codecFormat)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrateBps.coerceAtLeast(200_000))
             setInteger(MediaFormat.KEY_FRAME_RATE, safeFps)
             // Force a keyframe roughly every second so clusters stay independently seekable and the
             // MKV remains playable after a crash at any point.
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
         }
-        codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC).apply {
-            configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-            start()
+        encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        // Honour the stride/slice-height the codec reports for its input; a padded buffer fed as if
+        // tightly-packed skews every row after the first. Fall back to the picture size when absent.
+        encoder.inputFormat.let { input ->
+            stride = input.intOrZero(MediaFormat.KEY_STRIDE) ?: width
+            sliceHeight = input.intOrZero(MediaFormat.KEY_SLICE_HEIGHT) ?: height
         }
+        encoder.start()
+        codec = encoder
         started = true
-        Log.i(tag, "H.264 encoder started ${width}x$height @ ${safeFps}fps ${bitrateBps}bps")
+        Log.i(
+            tag,
+            "H.264 encoder started ${width}x$height @ ${safeFps}fps ${bitrateBps}bps, " +
+                "colorFormat=${chosen.codecFormat} layout=$layout stride=$stride sliceHeight=$sliceHeight",
+        )
     }
 
     /**
@@ -118,7 +143,9 @@ class H264Encoder(
     private fun feedInput(c: MediaCodec, jpegBytes: ByteArray, presentationTimeUs: Long) {
         val bitmap = decodeToBitmap(jpegBytes) ?: return
         try {
-            val i420 = bitmapToI420(bitmap)
+            val pixels = IntArray(width * height)
+            bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+            val yuv = YuvEncoder.pack(pixels, width, height, stride, sliceHeight, layout)
             val index = c.dequeueInputBuffer(20_000)
             if (index < 0) {
                 // Encoder input momentarily full; drop this frame rather than block the capture loop.
@@ -126,9 +153,16 @@ class H264Encoder(
                 return
             }
             val inputBuffer = c.getInputBuffer(index) ?: return
+            if (yuv.size > inputBuffer.capacity()) {
+                // The codec asked for a buffer smaller than the geometry it reported; feeding a
+                // mismatched frame would corrupt it, so drop and keep the encoder alive.
+                Log.w(tag, "Packed frame ${yuv.size}B exceeds input buffer ${inputBuffer.capacity()}B, dropping frame")
+                c.queueInputBuffer(index, 0, 0, presentationTimeUs, 0)
+                return
+            }
             inputBuffer.clear()
-            inputBuffer.put(i420)
-            c.queueInputBuffer(index, 0, i420.size, presentationTimeUs, 0)
+            inputBuffer.put(yuv)
+            c.queueInputBuffer(index, 0, yuv.size, presentationTimeUs, 0)
         } catch (e: Exception) {
             Log.w(tag, "Failed to feed input frame: ${e.message}")
         } finally {
@@ -293,61 +327,11 @@ class H264Encoder(
     }
 
     /**
-     * Converts an ARGB_8888 bitmap to a packed I420 (YUV420Planar) buffer of size width*height*3/2.
+     * Reads an optional [MediaFormat] integer key, treating a missing key or a zero (a codec that does not
+     * pad) as null so the caller can fall back to the picture geometry.
      */
-    private fun bitmapToI420(bitmap: Bitmap): ByteArray {
-        val w = bitmap.width
-        val h = bitmap.height
-        val pixels = IntArray(w * h)
-        bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
-
-        val ySize = w * h
-        val uvW = w / 2
-        val uvH = h / 2
-        val uvSize = uvW * uvH
-        val i420 = ByteArray(ySize + 2 * uvSize)
-
-        var yIndex = 0
-        var uIndex = ySize
-        var vIndex = ySize + uvSize
-
-        var j = 0
-        while (j < h) {
-            var i = 0
-            while (i < w) {
-                val color = pixels[j * w + i]
-                val r = (color shr 16) and 0xFF
-                val g = (color shr 8) and 0xFF
-                val b = color and 0xFF
-
-                val y = ((66 * r + 129 * g + 25 * b + 128) shr 8) + 16
-                i420[yIndex++] = y.coerceIn(0, 255).toByte()
-
-                // Subsample chroma on even 2x2 blocks.
-                if (j % 2 == 0 && i % 2 == 0 && (j + 1) < h && (i + 1) < w) {
-                    val c10 = pixels[j * w + (i + 1)]
-                    val c01 = pixels[(j + 1) * w + i]
-                    val c11 = pixels[(j + 1) * w + (i + 1)]
-
-                    fun avg(ch: (Int) -> Int) =
-                        (ch(color) + ch(c10) + ch(c01) + ch(c11)) / 4
-
-                    val rAvg = avg { c -> (c shr 16) and 0xFF }
-                    val gAvg = avg { c -> (c shr 8) and 0xFF }
-                    val bAvg = avg { c -> c and 0xFF }
-
-                    val u = ((-38 * rAvg - 74 * gAvg + 112 * bAvg + 128) shr 8) + 128
-                    val v = ((112 * rAvg - 94 * gAvg - 18 * bAvg + 128) shr 8) + 128
-
-                    i420[uIndex++] = u.coerceIn(0, 255).toByte()
-                    i420[vIndex++] = v.coerceIn(0, 255).toByte()
-                }
-                i++
-            }
-            j++
-        }
-        return i420
-    }
+    private fun MediaFormat.intOrZero(key: String): Int? =
+        if (containsKey(key)) getInteger(key).takeIf { it > 0 } else null
 
     override fun close() {
         try {
