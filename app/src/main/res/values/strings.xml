@@ -8,6 +8,8 @@
     <string name="channel_call_desc">Incoming video doorbell calls and rings</string>
     <string name="channel_service_name">Background Monitor Service</string>
     <string name="channel_service_desc">Persistent connection to intercom devices</string>
+    <string name="channel_export_name">Export Problems</string>
+    <string name="channel_export_desc">Auto-export mirror failing while the app is in the background</string>
 
     <!-- FileProvider authority (must match AndroidManifest <provider android:authorities>) -->
     <string name="fileprovider_authority" translatable="false">io.github.mvolkert.entryrecorder.fileprovider</string>
@@ -239,6 +241,7 @@
     <string name="settings_hub_storage_no_folder">no folder</string>
     <string name="settings_hub_storage_measuring">measuring…</string>
     <string name="settings_hub_storage_needs_access">folder needs access</string>
+    <string name="settings_hub_storage_export_failed">export stalled</string>
     <string name="settings_hub_backup_subtitle">Export or restore settings &amp; devices</string>
 
     <!-- Appearance / accent colors -->
@@ -423,6 +426,8 @@
     <string name="notif_motion_body">Movement registered at %1$s</string>
     <string name="notif_noise_title">Noise Detected: %1$s</string>
     <string name="notif_noise_body">Sound registered at %1$s</string>
+    <string name="notif_export_failure_title">Auto-export stalled</string>
+    <string name="notif_export_failure_body">Recordings are not reaching your export folder — re-check the folder grant in Settings</string>
 
     <!-- Export helper -->
     <string name="export_share_no_files">No files to share</string>

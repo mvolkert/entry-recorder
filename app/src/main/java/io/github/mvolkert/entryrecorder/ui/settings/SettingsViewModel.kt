@@ -28,6 +28,7 @@ import io.github.mvolkert.entryrecorder.sip.SipRegistrar
 import io.github.mvolkert.entryrecorder.ui.theme.ThemeModeStore
 import io.github.mvolkert.entryrecorder.util.AppStorageDirs
 import io.github.mvolkert.entryrecorder.util.ExportEntry
+import io.github.mvolkert.entryrecorder.util.ExportFailureMonitor
 import io.github.mvolkert.entryrecorder.util.ExportFolderAccess
 import io.github.mvolkert.entryrecorder.util.ExportGateway
 import io.github.mvolkert.entryrecorder.util.StorageUsage
@@ -93,6 +94,7 @@ class SettingsViewModel @Inject constructor(
     private val snapshotClient: HttpSnapshotClient,
     private val deviceFactory: IntercomDeviceFactory,
     private val sipRegistrar: SipRegistrar,
+    private val exportFailureMonitor: ExportFailureMonitor,
 ) : ViewModel() {
 
     private val tag = "SettingsViewModel"
@@ -103,6 +105,13 @@ class SettingsViewModel @Inject constructor(
     val events: Flow<SettingsUiEvent> = _events.receiveAsFlow()
 
     private val probeTick = MutableStateFlow(0L)
+
+    /**
+     * The process-wide retained export-write failure, surfaced on the storage hub row so a stalled
+     * auto-export is visible without opening the folder screens. Cleared by the write paths on the next
+     * good save.
+     */
+    val exportFailure: StateFlow<ExportFailureMonitor.Failure?> = exportFailureMonitor.failure
 
     val uiState: StateFlow<SettingsUiState> = combine(
         repository.allDevices,

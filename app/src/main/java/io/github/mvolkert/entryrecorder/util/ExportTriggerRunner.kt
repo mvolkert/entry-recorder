@@ -50,6 +50,7 @@ class ExportTriggerRunner @Inject constructor(
     private val repository: IntercomRepository,
     private val exportGateway: ExportGateway,
     private val transcoder: H264Transcoder,
+    private val exportFailureMonitor: ExportFailureMonitor,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) {
 
@@ -103,8 +104,10 @@ class ExportTriggerRunner @Inject constructor(
 
                 if (exportGateway.saveFileToSafFolder(folder, payload, payload.name)) {
                     exported++
+                    exportFailureMonitor.recordSuccess()
                 } else {
                     Log.w(TAG, "SAF write failed for ${payload.name}")
+                    exportFailureMonitor.recordFailure("SAF write failed for ${payload.name}")
                 }
             }
 

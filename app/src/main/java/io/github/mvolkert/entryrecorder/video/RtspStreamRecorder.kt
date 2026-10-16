@@ -14,6 +14,7 @@ import io.github.mvolkert.entryrecorder.data.server.ServerClient
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.util.ExportGateway
+import io.github.mvolkert.entryrecorder.util.ExportFailureMonitor
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
@@ -53,6 +54,7 @@ class RtspStreamRecorder @Inject constructor(
     private val snapshotClient: HttpSnapshotClient,
     private val mjpegReader: MjpegStreamReader,
     private val exportGateway: ExportGateway,
+    private val exportFailureMonitor: ExportFailureMonitor,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : RecordingController {
     private val tag = "RtspStreamRecorder"
@@ -75,6 +77,7 @@ class RtspStreamRecorder @Inject constructor(
         snapshotClient = snapshotClient,
         mjpegReader = mjpegReader,
         exportGateway = exportGateway,
+        exportFailureMonitor = exportFailureMonitor,
         ioDispatcher = ioDispatcher,
         events = _events,
         onActiveChanged = ::publishActiveIds,

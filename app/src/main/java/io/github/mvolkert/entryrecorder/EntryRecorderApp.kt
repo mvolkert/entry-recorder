@@ -13,6 +13,7 @@ import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.di.ApplicationScope
 import io.github.mvolkert.entryrecorder.notification.NotificationHelper
 import io.github.mvolkert.entryrecorder.service.IntercomMonitorService
+import io.github.mvolkert.entryrecorder.util.ExportFailureMonitor
 import io.github.mvolkert.entryrecorder.worker.RetentionCleanupWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -33,6 +34,11 @@ class EntryRecorderApp : Application(), Configuration.Provider {
 
     @Inject
     lateinit var repository: IntercomRepository
+
+    // Retained export-write failure reported by the background write paths; surfaced as a notification
+    // here because nothing else runs for the whole process while the app is backgrounded.
+    @Inject
+    lateinit var exportFailureMonitor: ExportFailureMonitor
 
     // Lives for the whole process; used only to react to the enabled-camera set and start/stop the
     // monitoring service. Cancelling it would stop the service, so it is deliberately never cancelled.
@@ -66,6 +72,10 @@ class EntryRecorderApp : Application(), Configuration.Provider {
         //    is handled by the service stopping itself, because calling stopService() here could cancel a
         //    pending startForegroundService() before its onCreate reaches startForeground().
         observeMonitorDemand()
+
+        // 4. Surface a retained export-write failure as a persistent notification while the app is
+        //    backgrounded, and withdraw it once a write lands again.
+        observeExportFailures()
     }
 
     private fun observeMonitorDemand() {
@@ -73,6 +83,18 @@ class EntryRecorderApp : Application(), Configuration.Provider {
             repository.allDevices.collect { devices ->
                 if (devices.any { it.isEnabled }) {
                     IntercomMonitorService.start(this@EntryRecorderApp)
+                }
+            }
+        }
+    }
+
+    private fun observeExportFailures() {
+        appScope.launch {
+            exportFailureMonitor.failure.collect { failure ->
+                if (failure == null) {
+                    NotificationHelper.cancelExportFailureNotice(this@EntryRecorderApp)
+                } else {
+                    NotificationHelper.showExportFailureNotice(this@EntryRecorderApp)
                 }
             }
         }

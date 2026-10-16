@@ -14,6 +14,7 @@ import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.domain.model.Recording
 import io.github.mvolkert.entryrecorder.util.ExportGateway
+import io.github.mvolkert.entryrecorder.util.ExportFailureMonitor
 import io.github.mvolkert.entryrecorder.util.recordingsDirOf
 import java.io.File
 import java.text.SimpleDateFormat
@@ -66,6 +67,7 @@ internal class LocalCaptureLoop(
     private val snapshotClient: HttpSnapshotClient,
     private val mjpegReader: MjpegStreamReader,
     private val exportGateway: ExportGateway,
+    private val exportFailureMonitor: ExportFailureMonitor,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     private val events: Channel<RecorderEvent>,
     private val onActiveChanged: () -> Unit,
@@ -385,9 +387,13 @@ internal class LocalCaptureLoop(
                     Log.e(tag, "Auto-export mirror failed for ${outputFile.name}", e)
                     false
                 }
-                if (!mirrored) {
+                if (mirrored) {
+                    // A mirror that lands clears any earlier backgrounded failure the user was warned about.
+                    exportFailureMonitor.recordSuccess()
+                } else {
                     Log.w(tag, "Auto-export to folder did not complete for ${outputFile.name} " +
                             "(folder grant broken or storage full?)")
+                    exportFailureMonitor.recordFailure("Auto-export mirror failed for ${outputFile.name}")
                 }
             }
         } else {

@@ -14,6 +14,8 @@ import java.io.File
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -34,7 +36,8 @@ class ExportTriggerRunnerTest {
         IntercomRepository(deviceDao, recordingDao, settingsDao, FakeActiveServerRecordingDao(), dispatcher)
     private val gateway = FakeExportGateway()
     private val transcoder = FakeH264Transcoder()
-    private val runner = ExportTriggerRunner(repository, gateway, transcoder, dispatcher)
+    private val monitor = ExportFailureMonitor()
+    private val runner = ExportTriggerRunner(repository, gateway, transcoder, monitor, dispatcher)
 
     /** A real temp file so the runner's `source.exists()` gate passes and a payload can be delivered. */
     private fun existingFile(name: String): File =
@@ -152,6 +155,19 @@ class ExportTriggerRunnerTest {
         val outcome = runner.run(exportAll = false)
 
         assertEquals(ExportTriggerOutcome.Done(exported = 0, total = 1), outcome)
+        assertNotNull("a failed write must set the retained export failure", monitor.failure.value)
+    }
+
+    @Test
+    fun `a successful SAF save clears the retained export failure`() = runTest(dispatcher) {
+        configure(folder = "content://export")
+        monitor.recordFailure("prior stall")
+        gateway.safSaveResult = true
+        insert(1L, existingFile("clip").absolutePath)
+
+        runner.run(exportAll = false)
+
+        assertNull("a landing write clears the stall", monitor.failure.value)
     }
 
     @Test

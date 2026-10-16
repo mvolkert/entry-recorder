@@ -24,6 +24,7 @@ import io.github.mvolkert.entryrecorder.testing.assertNone
 import io.github.mvolkert.entryrecorder.testing.assertEquals
 import io.github.mvolkert.entryrecorder.testing.assertTrue
 import io.github.mvolkert.entryrecorder.util.AppStorageDirs
+import io.github.mvolkert.entryrecorder.util.ExportFailureMonitor
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -80,6 +81,7 @@ class SettingsViewModelTest {
             snapshotClient = HttpSnapshotClient(OkHttpClient(), testDispatcher),
             deviceFactory = IntercomDeviceFactory(OkHttpClient(), OkHttpClient(), testDispatcher, CoroutineScope(SupervisorJob())),
             sipRegistrar = FakeSipRegistrar(),
+            exportFailureMonitor = ExportFailureMonitor(),
         )
     }
 

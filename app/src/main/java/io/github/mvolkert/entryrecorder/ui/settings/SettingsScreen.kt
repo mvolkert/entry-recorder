@@ -55,6 +55,7 @@ fun SettingsScreen(
     val exportFolderAccess by viewModel.exportFolderAccess.collectAsStateWithLifecycle()
     val storageUsage by viewModel.storageUsage.collectAsStateWithLifecycle()
     val externalUsageBytes by viewModel.externalUsageBytes.collectAsStateWithLifecycle()
+    val exportFailure by viewModel.exportFailure.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     val devicesSubtitle = stringResource(R.string.settings_hub_devices_subtitle, state.devices.size)
@@ -66,6 +67,10 @@ fun SettingsScreen(
     // instead of showing zero: a folder that is configured but currently unreachable is something the user
     // has to notice, and "0 B" there would read as an empty archive.
     val externalValue = when {
+        // A retained write failure takes priority over the byte count: while exports are stalling the
+        // size is stale, and the actionable fact is that saving stopped landing.
+        exportFailure != null -> stringResource(R.string.settings_hub_storage_export_failed)
+
         state.appSettings.exportFolderUri.isBlank() ->
             stringResource(R.string.settings_hub_storage_no_folder)
 

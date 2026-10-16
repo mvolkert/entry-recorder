@@ -24,8 +24,12 @@ object NotificationHelper {
     const val CHANNEL_DOORBELL = "entry_recorder_doorbell"
     const val CHANNEL_MOTION = "entry_recorder_motion"
     const val CHANNEL_NOISE = "entry_recorder_noise"
+    const val CHANNEL_EXPORT = "entry_recorder_export"
 
     const val NOTIFICATION_ID_SERVICE = 1001
+
+    // A single persistent row for the retained export-write failure; cleared when a write lands again.
+    const val NOTIFICATION_ID_EXPORT = 2001
 
     // Non-overlapping id space per (event type, device): base + (device % 1000) * 4 + slot.
     // Prevents cross-channel collisions for different devices (the previous 1002/1003/1004 + id
@@ -95,7 +99,18 @@ object NotificationHelper {
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
 
-        manager.createNotificationChannels(listOf(serviceChannel, doorbellChannel, motionChannel, noiseChannel))
+        // Export Stall Channel: quiet and no badge — a stalled archive is a state to notice, not an alert
+        // that interrupts, and it is shown/withdrawn by the observer rather than posted per-event.
+        val exportChannel = NotificationChannel(
+            CHANNEL_EXPORT,
+            context.getString(R.string.channel_export_name),
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = context.getString(R.string.channel_export_desc)
+            setShowBadge(false)
+        }
+
+        manager.createNotificationChannels(listOf(serviceChannel, doorbellChannel, motionChannel, noiseChannel, exportChannel))
     }
 
     fun buildServiceNotification(
@@ -243,5 +258,38 @@ object NotificationHelper {
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(eventNotificationId(SLOT_NOISE, device.id), notification)
+    }
+
+    /**
+     * Shows (or replaces) the persistent "auto-export stalled" row. Non-auto-cancel: the observer keeps it
+     * up while the retained failure stands and calls [cancelExportFailureNotice] once a write lands.
+     */
+    fun showExportFailureNotice(context: Context) {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context, NOTIFICATION_ID_EXPORT, intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_EXPORT)
+            .setContentTitle(context.getString(R.string.notif_export_failure_title))
+            .setContentText(context.getString(R.string.notif_export_failure_body))
+            .setSmallIcon(R.drawable.ic_notification)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_ERROR)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .build()
+
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(NOTIFICATION_ID_EXPORT, notification)
+    }
+
+    /** Withdraws the [showExportFailureNotice] row once exports are landing again. */
+    fun cancelExportFailureNotice(context: Context) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.cancel(NOTIFICATION_ID_EXPORT)
     }
 }
