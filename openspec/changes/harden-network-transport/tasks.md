@@ -2,8 +2,9 @@
 
 ## 1. Server HTTPS-first
 
-- [ ] 1.1 Add TLS to the server (or record the explicit LAN-only decision) in `main.py`/compose/Dockerfile
-  and verify the dashboard + REST API serve over HTTPS with a valid chain
+- [ ] 1.1 Posture decided (2026-10-16): **LAN cleartext + WAN TLS**. Serve the dashboard + REST API over
+  HTTPS with a valid chain for remote/WAN access (TLS in `main.py`/compose/Dockerfile or a TLS-terminating
+  front), while cleartext stays permitted only on the local subnet. Verify remote HTTPS and LAN both work
 - [ ] 1.2 Verify py_compile + a live-server smoke run still pass
 
 ## 2. App transport cleanup (after 1)

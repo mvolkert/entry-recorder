@@ -18,4 +18,5 @@ delta will be authored when an RTSP device is actually onboarded.
 ## Impact
 
 - Code: `video/` capture pipeline.
-- Trigger: only pick up when a non-2N RTSP-capable camera is added.
+- Trigger: owner elected (2026-10-16) to build against the Media3 RTSP API **blind** behind a config flag
+  rather than wait for a device; behaviour stays provisional until an on-device gate can confirm it.
