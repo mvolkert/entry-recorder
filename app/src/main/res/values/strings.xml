@@ -60,11 +60,11 @@
     <string name="recordings_total_storage">Total storage: %1$s</string>
     <string name="recordings_search_placeholder">Search</string>
     <string name="recordings_filter_all_events">All Events</string>
-    <string name="recordings_filter_ring">🔔 Doorbell Rings</string>
-    <string name="recordings_filter_motion">👁 Motion</string>
-    <string name="recordings_filter_noise">🔊 Noise</string>
-    <string name="recordings_filter_manual">✋ Manual</string>
-    <string name="recordings_filter_all_devices">📷 All devices</string>
+    <string name="recordings_filter_ring">Doorbell Rings</string>
+    <string name="recordings_filter_motion">Motion</string>
+    <string name="recordings_filter_noise">Noise</string>
+    <string name="recordings_filter_manual">Manual</string>
+    <string name="recordings_filter_all_devices">All devices</string>
     <string name="recordings_empty">No recordings found.</string>
     <string name="recordings_empty_hint">Recorded clips and server footage will appear here.</string>
     <string name="recordings_filtered_empty">No recordings match these filters.</string>
@@ -146,8 +146,8 @@
     <string name="settings_devices_empty_hint">Add your 2N IP Verso intercom with its local LAN IP address to start recording and receiving calls.</string>
     <string name="settings_section_mode">Recording Mode &amp; Destination</string>
     <string name="settings_mode_question">Where should video recordings be recorded and stored?</string>
-    <string name="settings_mode_local">📱 Local</string>
-    <string name="settings_mode_server">🌐 Remote Server</string>
+    <string name="settings_mode_local">Local</string>
+    <string name="settings_mode_server">Remote Server</string>
     <string name="settings_mode_server_hint">Videos will be recorded on the centralized server backend with web interface. If the server is unreachable, recording automatically falls back to in-app storage.</string>
     <string name="settings_server_url_label">Server URL</string>
     <string name="settings_server_url_placeholder" translatable="false">http://192.168.1.100:8000</string>

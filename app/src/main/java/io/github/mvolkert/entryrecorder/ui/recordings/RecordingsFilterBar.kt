@@ -6,10 +6,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,7 +18,9 @@ import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.EventType
+import io.github.mvolkert.entryrecorder.ui.components.filterChipLeadingIcon
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
+import io.github.mvolkert.entryrecorder.ui.theme.eventTypeIcon
 
 private val EVENT_FILTER_OPTIONS: List<Pair<EventType?, Int>> = listOf(
     null to R.string.recordings_filter_all_events,
@@ -61,7 +60,8 @@ internal fun RecordingsFilterBar(
                         haptic.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
                         onEventTypeSelect(eventType)
                     },
-                    label = { Text(stringResource(labelRes), style = chipLabelStyle(selected)) }
+                    label = { Text(stringResource(labelRes), style = chipLabelStyle(selected)) },
+                    leadingIcon = filterChipLeadingIcon(selected, eventType?.let(::eventTypeIcon)),
                 )
             }
         }
@@ -80,7 +80,8 @@ internal fun RecordingsFilterBar(
                             haptic.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
                             onDeviceSelect(null)
                         },
-                        label = { Text(stringResource(R.string.recordings_filter_all_devices), style = chipLabelStyle(selected)) }
+                        label = { Text(stringResource(R.string.recordings_filter_all_devices), style = chipLabelStyle(selected)) },
+                        leadingIcon = filterChipLeadingIcon(selected),
                     )
                 }
                 items(devices, key = { "dev_${it.id}" }) { device ->
@@ -92,9 +93,7 @@ internal fun RecordingsFilterBar(
                             onDeviceSelect(if (selectedDeviceId == device.id) null else device.id)
                         },
                         label = { Text(device.name, style = chipLabelStyle(selected)) },
-                        leadingIcon = if (selected) {
-                            { Icon(Icons.Default.Check, contentDescription = null) }
-                        } else null
+                        leadingIcon = filterChipLeadingIcon(selected),
                     )
                 }
             }
@@ -106,3 +105,4 @@ internal fun RecordingsFilterBar(
 @Composable
 private fun chipLabelStyle(selected: Boolean) =
     if (selected) MaterialTheme.typography.labelLargeEmphasized else MaterialTheme.typography.labelLarge
+

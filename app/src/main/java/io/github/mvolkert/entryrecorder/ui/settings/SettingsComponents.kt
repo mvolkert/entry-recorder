@@ -19,17 +19,21 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemColors
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
@@ -55,6 +59,21 @@ internal object SettingsCardDefaults {
     fun cardColors(): CardColors = CardDefaults.cardColors(
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         contentColor = MaterialTheme.colorScheme.onSurface,
+    )
+}
+
+/**
+ * Row fill for every list item nested inside a [SettingsCard]. The expressive `ListItem` paints its own
+ * container from the `surface` token, which sits one tonal step *below* the card's
+ * `surfaceContainerLow` and reads as a dark band cut into the card; nesting only ever steps up. Leaving
+ * the container transparent makes the card the single surface while keeping the row's state layer and
+ * shape morph on interaction.
+ */
+internal object SettingsRowDefaults {
+    @Composable
+    fun rowColors(): ListItemColors = ListItemDefaults.colors(
+        containerColor = Color.Transparent,
+        disabledContainerColor = Color.Transparent,
     )
 }
 
@@ -88,6 +107,8 @@ internal fun SettingsSubscreenScaffold(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val snackbarHost = LocalAppSnackbar.current
+    // The section cards scroll under the bar, which takes Material's scrolled tone as they do.
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
     LaunchedEffect(events) {
         events.collect { event ->
             when (event) {
@@ -100,6 +121,7 @@ internal fun SettingsSubscreenScaffold(
         floatingActionButton = floatingActionButton,
         topBar = {
             TopAppBar(
+                scrollBehavior = scrollBehavior,
                 title = {
                     Text(stringResource(titleRes), modifier = Modifier.semantics { heading() })
                 },
@@ -122,9 +144,10 @@ internal fun SettingsSubscreenScaffold(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(horizontal = Spacing.lg, vertical = Spacing.md),
+            verticalArrangement = Arrangement.spacedBy(Spacing.lg),
             content = content
         )
     }
@@ -199,6 +222,7 @@ internal fun SettingsItemRow(
         ListItem(
             modifier = modifier.fillMaxWidth(),
             trailingContent = trailing,
+            colors = SettingsRowDefaults.rowColors(),
             contentPadding = SettingsRowContentPadding,
             content = content,
         )
@@ -207,6 +231,7 @@ internal fun SettingsItemRow(
             onClick = onClick,
             modifier = modifier.fillMaxWidth(),
             trailingContent = trailing,
+            colors = SettingsRowDefaults.rowColors(),
             contentPadding = SettingsRowContentPadding,
             content = content,
         )
@@ -283,6 +308,7 @@ internal fun SettingsSwitchUnavailableRow(
         trailingContent = {
             Switch(checked = false, onCheckedChange = null, enabled = false)
         },
+        colors = SettingsRowDefaults.rowColors(),
         contentPadding = SettingsRowContentPadding,
     ) {
         Text(title, style = MaterialTheme.typography.titleMedium)
@@ -310,6 +336,7 @@ internal fun SwitchListItem(
             },
         supportingContent = supportingContent,
         trailingContent = { Switch(checked = checked, onCheckedChange = null) },
+        colors = SettingsRowDefaults.rowColors(),
         contentPadding = SettingsRowContentPadding,
         content = content,
     )

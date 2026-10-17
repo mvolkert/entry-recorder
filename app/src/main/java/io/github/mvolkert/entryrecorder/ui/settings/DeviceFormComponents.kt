@@ -8,9 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,6 +21,8 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.DropdownMenuPopup
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -55,6 +55,7 @@ import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.ui.adaptive.LocalWindowInfo
 import io.github.mvolkert.entryrecorder.ui.adaptive.WindowInfo
 import io.github.mvolkert.entryrecorder.ui.components.MorphingIcon
+import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 
 /** Group title inside the device form; the role carries the weight and it is an accessibility heading. */
 @Composable
@@ -139,6 +140,7 @@ internal fun FormSingleChoice(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DropdownSingleChoice(
     label: String,
@@ -153,7 +155,15 @@ private fun DropdownSingleChoice(
         animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
         label = "singleChoiceArrow",
     )
-    Box(modifier = modifier.fillMaxWidth()) {
+    // The dropdown's own container: it owns the open state, the anchor relationship between the field
+    // and the menu, and the dismiss-on-tap-outside behaviour. A read-only field plus a transparent
+    // overlay used to do this by hand, which left the overlay's rectangular state layer bleeding past
+    // the field's rounded corners and gave assistive tech an unnamed control.
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        modifier = modifier.fillMaxWidth(),
+    ) {
         OutlinedTextField(
             value = options.getOrNull(selectedIndex).orEmpty(),
             onValueChange = {},
@@ -167,13 +177,9 @@ private fun DropdownSingleChoice(
                     modifier = Modifier.graphicsLayer { rotationZ = arrowRotation },
                 )
             },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        // Transparent overlay opens the menu, so the disabled field never takes focus or a caret.
-        Box(
             modifier = Modifier
-                .matchParentSize()
-                .clickable { expanded = true },
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                .fillMaxWidth(),
         )
         // The menu expresses which option the field currently holds, so its items are the selectable
         // kind; the popup only positions the surface and the group is what paints it.
@@ -204,7 +210,7 @@ private fun SegmentedSingleChoice(
     onSelect: (Int) -> Unit,
     modifier: Modifier,
 ) {
-    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         Text(label, style = MaterialTheme.typography.labelLarge)
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
             options.forEachIndexed { index, option ->
@@ -235,12 +241,12 @@ internal fun FormTwoFieldRow(
     second: @Composable (Modifier) -> Unit,
 ) {
     if (LocalWindowInfo.current == WindowInfo.Compact) {
-        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             first(Modifier.fillMaxWidth())
             second(Modifier.fillMaxWidth())
         }
     } else {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             first(Modifier.weight(1f))
             second(Modifier.weight(1f))
         }
