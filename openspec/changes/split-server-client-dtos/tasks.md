@@ -5,7 +5,7 @@ declarations between files in the same package.
 
 ## 1. Answer shapes
 
-- [ ] 1.1 Create `app/src/main/java/io/github/mvolkert/entryrecorder/data/server/ServerDtos.kt` and move
+- [x] 1.1 Create `app/src/main/java/io/github/mvolkert/entryrecorder/data/server/ServerDtos.kt` and move
       `ServerStatusDto`, `ServerActiveRecording`, `ServerRecordingDto`, `ServerStartResponse`, `ServerStopResponse` and
       `ServerDeviceDto` into it verbatim — `@SerializedName` values, nullability, defaults, computed properties
       (`startedByThisRequest`, `hadActiveJob`), `ServerDeviceDto.id`, and every KDoc line including the "Nullable on
@@ -17,7 +17,7 @@ declarations between files in the same package.
 
 ## 2. Request bodies
 
-- [ ] 2.1 Create `data/server/ServerPayloads.kt` with `StartServerRecordingPayload` (now `internal`),
+- [x] 2.1 Create `data/server/ServerPayloads.kt` with `StartServerRecordingPayload` (now `internal`),
       `ServerDevicePayload` (`private` → `internal`) and `MotionAlertPayload` (`private` → `internal`), fields,
       defaults (`sourceMode = "auto"`, `note = null`) and KDoc unchanged; delete them from
       `ServerRecordingClient.kt`; keep `serverDevicePayload(device)` as a private client method; verify:
@@ -26,17 +26,17 @@ declarations between files in the same package.
 
 ## 3. Client tidy-up
 
-- [ ] 3.1 Drop the now-unused `com.google.gson.annotations.SerializedName` import from `ServerRecordingClient.kt` and
+- [x] 3.1 Drop the now-unused `com.google.gson.annotations.SerializedName` import from `ServerRecordingClient.kt` and
       confirm the remaining imports (`Device`, `StreamProtocol`, `EventType`, `DeviceEntity`, `Gson`, OkHttp,
       coroutines) are all still used; verify: `.\gradlew.bat compileDebugKotlin` reports no unused-import warning in
       that file and the file is around 510 lines.
-- [ ] 3.2 Re-read `app/proguard-rules.pro` and confirm the `data.server.**` member-keep and
+- [x] 3.2 Re-read `app/proguard-rules.pro` and confirm the `data.server.**` member-keep and
       `keep,allowobfuscation` wildcards still cover the two new files (they are package-keyed, so no edit is
       expected); verify: the rules file is unchanged in `git status` and the two new files sit in `data/server/`.
 
 ## 4. Verification
 
-- [ ] 4.1 Run `.\gradlew.bat testDebugUnitTest` — `FakeServerClient`, the gallery ViewModel tests and the export tests
+- [x] 4.1 Run `.\gradlew.bat testDebugUnitTest` — `FakeServerClient`, the gallery ViewModel tests and the export tests
       construct the response shapes directly, so a visibility or signature slip fails here; then
       `.\gradlew.bat lintDebug` and `ktlintCheck`/`detekt` if configured, fixing only what this change introduced.
 - [ ] 4.2 **Live-server gate** (per the project convention, a green build is not done): run the Python server
