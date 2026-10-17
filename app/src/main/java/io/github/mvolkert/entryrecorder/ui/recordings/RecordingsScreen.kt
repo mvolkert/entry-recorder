@@ -27,8 +27,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberSearchBarState
+import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -59,6 +62,7 @@ import io.github.mvolkert.entryrecorder.ui.components.CelebrationCheck
 import io.github.mvolkert.entryrecorder.ui.components.ExpressiveIconBadge
 import io.github.mvolkert.entryrecorder.ui.components.LoadingSpot
 import io.github.mvolkert.entryrecorder.ui.components.PlaybackTarget
+import io.github.mvolkert.entryrecorder.ui.theme.HeaderBandColor
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeColor
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeOnColor
@@ -178,6 +182,11 @@ fun RecordingsScreen(
     // that flip - and keeps the rows themselves out of the branch below.
     val listState = rememberLazyListState()
 
+    // The title band scrolls with the list: content passing under the bar lifts it one tonal step, exactly
+    // as Material's app bars do, and the search/storage/filter strip below the bar moves with it because
+    // the whole band is painted from one colour (see [HeaderBandColor]).
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
+
     // Every clip is one row of the same list: no hero above the newest item, so the gallery reads as a
     // uniform archive and each row keeps the same tap, long-press and menu targets. The rows are hoisted
     // because the tab list and the expanded search surface render exactly the same filtered clips.
@@ -265,7 +274,7 @@ fun RecordingsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface)
+                    .background(HeaderBandColor(scrollBehavior.state))
             ) {
                 RecordingsTopBar(
                     selectionMode = selectionMode,
@@ -275,7 +284,8 @@ fun RecordingsScreen(
                     onExportSelected = { kind -> viewModel.exportSelected(kind) },
                     onBulkDelete = { showBulkDeleteConfirm = true },
                     onExitSelection = exitSelection,
-                    onEnterSelection = { selectionMode = true }
+                    onEnterSelection = { selectionMode = true },
+                    scrollBehavior = scrollBehavior,
                 )
 
                 Column(modifier = Modifier.padding(horizontal = Spacing.lg)) {
@@ -317,6 +327,9 @@ fun RecordingsScreen(
                 rows = rows,
                 onClearFilters = clearAllFilters,
                 onRefresh = { viewModel.refreshServerRecordings() },
+                // Only the tab list feeds the band; the search surface is its own full-screen surface and
+                // has no app bar to scroll under.
+                modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
             )
 
             // One strip for whichever run is going — the transcode/copy percent, the k-of-n batch count or

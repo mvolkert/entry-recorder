@@ -23,12 +23,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -40,6 +43,10 @@ import io.github.mvolkert.entryrecorder.util.RecordingExportKind
 /**
  * Recordings title band. A real [TopAppBar] so its height, titleLarge typography and status-bar
  * inset match the Live and Settings tabs; multi-select actions sit in its action row.
+ *
+ * The bar paints itself transparent: the band that holds it (see [RecordingsScreen]) animates `surface` →
+ * `surfaceContainer` off the same [scrollBehavior] state, and a second paint under it would show a seam
+ * where the bar ends and the search strip begins. Content scrolling under it is what drives the step.
  *
  * In selection mode the title is the batch: [selectedCount] rows, plus a note when [hiddenSelectedCount]
  * of them are checked but filtered away, so the number never claims fewer rows than the operation covers.
@@ -57,12 +64,18 @@ internal fun RecordingsTopBar(
     onBulkDelete: () -> Unit,
     onExitSelection: () -> Unit,
     onEnterSelection: () -> Unit,
+    scrollBehavior: TopAppBarScrollBehavior? = null,
     modifier: Modifier = Modifier,
 ) {
     var showExportMenu by remember { mutableStateOf(false) }
 
     TopAppBar(
         modifier = modifier,
+        scrollBehavior = scrollBehavior,
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = Color.Transparent,
+            scrolledContainerColor = Color.Transparent,
+        ),
         title = {
             Text(
                 text = when {

@@ -17,9 +17,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
@@ -92,6 +95,9 @@ fun SettingsScreen(
     val backupSubtitle = stringResource(R.string.settings_hub_backup_subtitle)
 
     val scheme = MaterialTheme.colorScheme
+    // Lifts the bar to its scrolled tone whenever the rows do pass under it; on a tall window where the
+    // four rows never scroll, the state stays at rest and the bar keeps `surface`.
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
 
     Scaffold(
         // Top inset handled by TopAppBar; bottom system inset by the host NavigationBar in
@@ -99,6 +105,7 @@ fun SettingsScreen(
         contentWindowInsets = WindowInsets(0),
         topBar = {
             TopAppBar(
+                scrollBehavior = scrollBehavior,
                 title = {
                     Text(stringResource(R.string.settings_title), modifier = Modifier.semantics { heading() })
                 }
@@ -107,6 +114,7 @@ fun SettingsScreen(
     ) { paddingValues ->
         LazyColumn(
             modifier = modifier
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .fillMaxSize()
                 .padding(paddingValues),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
