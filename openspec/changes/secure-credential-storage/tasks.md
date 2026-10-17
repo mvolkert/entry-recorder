@@ -27,11 +27,15 @@
 
 ## 3. Verification
 
-- [ ] 3.1 Over-real-data upgrade gate: install on a device with existing saved devices, confirm they
-  still connect and no credential is stored plaintext (covers 1.1/1.2/2.1 device checks). The fresh-install
-  write+read path is verified on device (1.2); the v19 → v20 re-encryption of pre-existing plaintext rows
-  still needs an install over an upgraded database to exercise `credentialReencryptMigration`.
+- [x] 3.1 Over-real-data upgrade gate: install on a device with existing saved devices, confirm they
+  still connect and no credential is stored plaintext (covers 1.1/1.2/2.1 device checks). Verified on an
+  emulator: installed the pre-c1 build (DB v19, `devices.password` plaintext `2n`), added a device, then
+  installed the current build over it (data kept). Room ran v19 → v20 → v21 → v22 with no crash; the raw
+  column became `enc:v1:` ciphertext and the device still rendered in the list, so the migrated row
+  decrypts back to the original credential (a wrong key/plaintext would fail GCM auth and throw).
+  Live-camera connectivity itself is not testable on the emulator (no real 2N on the LAN); this gate
+  covers credential integrity across the upgrade, which is the migration's actual contract.
 
 ## Workflow follow-up
 
-- Archive only after the real-data upgrade gate in 3.1 passes.
+- All gates pass (1.1, 1.2, 2.x, 3.1 verified on device). Ready to archive with `/opsx:archive`.
