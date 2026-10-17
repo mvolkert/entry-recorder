@@ -17,8 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
@@ -28,7 +26,6 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -51,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -60,10 +58,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import io.github.mvolkert.entryrecorder.R
-import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.ui.components.StatusChip
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeColor
+import io.github.mvolkert.entryrecorder.ui.theme.eventTypeIcon
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeLabel
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeOnColor
 import io.github.mvolkert.entryrecorder.ui.theme.onScrimColor
@@ -121,17 +119,27 @@ internal fun RecordingCardItem(
         stringResource(R.string.recordings_cd_extend_selection)
     else null
 
+    val shape = MaterialTheme.shapes.extraLarge
+
+    // The row's fill and press layer are painted on the incoming chain, in front of the click modifier, so
+    // the ripple lands on top of the card colour instead of under it: a Card draws an opaque background of
+    // its own, and a state layer behind that fill is invisible no matter how long the press is held. The
+    // order within the chain is load-bearing — clip before clickable shape-clips the ripple to the card's
+    // corners, background before clickable puts the ripple above the fill. Card stays, because it supplies
+    // the content colour and the shape for the row's interior.
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .clip(shape)
+            .background(containerColor)
             .combinedClickable(
                 onClick = { if (selectionMode && !isRemote) onSelectToggle() else onPlay() },
                 onLongClick = if (isRemote) null else onLongSelect,
                 onClickLabel = clickLabel,
                 onLongClickLabel = longClickLabel,
             ),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(containerColor = containerColor)
+        shape = shape,
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
         Row(
             modifier = Modifier
@@ -179,11 +187,8 @@ internal fun galleryDateStr(timestamp: Long): String {
 
 @Composable
 private fun RecordingThumbnail(item: GalleryItem) {
-    val fallbackIcon = when (item.eventType) {
-        EventType.RING -> Icons.Default.Call
-        EventType.NOISE -> Icons.AutoMirrored.Filled.VolumeUp
-        else -> Icons.Default.Videocam
-    }
+    // The same glyph the filter chip for this trigger shows; one event never reads as two shapes.
+    val fallbackIcon = eventTypeIcon(item.eventType)
     // Coil accepts a File (local thumbnail) or a URL string (server thumbnail); null or a failed load
     // falls back to the event icon, so an unreachable server shows an icon rather than a black box.
     val model: Any? = galleryThumbnailModel(item)
@@ -192,7 +197,9 @@ private fun RecordingThumbnail(item: GalleryItem) {
         modifier = Modifier
             .size(130.dp, 88.dp)
             .clip(MaterialTheme.shapes.large)
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+            // Nested surfaces step up, never down: the thumbnail sits inside a surfaceContainerHigh
+            // card, so its placeholder takes the next role rather than the boundary-only surfaceVariant.
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
         contentAlignment = Alignment.Center
     ) {
         // A failed thumbnail load (e.g. an unreachable server) falls back to the event icon rather
