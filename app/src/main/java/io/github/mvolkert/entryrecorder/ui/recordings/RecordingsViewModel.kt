@@ -27,7 +27,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -94,12 +93,10 @@ class RecordingsViewModel @Inject constructor(
     private val _selectedEventType = MutableStateFlow<EventType?>(null)
     private val _searchQuery = MutableStateFlow("")
 
-    /** Ids currently checked in multi-select delete mode. */
-    private val _selectedIds = MutableStateFlow<Set<Long>>(emptySet())
-    val selectedIds: StateFlow<Set<Long>> = _selectedIds.asStateFlow()
+    private val selection = GallerySelection()
 
-    /** Row the range gesture (long-press) measures from; null until something has been picked. */
-    private var selectionAnchorId: Long? = null
+    /** Ids currently checked in multi-select delete mode. */
+    val selectedIds: StateFlow<Set<Long>> = selection.checkedIds
 
     private val _events = Channel<RecordingsUiEvent>(Channel.BUFFERED)
 
@@ -134,7 +131,6 @@ class RecordingsViewModel @Inject constructor(
     )
     private val _serverState = MutableStateFlow(ServerListState())
 
-    private data class Filters(val deviceId: Long?, val eventType: EventType?, val query: String)
     private data class SourceData(
         val recordings: List<Recording>,
         val devices: List<Device>,
@@ -144,7 +140,7 @@ class RecordingsViewModel @Inject constructor(
 
     private val filterState =
         combine(_selectedDeviceId, _selectedEventType, _searchQuery) { deviceId, eventType, query ->
-            Filters(deviceId, eventType, query)
+            GalleryFilters(deviceId, eventType, query)
         }
 
     private val sourceState = combine(
@@ -158,40 +154,16 @@ class RecordingsViewModel @Inject constructor(
 
     val uiState: StateFlow<RecordingsUiState> = combine(filterState, sourceState) { filters, source ->
         val selectedDevice = source.devices.firstOrNull { it.id == filters.deviceId }
+        val localItems = GalleryQuery.localRecordings(source.recordings, filters).map { GalleryItem.Local(it) }
 
-        val localItems = source.recordings.filter { recording ->
-            val matchesDevice = filters.deviceId == null || recording.deviceId == filters.deviceId
-            // A clip that folded a second trigger in while it was still recording matches either tag, so a
-            // doorbell pressed during a motion recording turns up under Ring as well as under Motion.
-            val typeFilter = filters.eventType
-            val matchesType = typeFilter == null || typeFilter in recording.triggerTypes
-            val matchesQuery = filters.query.isBlank() ||
-                    recording.deviceName.contains(filters.query, ignoreCase = true) ||
-                    (recording.note?.contains(filters.query, ignoreCase = true) == true)
-            matchesDevice && matchesType && matchesQuery
-        }.map { GalleryItem.Local(it) }
-
-        // Server rows only appear in PYTHON_SERVER mode; a row with no video path is skipped. Filtering
-        // mirrors the local rules, except the device filter matches server rows by the server-assigned id
-        // the Phase S sync stored, falling back to a name compare for a device not yet registered.
+        // Server rows only appear in PYTHON_SERVER mode, and a row with no video path is dropped by the query.
         val settings = source.settings
-        val selectedServerId = selectedDevice?.serverDeviceId
         val remoteItems = if (settings?.recordingMode == RecordingMode.PYTHON_SERVER) {
-            source.server.items.mapNotNull { dto ->
-                val matchesDevice = filters.deviceId == null ||
-                        if (selectedServerId != null) dto.deviceId == selectedServerId
-                        else dto.deviceName == selectedDevice?.name
-                val matchesType = filters.eventType == null ||
-                        runCatching { EventType.valueOf(dto.eventType) }.getOrDefault(EventType.UNKNOWN) == filters.eventType
-                val matchesQuery = filters.query.isBlank() ||
-                        dto.deviceName.contains(filters.query, ignoreCase = true) ||
-                        (dto.note?.contains(filters.query, ignoreCase = true) == true)
-                val video = dto.videoUrl
-                if (!matchesDevice || !matchesType || !matchesQuery || video == null) null
-                else GalleryItem.Remote(
-                    dto = dto,
-                    thumbnailAbsoluteUrl = ServerMediaUrls.absolute(settings.serverBaseUrl, dto.thumbnailUrl, settings.serverApiKey),
-                    videoAbsoluteUrl = ServerMediaUrls.absolute(settings.serverBaseUrl, video, settings.serverApiKey) ?: ""
+            GalleryQuery.serverRows(source.server.items, filters, selectedDevice).map { row ->
+                GalleryItem.Remote(
+                    dto = row.dto,
+                    thumbnailAbsoluteUrl = ServerMediaUrls.absolute(settings.serverBaseUrl, row.dto.thumbnailUrl, settings.serverApiKey),
+                    videoAbsoluteUrl = ServerMediaUrls.absolute(settings.serverBaseUrl, row.videoUrl, settings.serverApiKey) ?: ""
                 )
             }
         } else emptyList()
@@ -205,7 +177,7 @@ class RecordingsViewModel @Inject constructor(
             totalStorageBytes = source.recordings.sumOf { it.fileSizeBytes },
             isServerLoading = source.server.isLoading,
             isLoading = false,
-            filtersActive = filters.deviceId != null || filters.eventType != null || filters.query.isNotBlank(),
+            filtersActive = filters.active,
             serverModeEnabled = settings?.recordingMode == RecordingMode.PYTHON_SERVER
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RecordingsUiState())
@@ -255,15 +227,12 @@ class RecordingsViewModel @Inject constructor(
         _selectedDeviceId.value = null
         _selectedEventType.value = null
         _searchQuery.value = ""
-        clearSelection()
+        selection.clear()
         _events.trySend(RecordingsUiEvent.SelectionCleared)
     }
 
     fun deleteRecording(recording: Recording) {
-        // Drop the row from the selection where it still sits, so the header count never names a clip
-        // that is already gone and a deleted anchor cannot stretch a range across the list.
-        _selectedIds.update { it - recording.id }
-        if (selectionAnchorId == recording.id) selectionAnchorId = null
+        selection.drop(recording.id)
         viewModelScope.launch {
             val result = repository.deleteRecording(recording)
             // A row that quietly vanishes is inferred, not confirmed - and this one took a file with it.
@@ -281,54 +250,35 @@ class RecordingsViewModel @Inject constructor(
     // --- Multi-select bulk delete ---
 
     fun toggleSelection(id: Long) {
-        _selectedIds.update { if (id in it) it - id else it + id }
-        selectionAnchorId = id
+        selection.toggle(id)
     }
 
     /**
-     * Marks every local row between the last picked row and [targetId], inclusive — the "pick the first,
-     * pick the last" gesture. Measured on the visible order, so rows a filter hides are never swept in,
-     * and it only ever adds: deselecting stays a per-row action.
+     * Marks every local row between the last picked row and [targetId] — the "pick the first, pick the last"
+     * gesture — measured on the order the screen shows, so a row a filter hides is never swept in.
      */
     fun selectRangeTo(targetId: Long) {
-        val visibleIds = uiState.value.localRecordings.map { it.id }
-        _selectedIds.update { it + rangeSelection(visibleIds, selectionAnchorId, targetId) }
-        selectionAnchorId = targetId
+        selection.selectRangeTo(visibleLocalIds(), targetId)
     }
 
     fun clearSelection() {
-        _selectedIds.value = emptySet()
-        selectionAnchorId = null
+        selection.clear()
     }
 
-    /**
-     * What the selection title and the bulk-delete dialog read. The counts run over the whole archive
-     * rather than the filtered view, because that is what a bulk operation acts on:
-     * [hiddenSelectedCount] says how many checked rows the filters currently hide, so the number on screen
-     * never promises a different batch than the one that gets deleted or exported.
-     */
-    data class SelectionInfo(
-        val selectedCount: Int,
-        val protectedCount: Int,
-        val hiddenSelectedCount: Int = 0,
-    )
+    /** The local rows the current filters let through, in the order the screen shows them. */
+    private fun visibleLocalIds(): List<Long> = uiState.value.localRecordings.map { it.id }
 
     val selectionInfo: StateFlow<SelectionInfo> = combine(
         repository.allRecordings,
         uiState,
-        _selectedIds
+        selection.checkedIds,
     ) { recordings, state, ids ->
-        val selected = recordings.filter { it.id in ids }
-        SelectionInfo(
-            selectedCount = selected.size,
-            protectedCount = selected.count { it.isProtected },
-            hiddenSelectedCount = hiddenSelectedCount(ids, state.localRecordings.map { it.id })
-        )
+        selection.info(recordings, state.localRecordings.map { it.id }, ids)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SelectionInfo(0, 0))
 
     /** Selects every local recording currently visible after filters (server rows are read-only). */
     fun selectAllVisible() {
-        _selectedIds.value = uiState.value.localRecordings.map { it.id }.toSet()
+        selection.selectAll(visibleLocalIds())
     }
 
     /**
@@ -339,9 +289,9 @@ class RecordingsViewModel @Inject constructor(
 
     /** Deletes the unprotected selected recordings (and their files), then clears the selection. */
     fun deleteSelected() {
-        val ids = _selectedIds.value
+        val ids = selection.currentIds
         viewModelScope.launch {
-            val targets = allLocalRecordings().filter { it.id in ids }
+            val targets = selection.targetsIn(allLocalRecordings(), ids)
             if (targets.isEmpty()) {
                 message(R.string.recordings_toast_nothing_selected)
                 return@launch
@@ -360,7 +310,7 @@ class RecordingsViewModel @Inject constructor(
                     message(R.string.recordings_toast_deleted_orphan)
                 }
             }
-            clearSelection()
+            selection.clear()
         }
     }
 
@@ -426,16 +376,16 @@ class RecordingsViewModel @Inject constructor(
      */
     fun exportSelected(kind: RecordingExportKind) {
         if (exportCoordinator.refuseIfBusy()) return
-        if (_selectedIds.value.isEmpty()) {
+        if (selection.isEmpty) {
             message(R.string.recordings_toast_nothing_selected)
             return
         }
         exportCoordinator.start { ctx ->
-            val targets = allLocalRecordings().filter { it.id in _selectedIds.value }
+            val targets = selection.targetsIn(allLocalRecordings())
             try {
                 exportRunner.exportBatch(targets, kind, ctx)
             } finally {
-                clearSelection()
+                selection.clear()
                 _events.trySend(RecordingsUiEvent.SelectionCleared)
             }
         }

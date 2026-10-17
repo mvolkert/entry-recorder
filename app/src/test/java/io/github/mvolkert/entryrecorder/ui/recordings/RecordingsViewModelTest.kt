@@ -216,6 +216,37 @@ class RecordingsViewModelTest {
     }
 
     @Test
+    fun `bulk delete through the view model skips protected clips and leaves multi-select`() = runViewModelTest {
+        repository.upsertDevice(testDevice(id = 1L))
+        repository.insertRecording(testRecording(id = 1, deviceId = 1L, filePath = "clip1.mkv"))
+        repository.insertRecording(
+            testRecording(id = 2, deviceId = 1L, timestamp = 1_700_000_000_001L, filePath = "clip2.mkv")
+                .copy(isProtected = true)
+        )
+        // Both derived flows only compute while subscribed, so keep one collector alive on each.
+        backgroundScope.launch(UnconfinedTestDispatcher(testDispatcher.scheduler)) { vm.uiState.collect {} }
+        backgroundScope.launch(UnconfinedTestDispatcher(testDispatcher.scheduler)) { vm.selectionInfo.collect {} }
+        val received = collectEvents()
+
+        vm.toggleSelection(1L)
+        vm.toggleSelection(2L)
+        advanceUntilIdle()
+        assertEquals(2, vm.selectionInfo.value.selectedCount)
+        assertEquals(1, vm.selectionInfo.value.protectedCount)
+
+        vm.deleteSelected()
+        advanceUntilIdle()
+
+        assertNone(recordingDao.rows.singleOrNull { it.id == 1L }, "the unprotected clip must be gone")
+        assertEquals(2L, recordingDao.rows.singleOrNull { it.id == 2L }?.id, "a protected clip survives a bulk delete")
+        assertTrue(vm.selectedIds.value.isEmpty(), "the batch clears once it has been acted on")
+        assertTrue(
+            received.any { it is RecordingsUiEvent.Message && it.text.startsWith("plural-") },
+            "the skipped protected clip is reported, not dropped silently",
+        )
+    }
+
+    @Test
     fun `device, event-type and search filters narrow items and flip filtersActive`() = runViewModelTest {
         val gate = testDevice(id = 1L, name = "Doorbell")
         val garage = testDevice(id = 2L, name = "Garage")
