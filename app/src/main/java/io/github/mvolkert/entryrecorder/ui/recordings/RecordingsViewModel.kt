@@ -16,14 +16,12 @@ import io.github.mvolkert.entryrecorder.data.repository.RecordingDeleteResult
 import io.github.mvolkert.entryrecorder.data.server.ServerClient
 import io.github.mvolkert.entryrecorder.data.server.ServerMediaUrls
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingDto
-import io.github.mvolkert.entryrecorder.util.ExportContext
 import io.github.mvolkert.entryrecorder.util.ExportMetadata
 import io.github.mvolkert.entryrecorder.util.ExportRunner
 import io.github.mvolkert.entryrecorder.util.RecordingExportKind
 import io.github.mvolkert.entryrecorder.util.ServerRecordingSource
 import io.github.mvolkert.entryrecorder.util.UiStrings
 import javax.inject.Inject
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -86,9 +84,9 @@ class RecordingsViewModel @Inject constructor(
     private val repository: IntercomRepository,
     private val serverClient: ServerClient,
     private val strings: UiStrings,
-    // The whole transcode → deliver → progress → celebrate pipeline lives in [ExportRunner]; the ViewModel
-    // keeps only the state the strip and the snack bar read (the progress flows, the event channel) and the
-    // intents that start, guard and cancel a run.
+    // The whole transcode → deliver → progress → celebrate pipeline lives in [ExportRunner]; which run is
+    // active and what the strip shows lives in [GalleryExportCoordinator]. What stays here is the gallery's own
+    // business: the event channel, resolving what an action should act on, and the selection bookkeeping.
     private val exportRunner: ExportRunner,
 ) : ViewModel() {
 
@@ -103,73 +101,31 @@ class RecordingsViewModel @Inject constructor(
     /** Row the range gesture (long-press) measures from; null until something has been picked. */
     private var selectionAnchorId: Long? = null
 
-    /** Stage of the running single-item export, null while idle; [bodyRes] labels the strip's percent line. */
-    data class ExportRunProgress(val percent: Int, @StringRes val bodyRes: Int)
-
-    /** Progress of the running single-item export (transcode or folder copy), null while idle. */
-    private val _exportProgress = MutableStateFlow<ExportRunProgress?>(null)
-    val exportProgress: StateFlow<ExportRunProgress?> = _exportProgress.asStateFlow()
-
-    /** Done/total pair of a running multi-select export, null while idle. */
-    private val _batchProgress = MutableStateFlow<Pair<Int, Int>?>(null)
-    val batchProgress: StateFlow<Pair<Int, Int>?> = _batchProgress.asStateFlow()
-
-    /** Percent (0..100) of a running server-video download, null while idle. */
-    private val _serverDownload = MutableStateFlow<Int?>(null)
-    val serverDownload: StateFlow<Int?> = _serverDownload.asStateFlow()
-
-    /**
-     * The one export or download run that owns the progress strip. Three flows feed it because the runs are
-     * mutually exclusive: that was automatic while their dialogs covered the screen, and with a strip the
-     * list stays usable, so [runBusy] answers a second request instead of starting a rival run over the
-     * same flows — two at once would show only one of them and clear the strip when the older one ends.
-     */
-    private var activeRun: Job? = null
-
-    /**
-     * Stops the running export or download. [H264Transcoder] checks cancellation per frame, so this
-     * lands within one frame; the strip and the unfinished file are dropped by the cancelled run's own
-     * `finally`, which is where it learns which output to delete.
-     */
-    fun cancelActiveRun() {
-        activeRun?.cancel()
-        message(R.string.recordings_run_cancelled)
-    }
-
-    /** True (and said out loud) when a request arrives while a run still owns the progress strip. */
-    private fun runBusy(): Boolean {
-        if (activeRun?.isActive != true) return false
-        message(R.string.recordings_run_busy)
-        return true
-    }
-
-    /** Ends the run: drops the strip by clearing every progress flow and releases [activeRun]. */
-    private fun finishRun() {
-        activeRun = null
-        _exportProgress.value = null
-        _batchProgress.value = null
-        _serverDownload.value = null
-    }
-
     private val _events = Channel<RecordingsUiEvent>(Channel.BUFFERED)
 
     /** Export results the screen turns into a snack-bar message or a share sheet. */
     val events: Flow<RecordingsUiEvent> = _events.receiveAsFlow()
 
-    /**
-     * Wires the [ExportRunner]'s progress + effect callbacks to this ViewModel's flows and event channel:
-     * the runner owns the pipeline, the ViewModel only mirrors what it reports onto the state the screen
-     * reads. The share effect is forwarded to the screen (as a [RecordingsUiEvent.Share]) because only an
-     * Activity context can open the system sheet — the ViewModel holds none.
-     */
-    private val exportContext = ExportContext(
-        onExportProgress = { percent, bodyRes -> _exportProgress.value = ExportRunProgress(percent, bodyRes) },
-        onBatchProgress = { done, total -> _batchProgress.value = done to total },
-        onServerDownload = { percent -> _serverDownload.value = percent },
-        onMessage = { text, short -> emitMessage(text, short) },
-        onShare = { files, metadata -> _events.trySend(RecordingsUiEvent.Share(files, metadata)) },
-        onCelebrate = { _events.trySend(RecordingsUiEvent.ExportCompleted) },
+    private val exportCoordinator = GalleryExportCoordinator(
+        scope = viewModelScope,
+        strings = strings,
+        emitMessage = ::emitMessage,
+        emitEvent = { event -> _events.trySend(event) },
     )
+
+    /** Progress of the running single-item export (transcode or folder copy), null while idle. */
+    val exportProgress: StateFlow<ExportRunProgress?> = exportCoordinator.exportProgress
+
+    /** Done/total pair of a running multi-select export, null while idle. */
+    val batchProgress: StateFlow<Pair<Int, Int>?> = exportCoordinator.batchProgress
+
+    /** Percent (0..100) of a running server-video download, null while idle. */
+    val serverDownload: StateFlow<Int?> = exportCoordinator.serverDownload
+
+    /** Stops the running export or download, dropping the strip through the coordinator's own cleanup. */
+    fun cancelActiveRun() {
+        exportCoordinator.cancel()
+    }
 
     /** Server rows are a lazy one-shot fetch, kept out of the Room flow so an offline server can't stall it. */
     private data class ServerListState(
@@ -456,19 +412,11 @@ class RecordingsViewModel @Inject constructor(
     }
 
     /**
-     * Exports one recording through [ExportRunner]; the busy guard and the progress strip's lifecycle stay
-     * here — the run owns [activeRun] so a second request is refused, and [finishRun] drops every flow when
-     * the run ends or is cancelled.
+     * Exports one recording through [ExportRunner]. The busy guard, the strip's lifecycle and its cleanup belong
+     * to [GalleryExportCoordinator].
      */
     fun exportRecording(recording: Recording, kind: RecordingExportKind) {
-        if (runBusy()) return
-        activeRun = viewModelScope.launch {
-            try {
-                exportRunner.exportLocal(recording, kind, exportContext)
-            } finally {
-                finishRun()
-            }
-        }
+        exportCoordinator.start { ctx -> exportRunner.exportLocal(recording, kind, ctx) }
     }
 
     /**
@@ -477,19 +425,18 @@ class RecordingsViewModel @Inject constructor(
      * the ViewModel owns the selection state.
      */
     fun exportSelected(kind: RecordingExportKind) {
-        if (runBusy()) return
+        if (exportCoordinator.refuseIfBusy()) return
         if (_selectedIds.value.isEmpty()) {
             message(R.string.recordings_toast_nothing_selected)
             return
         }
-        activeRun = viewModelScope.launch {
+        exportCoordinator.start { ctx ->
+            val targets = allLocalRecordings().filter { it.id in _selectedIds.value }
             try {
-                val targets = allLocalRecordings().filter { it.id in _selectedIds.value }
-                exportRunner.exportBatch(targets, kind, exportContext)
+                exportRunner.exportBatch(targets, kind, ctx)
             } finally {
                 clearSelection()
                 _events.trySend(RecordingsUiEvent.SelectionCleared)
-                finishRun()
             }
         }
     }
@@ -500,7 +447,7 @@ class RecordingsViewModel @Inject constructor(
      * [ServerRecordingSource] so the runner never sees a UI type.
      */
     fun exportServerRecording(item: GalleryItem.Remote, kind: RecordingExportKind) {
-        if (runBusy()) return
+        if (exportCoordinator.refuseIfBusy()) return
         if (item.videoAbsoluteUrl.isBlank()) {
             message(R.string.recordings_toast_download_failed, "no video url")
             return
@@ -511,13 +458,7 @@ class RecordingsViewModel @Inject constructor(
             deviceName = item.deviceName,
             eventType = item.eventType,
         )
-        activeRun = viewModelScope.launch {
-            try {
-                exportRunner.exportServer(source, kind, exportContext)
-            } finally {
-                finishRun()
-            }
-        }
+        exportCoordinator.start { ctx -> exportRunner.exportServer(source, kind, ctx) }
     }
 
     private fun message(@StringRes id: Int, vararg args: Any, short: Boolean = false) {

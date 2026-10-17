@@ -162,7 +162,7 @@ class RecordingsViewModelTest {
         vm.exportRecording(recording, RecordingExportKind.FOLDER)
         advanceUntilIdle()
         assertEquals(1, transcoder.transcodeCalls.size, "the run must have reached the transcode")
-        expectIs<RecordingsViewModel.ExportRunProgress>(vm.exportProgress.value)
+        expectIs<ExportRunProgress>(vm.exportProgress.value)
 
         vm.cancelActiveRun()
         advanceUntilIdle()
