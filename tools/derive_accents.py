@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Derive the light-mode AccentRoles for ui/theme/Theme.kt from the dark presets' hues.
+"""Derive the light-mode AccentRoles for ui/theme/Accents.kt from the dark presets' hues.
 
 Same method that produced the dark set: work in OKLCh, keep the hue, take ~90% of the
 chroma the sRGB gamut allows at the chosen lightness (binary-searched, never clipped
@@ -117,7 +117,7 @@ def parse(s):
         s = s[2:]
     return "#FF" + s
 
-# ---------------------------------------------------------------- presets (dark, from Theme.kt)
+# ---------------------------------------------------------------- presets (dark, from Accents.kt)
 
 DARK = [
     ("default", "FFBB9FF8", "FFC1ACE0", "FFEF9BB5", "FF7322CC", "FFE8E6EF"),
@@ -178,7 +178,7 @@ def check(label, fg, bg):
     return r
 
 
-print("== light presets (paste into Theme.kt) ==")
+print("== light presets (paste into ui/theme/Accents.kt) ==")
 lines = []
 for name, p, s, t, _pc, _oc in DARK:
     out = light_for(name, parse(p), parse(s), parse(t))

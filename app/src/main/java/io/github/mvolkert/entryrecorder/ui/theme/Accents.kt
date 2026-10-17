@@ -1,0 +1,228 @@
+package io.github.mvolkert.entryrecorder.ui.theme
+
+import androidx.annotation.StringRes
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.graphics.Color
+import io.github.mvolkert.entryrecorder.R
+
+/**
+ * The eight visible accent roles for one color mode. Each pairing is derived so foreground vs
+ * background contrast stays at or above WCAG AA (4.5:1), so users cannot pick a broken combination
+ * the way a free color wheel would allow.
+ */
+data class AccentRoles(
+    val primary: Color,
+    val onPrimary: Color,
+    val primaryContainer: Color,
+    val onPrimaryContainer: Color,
+    val secondary: Color,
+    val onSecondary: Color,
+    val tertiary: Color,
+    val onTertiary: Color,
+)
+
+/** A curated accent preset: explicit, independently derived role sets for the dark and light schemes. */
+data class AccentPalette(
+    @StringRes val labelRes: Int,
+    val dark: AccentRoles,
+    val light: AccentRoles,
+)
+
+// Chroma-first presets, derived in OKLCh (not picked by eye): each primary and primaryContainer takes
+// ~90% of the chroma the sRGB gamut allows at its own lightness, on the **same hue** as the previous
+// baseline set — the old values were Material 3 tone-80 presets, which are low-chroma by construction.
+// Dark primaries sit at OKLCh L≈0.76 so they clear 7:1 against the dark surface (`primary` doubles as
+// the text/icon color of section headers, buttons, switches). Light roles are NOT a swap of the dark
+// pair: they are derived independently (same hues, darker primaries that clear 4.5:1 BOTH as text on
+// the light surface and under white button text) by `tools/derive_accents.py`, which prints these
+// literals and asserts every pair. Do not hand-edit a single role: re-run the script, otherwise the
+// accent silently becomes unreadable at one size or the other. `AccentPaletteContrastTest` re-checks
+// all pairs on every test run.
+val accentPresets: List<AccentPalette> = listOf(
+    AccentPalette(
+        labelRes = R.string.accent_default,
+        dark = AccentRoles(
+            primary = Color(0xFFBB9FF8), onPrimary = Color(0xFF2B1E42),
+            primaryContainer = Color(0xFF7322CC), onPrimaryContainer = Color(0xFFE8E6EF),
+            secondary = Color(0xFFC1ACE0), onSecondary = Color(0xFF2D1E40),
+            tertiary = Color(0xFFEF9BB5), onTertiary = Color(0xFF3A1B26),
+        ),
+        light = AccentRoles(
+            primary = Color(0xFF8027E3), onPrimary = Color(0xFFF8F5FA),
+            primaryContainer = Color(0xFFE2D7FF), onPrimaryContainer = Color(0xFF332350),
+            secondary = Color(0xFF8359B6), onSecondary = Color(0xFFF8F5FA),
+            tertiary = Color(0xFFB72165), onTertiary = Color(0xFFF8F5FA),
+        ),
+    ),
+    AccentPalette(
+        labelRes = R.string.accent_teal,
+        dark = AccentRoles(
+            primary = Color(0xFF39C7D1), onPrimary = Color(0xFF1A2A2B),
+            primaryContainer = Color(0xFF1A6A70), onPrimaryContainer = Color(0xFFD6EDEF),
+            secondary = Color(0xFF7DC6CC), onSecondary = Color(0xFF1A2A2B),
+            tertiary = Color(0xFF9EB7EE), onTertiary = Color(0xFF12234F),
+        ),
+        light = AccentRoles(
+            primary = Color(0xFF1E767D), onPrimary = Color(0xFFF8F5FA),
+            primaryContainer = Color(0xFF87F2FA), onPrimaryContainer = Color(0xFF043539),
+            secondary = Color(0xFF4C7477), onSecondary = Color(0xFFF8F5FA),
+            tertiary = Color(0xFF2552F0), onTertiary = Color(0xFFF8F5FA),
+        ),
+    ),
+    AccentPalette(
+        labelRes = R.string.accent_amber,
+        dark = AccentRoles(
+            primary = Color(0xFFD9A932), onPrimary = Color(0xFF2C2618),
+            primaryContainer = Color(0xFF745916), onPrimaryContainer = Color(0xFFEFE7D7),
+            secondary = Color(0xFFCFB475), onSecondary = Color(0xFF2C2618),
+            tertiary = Color(0xFFD2A1EE), onTertiary = Color(0xFF311D3B),
+        ),
+        light = AccentRoles(
+            primary = Color(0xFF826419), onPrimary = Color(0xFFF8F5FA),
+            primaryContainer = Color(0xFFFCDA90), onPrimaryContainer = Color(0xFF3C2B04),
+            secondary = Color(0xFF7D6D49), onSecondary = Color(0xFFF8F5FA),
+            tertiary = Color(0xFF9523C5), onTertiary = Color(0xFFF8F5FA),
+        ),
+    ),
+    AccentPalette(
+        labelRes = R.string.accent_magenta,
+        dark = AccentRoles(
+            primary = Color(0xFFF884C2), onPrimary = Color(0xFF381B2B),
+            primaryContainer = Color(0xFFA01C6E), onPrimaryContainer = Color(0xFFEFE5E9),
+            secondary = Color(0xFFE2A2BB), onSecondary = Color(0xFF391B28),
+            tertiary = Color(0xFFDDB055), onTertiary = Color(0xFF2D2518),
+        ),
+        light = AccentRoles(
+            primary = Color(0xFFB3207C), onPrimary = Color(0xFFF8F5FA),
+            primaryContainer = Color(0xFFFFCEE5), onPrimaryContainer = Color(0xFF491A35),
+            secondary = Color(0xFFA35376), onSecondary = Color(0xFFF8F5FA),
+            tertiary = Color(0xFF846319), onTertiary = Color(0xFFF8F5FA),
+        ),
+    ),
+    AccentPalette(
+        labelRes = R.string.accent_blue,
+        dark = AccentRoles(
+            primary = Color(0xFF8BB1F7), onPrimary = Color(0xFF162543),
+            primaryContainer = Color(0xFF114ED2), onPrimaryContainer = Color(0xFFE4E8EF),
+            secondary = Color(0xFF9DBADF), onSecondary = Color(0xFF192739),
+            tertiary = Color(0xFFC6A7EE), onTertiary = Color(0xFF2D1D3F),
+        ),
+        light = AccentRoles(
+            primary = Color(0xFF145AE5), onPrimary = Color(0xFFF8F5FA),
+            primaryContainer = Color(0xFFCDDFFF), onPrimaryContainer = Color(0xFF172C55),
+            secondary = Color(0xFF4A71A1), onSecondary = Color(0xFFF8F5FA),
+            tertiary = Color(0xFF8A25D7), onTertiary = Color(0xFFF8F5FA),
+        ),
+    ),
+    AccentPalette(
+        labelRes = R.string.accent_green,
+        dark = AccentRoles(
+            primary = Color(0xFF5ECF33), onPrimary = Color(0xFF1D2B19),
+            primaryContainer = Color(0xFF2F6F17), onPrimaryContainer = Color(0xFFDAEFD4),
+            secondary = Color(0xFF94C976), onSecondary = Color(0xFF1F2A19),
+            tertiary = Color(0xFF5ECAD3), onTertiary = Color(0xFF1A2A2B),
+        ),
+        light = AccentRoles(
+            primary = Color(0xFF357C1A), onPrimary = Color(0xFFF8F5FA),
+            primaryContainer = Color(0xFFBDEFAE), onPrimaryContainer = Color(0xFF16370A),
+            secondary = Color(0xFF587647), onSecondary = Color(0xFFF8F5FA),
+            tertiary = Color(0xFF1E767D), onTertiary = Color(0xFFF8F5FA),
+        ),
+    ),
+    AccentPalette(
+        labelRes = R.string.accent_coral,
+        dark = AccentRoles(
+            primary = Color(0xFFF89082), onPrimary = Color(0xFF3B1C18),
+            primaryContainer = Color(0xFFAB1E19), onPrimaryContainer = Color(0xFFEFE5E4),
+            secondary = Color(0xFFE1A79D), onSecondary = Color(0xFF3B1C18),
+            tertiary = Color(0xFFEF9ABA), onTertiary = Color(0xFF391B27),
+        ),
+        light = AccentRoles(
+            primary = Color(0xFFBF221C), onPrimary = Color(0xFFF8F5FA),
+            primaryContainer = Color(0xFFFFD2CB), onPrimaryContainer = Color(0xFF4F1A15),
+            secondary = Color(0xFFA9564A), onSecondary = Color(0xFFF8F5FA),
+            tertiary = Color(0xFFB6206D), onTertiary = Color(0xFFF8F5FA),
+        ),
+    ),
+    AccentPalette(
+        labelRes = R.string.accent_violet,
+        dark = AccentRoles(
+            primary = Color(0xFFB1A3F8), onPrimary = Color(0xFF271F45),
+            primaryContainer = Color(0xFF6624D9), onPrimaryContainer = Color(0xFFE7E7EF),
+            secondary = Color(0xFFBAAFE0), onSecondary = Color(0xFF291E43),
+            tertiary = Color(0xFFEF95D2), onTertiary = Color(0xFF371B2E),
+        ),
+        light = AccentRoles(
+            primary = Color(0xFF7329F0), onPrimary = Color(0xFFF8F5FA),
+            primaryContainer = Color(0xFFDDD9FF), onPrimaryContainer = Color(0xFF2F2552),
+            secondary = Color(0xFF795DBA), onSecondary = Color(0xFFF8F5FA),
+            tertiary = Color(0xFFAE208D), onTertiary = Color(0xFFF8F5FA),
+        ),
+    ),
+)
+
+// The light scheme's neutral tokens are set explicitly instead of resting on the
+// lightColorScheme() defaults, so cards and list rows keep a predictable contrast against the
+// light surface. The dark scheme keeps the Material 3 defaults (already contrast-checked).
+private val LightNeutralBackground = Color(0xFFFFFBFE)
+private val LightNeutralOnBackground = Color(0xFF1C1B1F)
+private val LightNeutralSurface = Color(0xFFFFFBFE)
+private val LightNeutralOnSurface = Color(0xFF1C1B1F)
+private val LightNeutralSurfaceVariant = Color(0xFFE7E0EC)
+private val LightNeutralOnSurfaceVariant = Color(0xFF49454F)
+private val LightNeutralOutline = Color(0xFF79747E)
+private val LightNeutralOutlineVariant = Color(0xFFCAC4D0)
+
+internal fun buildColorScheme(
+    primary: AccentPalette,
+    secondary: AccentPalette,
+    tertiary: AccentPalette,
+    dark: Boolean,
+): ColorScheme = if (dark) {
+    darkColorScheme(
+        primary = primary.dark.primary,
+        onPrimary = primary.dark.onPrimary,
+        primaryContainer = primary.dark.primaryContainer,
+        onPrimaryContainer = primary.dark.onPrimaryContainer,
+        secondary = secondary.dark.secondary,
+        onSecondary = secondary.dark.onSecondary,
+        // Each preset derives exactly one container pair (its primary's). Reusing that pair for the role's
+        // own container keeps the nav active indicator, the FilterChips and the selected recording card on
+        // the chosen palette instead of the neutral Material default: same hue family, and the
+        // container/on-container contrast is already the measured one.
+        secondaryContainer = secondary.dark.primaryContainer,
+        onSecondaryContainer = secondary.dark.onPrimaryContainer,
+        tertiary = tertiary.dark.tertiary,
+        onTertiary = tertiary.dark.onTertiary,
+        tertiaryContainer = tertiary.dark.primaryContainer,
+        onTertiaryContainer = tertiary.dark.onPrimaryContainer,
+    )
+} else {
+    lightColorScheme(
+        primary = primary.light.primary,
+        onPrimary = primary.light.onPrimary,
+        primaryContainer = primary.light.primaryContainer,
+        onPrimaryContainer = primary.light.onPrimaryContainer,
+        secondary = secondary.light.secondary,
+        onSecondary = secondary.light.onSecondary,
+        secondaryContainer = secondary.light.primaryContainer,
+        onSecondaryContainer = secondary.light.onPrimaryContainer,
+        tertiary = tertiary.light.tertiary,
+        onTertiary = tertiary.light.onTertiary,
+        tertiaryContainer = tertiary.light.primaryContainer,
+        onTertiaryContainer = tertiary.light.onPrimaryContainer,
+        background = LightNeutralBackground,
+        onBackground = LightNeutralOnBackground,
+        surface = LightNeutralSurface,
+        onSurface = LightNeutralOnSurface,
+        surfaceVariant = LightNeutralSurfaceVariant,
+        onSurfaceVariant = LightNeutralOnSurfaceVariant,
+        outline = LightNeutralOutline,
+        outlineVariant = LightNeutralOutlineVariant,
+    )
+}
+
+/** The preset at [index], falling back to the first one for stale or out-of-range stored indices. */
+fun accentPresetAt(index: Int): AccentPalette = accentPresets.getOrNull(index) ?: accentPresets.first()
