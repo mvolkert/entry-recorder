@@ -3,7 +3,9 @@
 > **Superseded by `sip-per-device-accounts`.** The `ProxyConfig → Account` API migration and the
 > `Factory.setDebugMode → LoggingService` replacement described here are implemented as part of that change
 > (same `sip/SipCallManager.kt` surface, executed together with per-device accounts and identity-based ring
-> attribution). Kept for history; no separate work remains.
+> attribution). Archived 2026-10-17 with no spec delta (`skip_specs`); its hardware validation belongs to
+> `sip-per-device-accounts` 1.2 / 4.2 and `verify-on-device-gates` 2.1, which remain open until those gates
+> pass on a Verso and a PBX.
 
 ## Why
 

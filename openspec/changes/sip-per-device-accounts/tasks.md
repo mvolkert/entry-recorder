@@ -35,4 +35,6 @@
   implemented. Device-unverifiable from CI: archive only after the two-device registration + ring pass in
   1.2 / 4.2.
 - Absorbs the `migrate-linphone-account-api` backlog change (same `ProxyConfig → Account` + `setDebugMode`
-  migration on this file); that change is now marked superseded.
+  migration on this file); that change is archived as
+  `openspec/changes/archive/2026-10-17-migrate-linphone-account-api`, and its validation is tracked here as
+  1.2 / 4.2 plus `verify-on-device-gates` 2.1.
