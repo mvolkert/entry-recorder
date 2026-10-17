@@ -5,7 +5,8 @@ propose with `/opsx:propose`, implement with `/opsx:apply`, archive with `/opsx:
 `openspec/specs/`). Planned and deferred work both live as `openspec/changes/` proposals; the frozen pre-OpenSpec plan is in
 `docs/engineering-journal.md`. Behaviour truth is `openspec/specs/`.
 
-## Scratch
+## UI Design Changes
+- Move @SettingsDevicesScreen into the bottom bar at third place so bottom bar grows to four tabs, @SettingsScreen into fourth
 
 -
 

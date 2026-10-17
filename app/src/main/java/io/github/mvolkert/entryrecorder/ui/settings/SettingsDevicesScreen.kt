@@ -26,7 +26,6 @@ import io.github.mvolkert.entryrecorder.R
 @OptIn(ExperimentalSharedTransitionApi::class)
 fun SettingsDevicesScreen(
     viewModel: SettingsViewModel,
-    onBack: () -> Unit,
     onEditDevice: (Long) -> Unit,
     onAddDevice: () -> Unit,
     sharedTransitionScope: SharedTransitionScope,
@@ -36,7 +35,7 @@ fun SettingsDevicesScreen(
 
     SettingsSubscreenScaffold(
         titleRes = R.string.settings_section_devices,
-        onBack = onBack,
+        onBack = null,
         events = viewModel.events,
         floatingActionButton = {
             ExtendedFloatingActionButton(

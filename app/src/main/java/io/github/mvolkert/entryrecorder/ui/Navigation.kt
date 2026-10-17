@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Doorbell
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Videocam
@@ -56,7 +57,6 @@ import io.github.mvolkert.entryrecorder.ui.settings.DeviceEditScreen
 import io.github.mvolkert.entryrecorder.ui.settings.NEW_DEVICE_ID
 import io.github.mvolkert.entryrecorder.ui.settings.ROUTE_SETTINGS_APPEARANCE
 import io.github.mvolkert.entryrecorder.ui.settings.ROUTE_SETTINGS_BACKUP
-import io.github.mvolkert.entryrecorder.ui.settings.ROUTE_SETTINGS_DEVICES
 import io.github.mvolkert.entryrecorder.ui.settings.ROUTE_SETTINGS_ENGINE
 import io.github.mvolkert.entryrecorder.ui.settings.ROUTE_SETTINGS_STORAGE
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsAppearanceScreen
@@ -77,10 +77,11 @@ import kotlinx.coroutines.launch
 sealed class Screen(val route: String, @StringRes val labelRes: Int, val icon: ImageVector) {
     object Live : Screen("live", R.string.nav_live, Icons.Default.Videocam)
     object Recordings : Screen("recordings", R.string.nav_recordings, Icons.Default.VideoLibrary)
+    object Devices : Screen("devices", R.string.nav_devices, Icons.Default.Doorbell)
     object Settings : Screen("settings", R.string.nav_settings, Icons.Default.Settings)
 }
 
-private val TopLevelScreens = listOf(Screen.Live, Screen.Recordings, Screen.Settings)
+private val TopLevelScreens = listOf(Screen.Live, Screen.Recordings, Screen.Devices, Screen.Settings)
 
 // Single NavHost destination hosting the three swipeable tab pages.
 private const val ROUTE_TABS = "tabs"
@@ -223,6 +224,13 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
                                         active = pagerState.currentPage == page,
                                         onRequestPlayback = { playback = it },
                                     )
+                                    Screen.Devices -> SettingsDevicesScreen(
+                                        viewModel = settingsViewModel,
+                                        onEditDevice = { id -> navController.navigate(deviceEditRoute(id)) },
+                                        onAddDevice = { navController.navigate(deviceEditRoute(NEW_DEVICE_ID)) },
+                                        sharedTransitionScope = this@SharedTransitionLayout,
+                                        animatedVisibilityScope = this@composable,
+                                    )
                                     Screen.Settings -> SettingsScreen(
                                         viewModel = settingsViewModel,
                                         onNavigate = { route -> navController.navigate(route) },
@@ -230,16 +238,6 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
                                 }
                             }
                         }
-                    }
-                    settingsDetail(ROUTE_SETTINGS_DEVICES) {
-                        SettingsDevicesScreen(
-                            viewModel = settingsViewModel,
-                            onBack = { navController.popBackStack() },
-                            onEditDevice = { id -> navController.navigate(deviceEditRoute(id)) },
-                            onAddDevice = { navController.navigate(deviceEditRoute(NEW_DEVICE_ID)) },
-                            sharedTransitionScope = this@SharedTransitionLayout,
-                            animatedVisibilityScope = this@settingsDetail,
-                        )
                     }
                     settingsDetail(ROUTE_SETTINGS_ENGINE) {
                         SettingsEngineScreen(

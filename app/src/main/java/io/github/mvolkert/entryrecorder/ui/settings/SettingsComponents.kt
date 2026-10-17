@@ -82,7 +82,7 @@ internal fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
 @Composable
 internal fun SettingsSubscreenScaffold(
     @StringRes titleRes: Int,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)?,
     events: Flow<SettingsUiEvent>,
     floatingActionButton: @Composable () -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
@@ -104,11 +104,15 @@ internal fun SettingsSubscreenScaffold(
                     Text(stringResource(titleRes), modifier = Modifier.semantics { heading() })
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.device_edit_back)
-                        )
+                    // A top-level tab hosts this scaffold without a back arrow; a nested submenu passes
+                    // an onBack and gets the arrow.
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.device_edit_back)
+                            )
+                        }
                     }
                 }
             )

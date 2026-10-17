@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CleaningServices
-import androidx.compose.material.icons.filled.Doorbell
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Videocam
@@ -33,7 +32,6 @@ import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.util.ExportFolderAccess
 
 /** Detail routes pushed from the hub; each maps to a sibling settings-detail destination in the NavHost. */
-internal const val ROUTE_SETTINGS_DEVICES = "settings/devices"
 internal const val ROUTE_SETTINGS_ENGINE = "settings/engine"
 internal const val ROUTE_SETTINGS_STORAGE = "settings/storage"
 internal const val ROUTE_SETTINGS_APPEARANCE = "settings/appearance"
@@ -58,7 +56,6 @@ fun SettingsScreen(
     val exportFailure by viewModel.exportFailure.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    val devicesSubtitle = stringResource(R.string.settings_hub_devices_subtitle, state.devices.size)
     val engineSubtitle = stringResource(
         if (state.appSettings.recordingMode == RecordingMode.PYTHON_SERVER) R.string.settings_mode_server
         else R.string.settings_mode_local
@@ -115,16 +112,6 @@ fun SettingsScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item {
-                SettingsNavRow(
-                    icon = Icons.Default.Doorbell,
-                    titleRes = R.string.settings_section_devices,
-                    subtitle = devicesSubtitle,
-                    iconContainerColor = scheme.primaryContainer,
-                    iconContentColor = scheme.onPrimaryContainer,
-                    onClick = { onNavigate(ROUTE_SETTINGS_DEVICES) }
-                )
-            }
             item {
                 SettingsNavRow(
                     icon = Icons.Default.Videocam,

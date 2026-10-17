@@ -17,6 +17,7 @@
     <!-- Navigation -->
     <string name="nav_live">Live View</string>
     <string name="nav_recordings">Recordings</string>
+    <string name="nav_devices">Devices</string>
     <string name="nav_settings">Settings</string>
 
     <!-- Shared -->
