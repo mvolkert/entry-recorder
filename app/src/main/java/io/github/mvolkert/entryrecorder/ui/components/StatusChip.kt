@@ -18,9 +18,14 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Tonal pill for live status: a filled container with its matched on-color label, optionally led by a
- * colored dot. Single shared shape (stadium) and type role (labelMedium) so every status surface in
- * the app reads as the same family; callers pass contrast-checked container/on pairs from the theme's
- * status palette, never raw hues.
+ * colored dot. Single shared shape (stadium) and type role so every status surface in the app reads as the
+ * same family; callers pass contrast-checked container/on pairs from the theme's status palette, never raw
+ * hues.
+ *
+ * [compact] is the same badge at its tightest setting, for a pill that has to fit beside an existing text
+ * line without making the row taller — the live REC badge on a device card. Its interior numbers stay raw
+ * on purpose: they are metrics of the pill, not gaps between components (see
+ * [io.github.mvolkert.entryrecorder.ui.theme.Spacing]).
  */
 @Composable
 fun StatusChip(
@@ -29,6 +34,7 @@ fun StatusChip(
     contentColor: Color,
     modifier: Modifier = Modifier,
     leadingDotColor: Color? = null,
+    compact: Boolean = false,
 ) {
     Surface(
         modifier = modifier,
@@ -37,20 +43,29 @@ fun StatusChip(
         contentColor = contentColor,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            modifier = Modifier.padding(
+                horizontal = if (compact) 5.dp else 8.dp,
+                vertical = if (compact) 1.dp else 2.dp,
+            ),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 4.dp),
         ) {
             if (leadingDotColor != null) {
                 Box(
                     modifier = Modifier
-                        .size(6.dp)
+                        .size(if (compact) 5.dp else 6.dp)
                         .background(leadingDotColor, CircleShape)
                 )
             }
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelMedium,
+                // The compact form keeps the emphasized small role, which is the lightest type step that
+                // still reads as a badge label rather than as caption text under the dot.
+                style = if (compact) {
+                    MaterialTheme.typography.labelSmallEmphasized
+                } else {
+                    MaterialTheme.typography.labelMedium
+                },
                 maxLines = 1,
             )
         }

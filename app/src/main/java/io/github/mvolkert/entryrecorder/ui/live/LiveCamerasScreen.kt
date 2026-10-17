@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -32,9 +31,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -45,13 +45,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mvolkert.entryrecorder.R
@@ -72,6 +71,7 @@ import io.github.mvolkert.entryrecorder.ui.components.RecordFab
 import io.github.mvolkert.entryrecorder.ui.components.StatusChip
 import io.github.mvolkert.entryrecorder.ui.theme.VideoScrim
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
+import io.github.mvolkert.entryrecorder.ui.theme.disabledContentColor
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeColor
 import io.github.mvolkert.entryrecorder.ui.theme.eventTypeOnColor
 import io.github.mvolkert.entryrecorder.ui.theme.monitorStatusColor
@@ -91,6 +91,9 @@ fun LiveCamerasScreen(
     active: Boolean = true,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    // The bar lifts one tonal step (`surface` → `surfaceContainer`) as the cards scroll under it, the
+    // behaviour every Material app bar has and which only happens once a scroll behaviour is wired up.
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
 
     Scaffold(
         // Top inset is handled by the TopAppBar below; bottom system inset is applied by the
@@ -99,6 +102,7 @@ fun LiveCamerasScreen(
         contentWindowInsets = WindowInsets(0),
         topBar = {
             TopAppBar(
+                scrollBehavior = scrollBehavior,
                 title = {
                     Text(
                         stringResource(R.string.live_title),
@@ -147,7 +151,9 @@ fun LiveCamerasScreen(
                 // phases name the motion scheme's specs (Design.md §4).
                 val motion = MaterialTheme.motionScheme
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .nestedScroll(scrollBehavior.nestedScrollConnection)
+                        .fillMaxSize(),
                     contentPadding = PaddingValues(Spacing.lg),
                     verticalArrangement = Arrangement.spacedBy(Spacing.lg)
                 ) {
@@ -253,34 +259,16 @@ fun LiveDeviceCard(
                     MonitorStatusPill(monitorStatus)
                     if (isRecording) {
                         Spacer(modifier = Modifier.width(Spacing.sm))
-                        // Compact badge: total height stays below the device-name line height, so the
-                        // header row (and the card/video layout) never grows or shrinks when it appears.
-                        Surface(
-                            shape = CircleShape,
-                            color = recordingStatusColor
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(5.dp)
-                                        .background(onRecordingStatusColor, shape = CircleShape)
-                                )
-                                Spacer(modifier = Modifier.width(3.dp))
-                                // 9.sp/12.sp sit below labelSmall on purpose: the REC Capsule Size
-                                // Constraint keeps dot+label shorter than the device-name line. The weight is
-                                // the Bold labelSmallEmphasized already carries, kept because no role is 9.sp.
-                                Text(
-                                    stringResource(R.string.live_rec_badge),
-                                    color = onRecordingStatusColor,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 9.sp,
-                                    lineHeight = 12.sp
-                                )
-                            }
-                        }
+                        // The same badge component the monitoring pill above uses, at its compact setting: the
+                        // header row (and so the card and video layout) must not grow or shrink when a capture
+                        // starts, which is the constraint the pill's interior metrics are tuned against.
+                        StatusChip(
+                            label = stringResource(R.string.live_rec_badge),
+                            containerColor = recordingStatusColor,
+                            contentColor = onRecordingStatusColor,
+                            leadingDotColor = onRecordingStatusColor,
+                            compact = true,
+                        )
                     }
                 }
             }
@@ -414,7 +402,9 @@ private fun TriggerIndicators(
 ) {
     val monitored = monitorStatus != MonitorStatus.DISABLED
     val normal = MaterialTheme.colorScheme.onSurfaceVariant
-    val faded = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+    // A faded glyph is a tint, not a disabled component — the trigger is still configured, it just cannot
+    // fire right now — so it borrows the theme's one disabled recipe rather than inventing an alpha here.
+    val faded = disabledContentColor()
     val eventsDown = eventQuality == ConnectionQuality.DEGRADED || eventQuality == ConnectionQuality.OFFLINE
     val eventTint = if (monitored && !eventsDown) normal else faded
     val baseTint = if (monitored) normal else faded
@@ -429,7 +419,7 @@ private fun TriggerIndicators(
     val walkTint = if (walkUsesEvents) cameraEventTint else baseTint
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (device.isEnabled && device.recordOnRing) {
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(Spacing.sm))
             Icon(
                 imageVector = Icons.Default.Notifications,
                 contentDescription = stringResource(R.string.live_cd_ring),
@@ -438,7 +428,7 @@ private fun TriggerIndicators(
             )
         }
         if (device.isEnabled && (device.recordOnMotion || device.recordOnMotionOnDevice)) {
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(Spacing.sm))
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.DirectionsWalk,
                 contentDescription = stringResource(
@@ -449,7 +439,7 @@ private fun TriggerIndicators(
             )
         }
         if (device.isEnabled && device.recordOnNoise) {
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(Spacing.sm))
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.VolumeUp,
                 contentDescription = stringResource(R.string.live_cd_noise),

@@ -1,7 +1,6 @@
 package io.github.mvolkert.entryrecorder.ui.adaptive
 
 import androidx.annotation.StringRes
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -10,7 +9,6 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ShortNavigationBar
 import androidx.compose.material3.ShortNavigationBarItem
@@ -22,10 +20,8 @@ import androidx.compose.material3.WideNavigationRailItem
 import androidx.compose.material3.WideNavigationRailValue
 import androidx.compose.material3.rememberWideNavigationRailState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
@@ -83,7 +79,7 @@ fun AdaptiveScaffold(
                         WideNavigationRailItem(
                             selected = selected,
                             onClick = { onNavigate(item) },
-                            icon = { AdaptiveIcon(item = item, selected = selected) },
+                            icon = { AdaptiveIcon(item = item) },
                             label = { Text(stringResource(item.labelRes)) },
                             railExpanded = railExpanded,
                         )
@@ -115,7 +111,7 @@ fun AdaptiveScaffold(
                             ShortNavigationBarItem(
                                 selected = selected,
                                 onClick = { onNavigate(item) },
-                                icon = { AdaptiveIcon(item = item, selected = selected) },
+                                icon = { AdaptiveIcon(item = item) },
                                 label = { Text(stringResource(item.labelRes)) },
                             )
                         }
@@ -132,18 +128,12 @@ fun AdaptiveScaffold(
     }
 }
 
-/** Selected-item icon spring shared by bar and rail; matches the Phase B `slowSpatialSpec` look. */
+/**
+ * Nav icon. Selection is carried by the expressive bar's own animated indicator plus the label's colour
+ * and weight, so the icon deliberately carries no hand-driven scale: a 1.12 spring on top of the
+ * component's own motion animates the same thing twice and reads as wobble, not emphasis.
+ */
 @Composable
-private fun AdaptiveIcon(item: AdaptiveNavItem, selected: Boolean) {
-    val label = stringResource(item.labelRes)
-    val iconScale by animateFloatAsState(
-        targetValue = if (selected) 1.12f else 1f,
-        animationSpec = MaterialTheme.motionScheme.slowSpatialSpec(),
-        label = "adaptiveNavIconScale",
-    )
-    Icon(
-        item.icon,
-        contentDescription = label,
-        modifier = Modifier.scale(iconScale),
-    )
+private fun AdaptiveIcon(item: AdaptiveNavItem) {
+    Icon(item.icon, contentDescription = stringResource(item.labelRes))
 }

@@ -59,6 +59,7 @@ import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
+import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 import io.github.mvolkert.entryrecorder.ui.theme.VideoScrim
 import io.github.mvolkert.entryrecorder.ui.theme.onScrimColor
 import io.github.mvolkert.entryrecorder.ui.theme.streamProtocolLabel
@@ -351,7 +352,7 @@ fun LiveStreamPlayer(
         Surface(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(8.dp),
+                .padding(Spacing.sm),
             shape = MaterialTheme.shapes.extraSmall,
             color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
             contentColor = onScrimColor
@@ -377,7 +378,7 @@ fun LiveStreamPlayer(
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(24.dp)
+                    modifier = Modifier.padding(Spacing.xl)
                 ) {
                     Text(
                         text = msg,
@@ -385,13 +386,13 @@ fun LiveStreamPlayer(
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(Spacing.lg))
                     Button(
                         onClick = { serverFailed = false; retryCount++ },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer)
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(Spacing.sm))
                         Text(stringResource(R.string.player_retry_connection), color = MaterialTheme.colorScheme.onErrorContainer)
                     }
                 }

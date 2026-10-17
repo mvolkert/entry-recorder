@@ -173,11 +173,17 @@ Wrap components (`AppButton`, `AppCard`, `AppSlider`) in a design-system module.
 **Recorded exceptions in this app.** Each lives in exactly one place, each carries a why-comment at that
 place, and each gets re-checked on every Material upgrade.
 
-- `ui/live/LiveCamerasScreen.kt` — the REC capsule sets `fontSize = 9.sp` with `lineHeight = 12.sp` and
-  `fontWeight = Bold`. Dot plus label has to stay shorter than the device-name line, otherwise the header
-  row and the video box reflow every time a recording starts or stops. The smallest role in the scale is
-  `labelSmall` / `labelSmallEmphasized` at 11.sp, so nothing reaches 9.sp at any weight; the weight written
-  here is the Bold `labelSmallEmphasized` itself carries.
+- `ui/components/StatusChip.kt` — the `compact` pill's interior metrics (5 dp/1 dp padding, 3 dp gap, 5 dp dot).
+  The live REC badge sits beside the monitoring pill in a device card's header row, and that row must not grow
+  or shrink when a capture starts or stops, otherwise the card and the video box below it reflow. The pill's
+  label is the scale's own `labelSmallEmphasized`, so there is no type exception here any more — only the
+  badge's own geometry, which is a metric of the pill rather than a gap between components, so it stays raw
+  instead of becoming a `Spacing` step (see the `Spacing` bullet below).
+- `ui/incoming/IncomingCallControls.kt` — the call-screen FAB sizes (64 dp decline while ringing, 68 dp hang
+  up in call, 72 dp accept) and their 30/32/34 dp glyphs. Material's FAB stops at `large` (56 dp); a call
+  screen is the one idiom where the answer control is deliberately the biggest target on the display and the
+  accept edge reads larger than the destructive one. Off the `Sizes` scale on purpose, and never reused
+  outside that screen.
 - `ui/components/CelebrationCheck.kt` — one hold constant for the celebration (1.5 s). Its enter and exit
   are `fastSpatialSpec()` / `fastEffectsSpec()`; Material says nothing about how long a finished flow
   should stay on screen before the check dismisses itself.
@@ -192,7 +198,8 @@ place, and each gets re-checked on every Material upgrade.
   the dark step is the same hue lightened. `StatusPaletteContrastTest` re-proves every container/on pairing
   and both glyph steps on each test run.
 - `ui/theme/Theme.kt` — `Spacing` steps. Material 3 ships no spacing tokens, so the multiples of 4/8 that
-  layouts already used are named once instead of repeating as dp literals.
+  layouts already used are named once instead of repeating as dp literals. Component interiors are the named
+  exception: gaps between components take a step, the geometry inside a fixed-shape badge does not.
 - `ui/components/JpegFramePlayer.kt` — `TimelineEdgeClearance` (one `Spacing` step plus a thumb footprint) and
   the strip's token bottom clearance. The expressive handle is a 4x44 dp pill whose touch bounds reach the
   slider's own edge, and gesture navigation reports a bottom inset of near zero, so neither the system bar
@@ -206,7 +213,7 @@ place, and each gets re-checked on every Material upgrade.
   for uniform list rows: settings cards render detached rows, and `SegmentedListItem`'s segmented `shapes` only mean
   something inside a connected group.
 - Shape gap in the pinned material3 — `MaterialTheme.shapes` has no `full` token, so `CircleShape` renders
-  every stadium pill (`StatusChip`, `CelebrationCheck`) and the REC capsule. Swap to the token when it lands.
+  every stadium pill (`StatusChip` in both its settings, `CelebrationCheck`). Swap to the token when it lands.
 - `ui/components` holds the wrappers section 7 asks for: `StatusChip`, `RecordFab`, `LoadingSpot`,
   `ProgressLine`, `ExpressiveIconBadge`, `CelebrationCheck`, `MorphingIcon`. They own the expressive
   opt-ins, the single `MaterialShapes.Cookie9Sided` decorative family and the animations-off gate
