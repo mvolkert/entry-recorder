@@ -17,8 +17,6 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.text.input.clearText
-import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.VideoLibrary
@@ -29,7 +27,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -38,35 +35,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dagger.hilt.EntryPoint
-import dagger.hilt.InstallIn
-import dagger.hilt.android.EntryPointAccessors
-import dagger.hilt.components.SingletonComponent
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.domain.model.Recording
-import io.github.mvolkert.entryrecorder.data.model.EventType
-import io.github.mvolkert.entryrecorder.util.ExportGateway
 import io.github.mvolkert.entryrecorder.util.RecordingExportKind
 import io.github.mvolkert.entryrecorder.ui.LocalAppSnackbar
 import io.github.mvolkert.entryrecorder.ui.showMessage
-import io.github.mvolkert.entryrecorder.ui.components.CelebrationCheck
 import io.github.mvolkert.entryrecorder.ui.components.ExpressiveIconBadge
 import io.github.mvolkert.entryrecorder.ui.components.LoadingSpot
 import io.github.mvolkert.entryrecorder.ui.components.PlaybackTarget
 import io.github.mvolkert.entryrecorder.ui.theme.HeaderBandColor
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
-import io.github.mvolkert.entryrecorder.ui.theme.eventTypeColor
-import io.github.mvolkert.entryrecorder.ui.theme.eventTypeOnColor
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -79,17 +63,12 @@ fun RecordingsScreen(
     viewModel: RecordingsViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    // The share sheet has to be launched from this screen's Activity context — the one thing the ViewModel
-    // can no longer hold — so the screen reaches the app-wide [ExportGateway] directly and owns that step.
-    val exportGateway = remember {
-        EntryPointAccessors.fromApplication(context.applicationContext, RecordingsScreenEntryPoint::class.java).exportGateway()
-    }
     val snackbarHost = LocalAppSnackbar.current
     val scope = rememberCoroutineScope()
     val exportProgress by viewModel.exportProgress.collectAsStateWithLifecycle()
     val batchProgress by viewModel.batchProgress.collectAsStateWithLifecycle()
     val serverDownload by viewModel.serverDownload.collectAsStateWithLifecycle()
+    val share = rememberShareLauncher()
     var recordingToDelete by remember { mutableStateOf<Recording?>(null) }
     var serverItemToDelete by remember { mutableStateOf<GalleryItem.Remote?>(null) }
     // Set by the ViewModel when an export wrote its files; the check floats over the list and clears itself.
@@ -122,33 +101,21 @@ fun RecordingsScreen(
     }
     BackHandler(enabled = selectionMode) { exitSelection() }
 
-    // Search is the Material search band rather than a text-field pill. In material3 beta01 the collapsed
-    // [androidx.compose.material3.SearchBar] wraps its field in an input interceptor that never resolves,
-    // so the trigger only opens the surface and the surface owns the keyboard - see RecordingsSearchBar.kt.
-    val searchBarState = rememberSearchBarState()
-    val textFieldState = rememberTextFieldState(initialText = state.searchQuery)
-    // The ViewModel stays the single source of truth and the bridge runs one way, field up to state: a
-    // filter state that lags a keystroke must never write back and eat the character just typed.
-    LaunchedEffect(Unit) {
-        snapshotFlow { textFieldState.text.toString() }
-            .distinctUntilChanged()
-            .collect { viewModel.setSearchQuery(it) }
-    }
-    val clearSearchQuery: () -> Unit = { textFieldState.clearText() }
-    // The ViewModel's clearFilters also drops the query, and nothing pushes state back down to the field,
-    // so the field follows by hand or it would keep showing the text that just stopped filtering.
-    val clearAllFilters: () -> Unit = {
-        viewModel.clearFilters()
-        clearSearchQuery()
-    }
-    // Multi-select owns the top band, and a surface that covers the window hides the check marks it is
-    // there to show; entering it puts the search away first.
-    LaunchedEffect(selectionMode) {
-        if (selectionMode) searchBarState.animateToCollapsed()
-    }
+    // Search is the Material search band rather than a text-field pill, with the ViewModel as the single
+    // source of truth for the query. Called unconditionally: the helper runs the effects that keep field and
+    // filter state in step, and an effect behind an `if` restarts whenever the branch flips.
+    val searchBand = rememberRecordingsSearchBand(
+        viewModel = viewModel,
+        selectionMode = selectionMode,
+        query = state.searchQuery,
+    )
+    val searchBarState = searchBand.searchBarState
+    val textFieldState = searchBand.textFieldState
+    val clearSearchQuery = searchBand.clearSearchQuery
+    val clearAllFilters = searchBand.clearAllFilters
 
-    // Export runs in the ViewModel; its results arrive as one-shot events. This screen supplies only its
-    // own Activity context to the share sheet, which is the one step that cannot run from the application.
+    // Export runs in the ViewModel; its results arrive as one-shot events. The share sheet is the one step
+    // this screen still has to perform itself, because it needs an Activity context.
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             when (event) {
@@ -156,19 +123,7 @@ fun RecordingsScreen(
                 // clips and then a saved count delivers both instead of the last one winning.
                 is RecordingsUiEvent.Message -> snackbarHost.showMessage(event.text, event.short)
 
-                is RecordingsUiEvent.Share -> {
-                    // ExportGateway builds its outcome text on this thread and has no coroutine to post
-                    // from, so the screen hands it the hop into the snack bar. The single-file sheet needs
-                    // this Activity context (it adds no NEW_TASK); the batch sheet takes the same files.
-                    val metadata = event.metadata
-                    val file = event.files.firstOrNull()
-                    val onShareMessage: (String) -> Unit = { text -> scope.launch { snackbarHost.showMessage(text) } }
-                    if (metadata != null && file != null) {
-                        exportGateway.shareFile(context, file, metadata, onShareMessage)
-                    } else {
-                        exportGateway.shareFiles(context, event.files, onShareMessage)
-                    }
-                }
+                is RecordingsUiEvent.Share -> share(event)
 
                 RecordingsUiEvent.SelectionCleared -> selectionMode = false
 
@@ -238,24 +193,9 @@ fun RecordingsScreen(
                         is GalleryItem.Remote -> viewModel.toggleServerProtection(item)
                     }
                 },
-                onShare = {
-                    when (item) {
-                        is GalleryItem.Local -> viewModel.exportRecording(item.recording, RecordingExportKind.SHARE)
-                        is GalleryItem.Remote -> viewModel.exportServerRecording(item, RecordingExportKind.SHARE)
-                    }
-                },
-                onExportGallery = {
-                    when (item) {
-                        is GalleryItem.Local -> viewModel.exportRecording(item.recording, RecordingExportKind.GALLERY)
-                        is GalleryItem.Remote -> viewModel.exportServerRecording(item, RecordingExportKind.GALLERY)
-                    }
-                },
-                onExportFolder = {
-                    when (item) {
-                        is GalleryItem.Local -> viewModel.exportRecording(item.recording, RecordingExportKind.FOLDER)
-                        is GalleryItem.Remote -> viewModel.exportServerRecording(item, RecordingExportKind.FOLDER)
-                    }
-                },
+                onShare = { item.exportAs(RecordingExportKind.SHARE, viewModel) },
+                onExportGallery = { item.exportAs(RecordingExportKind.GALLERY, viewModel) },
+                onExportFolder = { item.exportAs(RecordingExportKind.FOLDER, viewModel) },
                 // Raw copies only exist for local clips; server rows already live on the server as H.264.
                 onExportRawFolder = if (item is GalleryItem.Local) {
                     { viewModel.exportRecording(item.recording, RecordingExportKind.RAW_FOLDER) }
@@ -332,47 +272,15 @@ fun RecordingsScreen(
                 modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
             )
 
-            // One strip for whichever run is going — the transcode/copy percent, the k-of-n batch count or
-            // the server download — floating over the top of the list exactly like the celebration check, so
-            // starting or ending a run never shifts a row and the list stays readable while it works.
-            val activeRun = exportProgress?.let { run ->
-                RunDisplay(percent = run.percent, label = stringResource(run.bodyRes, run.percent))
-            } ?: batchProgress?.let { (done, total) ->
-                // The batch has no single percent: its label already reads "k of n".
-                RunDisplay(
-                    percent = null,
-                    label = stringResource(R.string.recordings_batch_progress_body, done, total),
-                )
-            } ?: serverDownload?.let { percent ->
-                RunDisplay(
-                    percent = percent,
-                    label = stringResource(R.string.recordings_download_progress_body, percent),
-                )
-            }
-            RunProgressStrip(
-                run = activeRun,
-                onCancel = { viewModel.cancelActiveRun() },
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(horizontal = Spacing.lg)
-                    .padding(top = Spacing.sm),
-            )
-
-            // A finished export celebrates over the top of the list instead of joining it, so the check
-            // appearing and leaving never shifts a row. Both export origins (the card menus and the bulk
-            // bar) sit above this area, and the manual green is the contrast-checked pair the record-stop
-            // celebration uses too — one hue means "done" in both places.
-            CelebrationCheck(
-                visible = showSavedCheck,
-                onDismiss = { showSavedCheck = false },
-                containerColor = eventTypeColor(EventType.MANUAL),
-                contentColor = eventTypeOnColor(EventType.MANUAL),
-                message = stringResource(R.string.recordings_celebration_saved),
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = Spacing.sm),
-                size = 24.dp,
-                iconSize = 16.dp,
+            // One strip for whichever run is going, plus the celebration check a finished export floats over
+            // the top of the list, so starting or ending a run never shifts a row.
+            GalleryRunOverlay(
+                exportProgress = exportProgress,
+                batchProgress = batchProgress,
+                serverDownload = serverDownload,
+                showSavedCheck = showSavedCheck,
+                onDismissSavedCheck = { showSavedCheck = false },
+                onCancelRun = { viewModel.cancelActiveRun() },
             )
         }
     }
@@ -531,15 +439,4 @@ private fun GalleryList(
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
         content = content
     )
-}
-
-/**
- * A Hilt accessor so this composable can reach the app-wide [ExportGateway] to run the share sheet from
- * its own Activity context. The ViewModel deliberately holds no gateway (and no Context) now that the
- * share is a screen-side effect, so the screen — not the ViewModel — is the one that talks to the gateway.
- */
-@EntryPoint
-@InstallIn(SingletonComponent::class)
-private interface RecordingsScreenEntryPoint {
-    fun exportGateway(): ExportGateway
 }
