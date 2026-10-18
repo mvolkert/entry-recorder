@@ -22,9 +22,17 @@ multi-select* — and `export` behaviour must stay exactly as shipped; this chan
 - [x] 3.1 Add the internal `GalleryItem.exportAs(kind, viewModel)` extension collapsing the SHARE / GALLERY /
       FOLDER branches and use it in the `rows` lambda; leave `onExportRawFolder`'s local-only branch alone; verify:
       `compileDebugKotlin` passes and a server row's card menu still hides the raw-folder entry.
-- [ ] 3.2 Extract `@Composable private fun BoxScope.GalleryRunOverlay(…)` holding the `RunDisplay` mapping,
+- [x] 3.2 Extract `@Composable private fun BoxScope.GalleryRunOverlay(…)` holding the `RunDisplay` mapping,
       `RunProgressStrip`, and the celebration check with identical `align`/`padding`; verify: `compileDebugKotlin`
       and `.\gradlew.bat lintDebug` pass, and the root composable is under ~180 lines.
+      *(The overlay landed in `RecordingsScreenEffects.kt` with the other screen-side helpers. The size clause
+      needed four more extractions than the one this task names, because the root's bulk was per-item wiring and
+      the header band rather than anything the overlay: `galleryRows` (a `LazyListScope` lambda builder, lower
+      case per the `ComposableNaming` lint rule since it returns a value), `GalleryHeaderBand`,
+      `GallerySearchSurface` and `GalleryDeleteDialogs` now sit below the screen, and the one-shot event
+      collector moved to `LaunchedRecordingsEvents` next to the share launcher it feeds. The root composable is
+      169 lines, down from 288; `RecordingsScreen.kt` as a file grew to 541 lines because the helpers live with
+      the screen they serve. No composable, modifier, key or callback order changed.)*
 
 ## 4. Verification
 

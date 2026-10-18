@@ -26,6 +26,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
@@ -44,8 +45,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.domain.model.Recording
 import io.github.mvolkert.entryrecorder.util.RecordingExportKind
-import io.github.mvolkert.entryrecorder.ui.LocalAppSnackbar
-import io.github.mvolkert.entryrecorder.ui.showMessage
 import io.github.mvolkert.entryrecorder.ui.components.ExpressiveIconBadge
 import io.github.mvolkert.entryrecorder.ui.components.LoadingSpot
 import io.github.mvolkert.entryrecorder.ui.components.PlaybackTarget
@@ -63,7 +62,6 @@ fun RecordingsScreen(
     viewModel: RecordingsViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val snackbarHost = LocalAppSnackbar.current
     val scope = rememberCoroutineScope()
     val exportProgress by viewModel.exportProgress.collectAsStateWithLifecycle()
     val batchProgress by viewModel.batchProgress.collectAsStateWithLifecycle()
@@ -109,28 +107,15 @@ fun RecordingsScreen(
         selectionMode = selectionMode,
         query = state.searchQuery,
     )
-    val searchBarState = searchBand.searchBarState
-    val textFieldState = searchBand.textFieldState
-    val clearSearchQuery = searchBand.clearSearchQuery
-    val clearAllFilters = searchBand.clearAllFilters
 
     // Export runs in the ViewModel; its results arrive as one-shot events. The share sheet is the one step
     // this screen still has to perform itself, because it needs an Activity context.
-    LaunchedEffect(Unit) {
-        viewModel.events.collect { event ->
-            when (event) {
-                // Awaiting the message keeps the queue in order: a batch that reports skipped protected
-                // clips and then a saved count delivers both instead of the last one winning.
-                is RecordingsUiEvent.Message -> snackbarHost.showMessage(event.text, event.short)
-
-                is RecordingsUiEvent.Share -> share(event)
-
-                RecordingsUiEvent.SelectionCleared -> selectionMode = false
-
-                RecordingsUiEvent.ExportCompleted -> showSavedCheck = true
-            }
-        }
-    }
+    LaunchedRecordingsEvents(
+        viewModel = viewModel,
+        share = share,
+        onSelectionCleared = { selectionMode = false },
+        onExportCompleted = { showSavedCheck = true },
+    )
 
     // The scroll position belongs to the list, not to whatever container wraps it: the gallery renders
     // inside a pull-to-refresh box only in server mode, and hoisting the state keeps the position across
@@ -145,64 +130,16 @@ fun RecordingsScreen(
     // Every clip is one row of the same list: no hero above the newest item, so the gallery reads as a
     // uniform archive and each row keeps the same tap, long-press and menu targets. The rows are hoisted
     // because the tab list and the expanded search surface render exactly the same filtered clips.
-    // animateItem()'s own defaults are framework springs that ignore the scheme, so all three phases name
-    // the motion scheme's specs (Design.md §4).
-    val motion = MaterialTheme.motionScheme
-    val rows: LazyListScope.() -> Unit = {
-        items(state.items, key = { it.stableKey }) { item ->
-            val localId = (item as? GalleryItem.Local)?.recording?.id
-            RecordingCardItem(
-                modifier = Modifier.animateItem(
-                    fadeInSpec = motion.defaultEffectsSpec(),
-                    placementSpec = motion.defaultSpatialSpec(),
-                    fadeOutSpec = motion.defaultEffectsSpec(),
-                ),
-                item = item,
-                selectionMode = selectionMode,
-                selected = item is GalleryItem.Local && item.recording.id in selectedIds,
-                onSelectToggle = {
-                    (item as? GalleryItem.Local)?.let { viewModel.toggleSelection(it.recording.id) }
-                },
-                onLongSelect = {
-                    localId?.let { id ->
-                        if (selectionMode) {
-                            viewModel.selectRangeTo(id)
-                        } else {
-                            selectionMode = true
-                            viewModel.toggleSelection(id)
-                        }
-                    }
-                },
-                onPlay = {
-                    onRequestPlayback(
-                        when (item) {
-                            is GalleryItem.Local -> PlaybackTarget.LocalFile(item.recording.filePath)
-                            is GalleryItem.Remote -> PlaybackTarget.RemoteUrl(item.videoAbsoluteUrl)
-                        }
-                    )
-                },
-                onDelete = {
-                    when (item) {
-                        is GalleryItem.Local -> recordingToDelete = item.recording
-                        is GalleryItem.Remote -> serverItemToDelete = item
-                    }
-                },
-                onToggleProtect = {
-                    when (item) {
-                        is GalleryItem.Local -> viewModel.toggleProtection(item.recording)
-                        is GalleryItem.Remote -> viewModel.toggleServerProtection(item)
-                    }
-                },
-                onShare = { item.exportAs(RecordingExportKind.SHARE, viewModel) },
-                onExportGallery = { item.exportAs(RecordingExportKind.GALLERY, viewModel) },
-                onExportFolder = { item.exportAs(RecordingExportKind.FOLDER, viewModel) },
-                // Raw copies only exist for local clips; server rows already live on the server as H.264.
-                onExportRawFolder = if (item is GalleryItem.Local) {
-                    { viewModel.exportRecording(item.recording, RecordingExportKind.RAW_FOLDER) }
-                } else null
-            )
-        }
-    }
+    val rows = galleryRows(
+        items = state.items,
+        selectionMode = selectionMode,
+        selectedIds = selectedIds,
+        viewModel = viewModel,
+        onRequestPlayback = onRequestPlayback,
+        onEnterSelectionMode = { selectionMode = true },
+        onDeleteLocal = { recordingToDelete = it },
+        onDeleteServer = { serverItemToDelete = it },
+    )
 
     Scaffold(
         // Top inset is consumed by the TopAppBar itself, exactly like the Live and Settings tabs;
@@ -211,49 +148,18 @@ fun RecordingsScreen(
         // TopAppBar must keep its own horizontal content padding, so nothing wraps it.
         contentWindowInsets = WindowInsets(0),
         topBar = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(HeaderBandColor(scrollBehavior.state))
-            ) {
-                RecordingsTopBar(
-                    selectionMode = selectionMode,
-                    selectedCount = selection.selectedCount,
-                    hiddenSelectedCount = selection.hiddenSelectedCount,
-                    onSelectAll = { viewModel.selectAllVisible() },
-                    onExportSelected = { kind -> viewModel.exportSelected(kind) },
-                    onBulkDelete = { showBulkDeleteConfirm = true },
-                    onExitSelection = exitSelection,
-                    onEnterSelection = { selectionMode = true },
-                    scrollBehavior = scrollBehavior,
-                )
-
-                Column(modifier = Modifier.padding(horizontal = Spacing.lg)) {
-                    // Multi-select hands the band its own actions; a second row of controls there is
-                    // noise, and the search surface would cover the rows being checked anyway.
-                    if (!selectionMode) {
-                        RecordingsSearchTrigger(
-                            searchBarState = searchBarState,
-                            textFieldState = textFieldState,
-                            query = state.searchQuery,
-                            onClearQuery = clearSearchQuery,
-                            onSearch = { scope.launch { searchBarState.animateToCollapsed() } },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Spacer(modifier = Modifier.height(Spacing.sm))
-                    }
-                    RecordingsStorageLine(totalStorageBytes = state.totalStorageBytes)
-                    Spacer(modifier = Modifier.height(Spacing.sm))
-                    RecordingsFilterBar(
-                        selectedEventType = state.selectedEventType,
-                        onEventTypeSelect = { viewModel.selectEventTypeFilter(it) },
-                        devices = state.devices,
-                        selectedDeviceId = state.selectedDeviceId,
-                        onDeviceSelect = { viewModel.selectDeviceFilter(it) }
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.sm))
-                }
-            }
+            GalleryHeaderBand(
+                state = state,
+                selection = selection,
+                selectionMode = selectionMode,
+                searchBand = searchBand,
+                scrollBehavior = scrollBehavior,
+                viewModel = viewModel,
+                onEnterSelection = { selectionMode = true },
+                onExitSelection = exitSelection,
+                onBulkDelete = { showBulkDeleteConfirm = true },
+                onSearch = { scope.launch { searchBand.searchBarState.animateToCollapsed() } },
+            )
         }
     ) { paddingValues ->
         Box(
@@ -265,7 +171,7 @@ fun RecordingsScreen(
                 state = state,
                 listState = listState,
                 rows = rows,
-                onClearFilters = clearAllFilters,
+                onClearFilters = searchBand.clearAllFilters,
                 onRefresh = { viewModel.refreshServerRecordings() },
                 // Only the tab list feeds the band; the search surface is its own full-screen surface and
                 // has no app bar to scroll under.
@@ -286,35 +192,234 @@ fun RecordingsScreen(
     }
 
     // The expanded half of the search band: a surface over the window that owns the keyboard and shows the
-    // same rows, filtered as the query changes. Composed unconditionally - the search bar state gates it
-    // internally - and with its own scroll state, because one LazyListState cannot be attached to this
-    // sheet and the tab list at the same time while the surface animates open.
+    // same rows, filtered as the query changes.
+    GallerySearchSurface(
+        state = state,
+        searchBand = searchBand,
+        rows = rows,
+        onRefresh = { viewModel.refreshServerRecordings() },
+    )
+
+    GalleryDeleteDialogs(
+        recordingToDelete = recordingToDelete,
+        serverItemToDelete = serverItemToDelete,
+        showBulkDeleteConfirm = showBulkDeleteConfirm,
+        selection = selection,
+        onDismissLocal = { recordingToDelete = null },
+        onConfirmLocal = {
+            viewModel.deleteRecording(it)
+            recordingToDelete = null
+        },
+        onDismissServer = { serverItemToDelete = null },
+        onConfirmServer = {
+            viewModel.deleteServerRecording(it)
+            serverItemToDelete = null
+        },
+        onDismissBulk = { showBulkDeleteConfirm = false },
+        onConfirmBulk = {
+            viewModel.deleteSelected()
+            showBulkDeleteConfirm = false
+            selectionMode = false
+        },
+    )
+}
+
+/**
+ * The row definitions for both gallery surfaces, hoisted out of the screen body because it is per-item wiring
+ * rather than screen state. The result stays a [LazyListScope] lambda: [RecordingsGallery] picks its container
+ * per mode, so the rows are invoked there and never composed here.
+ *
+ * animateItem()'s own defaults are framework springs that ignore the scheme, so all three phases name the
+ * motion scheme's specs (Design.md §4).
+ */
+@Composable
+private fun galleryRows(
+    items: List<GalleryItem>,
+    selectionMode: Boolean,
+    selectedIds: Set<Long>,
+    viewModel: RecordingsViewModel,
+    onRequestPlayback: (PlaybackTarget) -> Unit,
+    onEnterSelectionMode: () -> Unit,
+    onDeleteLocal: (Recording) -> Unit,
+    onDeleteServer: (GalleryItem.Remote) -> Unit,
+): LazyListScope.() -> Unit {
+    val motion = MaterialTheme.motionScheme
+    return {
+        items(items, key = { it.stableKey }) { item ->
+            val localId = (item as? GalleryItem.Local)?.recording?.id
+            RecordingCardItem(
+                modifier = Modifier.animateItem(
+                    fadeInSpec = motion.defaultEffectsSpec(),
+                    placementSpec = motion.defaultSpatialSpec(),
+                    fadeOutSpec = motion.defaultEffectsSpec(),
+                ),
+                item = item,
+                selectionMode = selectionMode,
+                selected = item is GalleryItem.Local && item.recording.id in selectedIds,
+                onSelectToggle = {
+                    (item as? GalleryItem.Local)?.let { viewModel.toggleSelection(it.recording.id) }
+                },
+                onLongSelect = {
+                    localId?.let { id ->
+                        if (selectionMode) {
+                            viewModel.selectRangeTo(id)
+                        } else {
+                            onEnterSelectionMode()
+                            viewModel.toggleSelection(id)
+                        }
+                    }
+                },
+                onPlay = {
+                    onRequestPlayback(
+                        when (item) {
+                            is GalleryItem.Local -> PlaybackTarget.LocalFile(item.recording.filePath)
+                            is GalleryItem.Remote -> PlaybackTarget.RemoteUrl(item.videoAbsoluteUrl)
+                        }
+                    )
+                },
+                onDelete = {
+                    when (item) {
+                        is GalleryItem.Local -> onDeleteLocal(item.recording)
+                        is GalleryItem.Remote -> onDeleteServer(item)
+                    }
+                },
+                onToggleProtect = {
+                    when (item) {
+                        is GalleryItem.Local -> viewModel.toggleProtection(item.recording)
+                        is GalleryItem.Remote -> viewModel.toggleServerProtection(item)
+                    }
+                },
+                onShare = { item.exportAs(RecordingExportKind.SHARE, viewModel) },
+                onExportGallery = { item.exportAs(RecordingExportKind.GALLERY, viewModel) },
+                onExportFolder = { item.exportAs(RecordingExportKind.FOLDER, viewModel) },
+                // Raw copies only exist for local clips; server rows already live on the server as H.264.
+                onExportRawFolder = if (item is GalleryItem.Local) {
+                    { viewModel.exportRecording(item.recording, RecordingExportKind.RAW_FOLDER) }
+                } else null
+            )
+        }
+    }
+}
+
+/**
+ * The whole scrolling title band: the app bar with the multi-select actions, then the search trigger, the
+ * storage line and the two filter rows, all painted from one colour so the strip under the bar moves with it
+ * (see [HeaderBandColor]).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GalleryHeaderBand(
+    state: RecordingsUiState,
+    selection: SelectionInfo,
+    selectionMode: Boolean,
+    searchBand: RecordingsSearchBand,
+    scrollBehavior: TopAppBarScrollBehavior,
+    viewModel: RecordingsViewModel,
+    onEnterSelection: () -> Unit,
+    onExitSelection: () -> Unit,
+    onBulkDelete: () -> Unit,
+    onSearch: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(HeaderBandColor(scrollBehavior.state))
+    ) {
+        RecordingsTopBar(
+            selectionMode = selectionMode,
+            selectedCount = selection.selectedCount,
+            hiddenSelectedCount = selection.hiddenSelectedCount,
+            onSelectAll = { viewModel.selectAllVisible() },
+            onExportSelected = { kind -> viewModel.exportSelected(kind) },
+            onBulkDelete = onBulkDelete,
+            onExitSelection = onExitSelection,
+            onEnterSelection = onEnterSelection,
+            scrollBehavior = scrollBehavior,
+        )
+
+        Column(modifier = Modifier.padding(horizontal = Spacing.lg)) {
+            // Multi-select hands the band its own actions; a second row of controls there is
+            // noise, and the search surface would cover the rows being checked anyway.
+            if (!selectionMode) {
+                RecordingsSearchTrigger(
+                    searchBarState = searchBand.searchBarState,
+                    textFieldState = searchBand.textFieldState,
+                    query = state.searchQuery,
+                    onClearQuery = searchBand.clearSearchQuery,
+                    onSearch = onSearch,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(modifier = Modifier.height(Spacing.sm))
+            }
+            RecordingsStorageLine(totalStorageBytes = state.totalStorageBytes)
+            Spacer(modifier = Modifier.height(Spacing.sm))
+            RecordingsFilterBar(
+                selectedEventType = state.selectedEventType,
+                onEventTypeSelect = { viewModel.selectEventTypeFilter(it) },
+                devices = state.devices,
+                selectedDeviceId = state.selectedDeviceId,
+                onDeviceSelect = { viewModel.selectDeviceFilter(it) }
+            )
+            Spacer(modifier = Modifier.height(Spacing.sm))
+        }
+    }
+}
+
+/**
+ * The expanded half of the search band as its own surface over the window, with the same rows as the tab list.
+ * Composed unconditionally - the search bar state gates it internally - and with its own scroll state, because
+ * one LazyListState cannot be attached to this sheet and the tab list at the same time while the surface
+ * animates open.
+ */
+@Composable
+private fun GallerySearchSurface(
+    state: RecordingsUiState,
+    searchBand: RecordingsSearchBand,
+    rows: LazyListScope.() -> Unit,
+    onRefresh: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
     RecordingsSearchSurface(
-        searchBarState = searchBarState,
-        textFieldState = textFieldState,
+        searchBarState = searchBand.searchBarState,
+        textFieldState = searchBand.textFieldState,
         query = state.searchQuery,
-        onClearQuery = clearSearchQuery,
-        onSearch = { scope.launch { searchBarState.animateToCollapsed() } },
+        onClearQuery = searchBand.clearSearchQuery,
+        onSearch = { scope.launch { searchBand.searchBarState.animateToCollapsed() } },
     ) {
         RecordingsGallery(
             state = state,
             listState = rememberLazyListState(),
             rows = rows,
-            onClearFilters = clearAllFilters,
-            onRefresh = { viewModel.refreshServerRecordings() },
+            onClearFilters = searchBand.clearAllFilters,
+            onRefresh = onRefresh,
             modifier = Modifier.weight(1f),
         )
     }
+}
 
+/**
+ * The three confirmations the gallery can ask for. Each takes the row it is about, because a delete needs an
+ * answer before anything happens and the row that vanishes has to be the row that was asked about.
+ */
+@Composable
+private fun GalleryDeleteDialogs(
+    recordingToDelete: Recording?,
+    serverItemToDelete: GalleryItem.Remote?,
+    showBulkDeleteConfirm: Boolean,
+    selection: SelectionInfo,
+    onDismissLocal: () -> Unit,
+    onConfirmLocal: (Recording) -> Unit,
+    onDismissServer: () -> Unit,
+    onConfirmServer: (GalleryItem.Remote) -> Unit,
+    onDismissBulk: () -> Unit,
+    onConfirmBulk: () -> Unit,
+) {
     recordingToDelete?.let { rec ->
         DeleteRecordingDialog(
             deviceName = rec.deviceName,
             timestamp = rec.timestamp,
-            onDismiss = { recordingToDelete = null },
-            onConfirm = {
-                viewModel.deleteRecording(rec)
-                recordingToDelete = null
-            }
+            onDismiss = onDismissLocal,
+            onConfirm = { onConfirmLocal(rec) },
         )
     }
 
@@ -322,11 +427,8 @@ fun RecordingsScreen(
         DeleteRecordingDialog(
             deviceName = item.deviceName,
             timestamp = item.timestamp,
-            onDismiss = { serverItemToDelete = null },
-            onConfirm = {
-                viewModel.deleteServerRecording(item)
-                serverItemToDelete = null
-            }
+            onDismiss = onDismissServer,
+            onConfirm = { onConfirmServer(item) },
         )
     }
 
@@ -334,12 +436,8 @@ fun RecordingsScreen(
         BulkDeleteDialog(
             selectedCount = selection.selectedCount,
             protectedCount = selection.protectedCount,
-            onDismiss = { showBulkDeleteConfirm = false },
-            onConfirm = {
-                viewModel.deleteSelected()
-                showBulkDeleteConfirm = false
-                selectionMode = false
-            }
+            onDismiss = onDismissBulk,
+            onConfirm = onConfirmBulk,
         )
     }
 }

@@ -65,6 +65,37 @@ internal fun rememberShareLauncher(): (RecordingsUiEvent.Share) -> Unit {
     }
 }
 
+/**
+ * The screen's half of the ViewModel's one-shot events: the snack bar hop, the share sheet, and the two flags
+ * the gallery owns. Kept as one `LaunchedEffect(Unit)` so the queue order is unchanged - a batch that reports
+ * skipped protected clips and then a saved count delivers both instead of the last one winning.
+ *
+ * **Compose this unconditionally**, never behind an `if`: the collector has to stay alive for the whole time
+ * the screen is, or an event that lands while a branch is hidden is lost.
+ */
+@Composable
+internal fun LaunchedRecordingsEvents(
+    viewModel: RecordingsViewModel,
+    share: (RecordingsUiEvent.Share) -> Unit,
+    onSelectionCleared: () -> Unit,
+    onExportCompleted: () -> Unit,
+) {
+    val snackbarHost = LocalAppSnackbar.current
+    LaunchedEffect(Unit) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is RecordingsUiEvent.Message -> snackbarHost.showMessage(event.text, event.short)
+
+                is RecordingsUiEvent.Share -> share(event)
+
+                RecordingsUiEvent.SelectionCleared -> onSelectionCleared()
+
+                RecordingsUiEvent.ExportCompleted -> onExportCompleted()
+            }
+        }
+    }
+}
+
 /** The state and the two clear actions of the gallery search band; built by [rememberRecordingsSearchBand]. */
 internal class RecordingsSearchBand(
     val searchBarState: SearchBarState,
