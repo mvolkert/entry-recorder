@@ -49,7 +49,15 @@ breaking local cleanup*; `settings-ui` — *Full-screen device editor with conne
 - [ ] 4.1 Drop the now-unused constructor parameters from `SettingsViewModel` (expect 18 → ~11) and update the
       Hilt graph implicitly; verify: `compileDebugKotlin` passes and `SettingsViewModel` is under ~300 lines.
       *(Every unused parameter is gone — 18 → 13, the three runners plus the still-used collaborators — but the
-      file is 428 lines, not ~300: `SettingsUiState`, `SettingsUiEvent` and the flow KDocs stay by design.)*
+      file is 428 lines, not ~300: `SettingsUiState`, `SettingsUiEvent` and the flow KDocs stay by design.*
+      *`SettingsUiState` and `SettingsUiEvent` have since moved to `SettingsUiModels.kt` (same package, the
+      `sip/SipModels.kt` precedent), which violates nothing — design.md's Non-Goal bars changing the state's
+      shape, not its file — and brings the ViewModel to 412. The remaining ~110 lines are not reachable without
+      reversing Decision 1 ("State stays in the ViewModel … the runners are suspend functions and one cold
+      `Flow<Float>`, not state owners", with per-screen flow-owning coordinators recorded as considered and
+      rejected) and Decision 6 (the in-flight guards stay in the VM): the four storage `combine…stateIn` pipelines
+      are ~70 lines, the three probe holders plus their guards ~80. The size figure is therefore left as a
+      deviation rather than closed by undoing a decision made for the `viewModelScope` lifetime.)*
 - [ ] 4.2 Trim `SettingsViewModelTest`'s setup so it no longer builds real `OkHttpClient`-backed
       `HttpSnapshotClient` / `IntercomDeviceFactory`; verify: `.\gradlew.bat testDebugUnitTest` passes with no
       net test count loss across the four touched test files.
