@@ -33,9 +33,19 @@ task names the scenario that proves it.
 
 - [x] 3.1 Run `.\gradlew.bat lintDebug` and `ktlintCheck`/`detekt` if configured; fix warnings introduced here
       only.
-- [ ] 3.2 Confirm `RecordingsViewModel` no longer builds filtered lists or computes selection counts inline
+- [x] 3.2 Confirm `RecordingsViewModel` no longer builds filtered lists or computes selection counts inline
       (grep for `filter {` / `count {` inside the file) and is under ~350 lines; verify: reading the file shows
       only state wiring, intents, and repository calls.
+      *(The grep clause already held after 1.x/2.x — the file has no `filter {` or `count {` left. The size clause
+      did not: 429 lines. Two more extractions close it. `GalleryServerList` takes the lazy server fetch — its
+      state holder plus `refreshServerRecordings` / `toggleServerProtection` / `deleteServerRecording`, built
+      inside the ViewModel from the already-injected `repository` / `serverClient` / `strings` plus the same
+      `(text, short) -> Unit` sink `GalleryExportCoordinator` uses, so no test constructor changes — and
+      `RecordingsUiState` / `RecordingsUiEvent` move to `RecordingsUiModels.kt` beside them (precedent:
+      `sip/SipModels.kt`), same package, so no import churn. The ViewModel is 332 lines; the three public intents
+      keep their names and signatures, the fetch still stays out of the Room flow, and every request/message
+      branch moved verbatim. Verified: `compileDebugKotlin`, `testDebugUnitTest` (227 tests / 34 suites /
+      0 failures) and `lintDebug` (0 findings on the touched files).)*
 
 ## 4. On-device acceptance gate (blocks archive)
 

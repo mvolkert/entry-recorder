@@ -15,8 +15,6 @@ import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.data.repository.RecordingDeleteResult
 import io.github.mvolkert.entryrecorder.data.server.ServerClient
 import io.github.mvolkert.entryrecorder.data.server.ServerMediaUrls
-import io.github.mvolkert.entryrecorder.data.server.ServerRecordingDto
-import io.github.mvolkert.entryrecorder.util.ExportMetadata
 import io.github.mvolkert.entryrecorder.util.ExportRunner
 import io.github.mvolkert.entryrecorder.util.RecordingExportKind
 import io.github.mvolkert.entryrecorder.util.ServerRecordingSource
@@ -31,52 +29,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.io.File
-
-data class RecordingsUiState(
-    val items: List<GalleryItem> = emptyList(),
-    val devices: List<Device> = emptyList(),
-    val selectedDeviceId: Long? = null,
-    val selectedEventType: EventType? = null,
-    val searchQuery: String = "",
-    val totalStorageBytes: Long = 0,
-    val isLoading: Boolean = true,
-    val isServerLoading: Boolean = false,
-    /** True when at least one of the three filters is narrowing the list, which changes the empty state. */
-    val filtersActive: Boolean = false,
-    /** Server mode: the only state in which the list can be refreshed from the network by gesture. */
-    val serverModeEnabled: Boolean = false
-) {
-    /** Only local recordings are selectable / exportable / deletable; server rows are read-only for now. */
-    val localRecordings: List<Recording>
-        get() = items.filterIsInstance<GalleryItem.Local>().map { it.recording }
-}
-
-/** One-shot export effects the screen has to perform (snack-bar messages, the share sheet). */
-sealed interface RecordingsUiEvent {
-    data class Message(val text: String, val short: Boolean = false) : RecordingsUiEvent
-
-    /**
-     * The share sheet has to be launched from an Activity context (the single-file path does not add
-     * `FLAG_ACTIVITY_NEW_TASK`), so the ViewModel resolves the files and the screen performs the launch.
-     * [metadata] carries the sheet's labels for a single-clip share; null means the multi-select batch.
-     */
-    data class Share(
-        val files: List<File>,
-        val metadata: ExportMetadata? = null,
-    ) : RecordingsUiEvent
-
-    /** Sent when a batch export finishes, so the screen can leave multi-select. */
-    data object SelectionCleared : RecordingsUiEvent
-
-    /**
-     * An export wrote its files successfully, so the screen spends its celebration moment on it. Only
-     * ever emitted on the success branches — a failure still reports as a plain [Message].
-     */
-    data object ExportCompleted : RecordingsUiEvent
-}
 
 @HiltViewModel
 class RecordingsViewModel @Inject constructor(
@@ -110,6 +63,15 @@ class RecordingsViewModel @Inject constructor(
         emitEvent = { event -> _events.trySend(event) },
     )
 
+    /** The fetched server list and its mutations; the ViewModel only decides when they are asked for. */
+    private val serverList = GalleryServerList(
+        scope = viewModelScope,
+        repository = repository,
+        serverClient = serverClient,
+        strings = strings,
+        emitMessage = ::emitMessage,
+    )
+
     /** Progress of the running single-item export (transcode or folder copy), null while idle. */
     val exportProgress: StateFlow<ExportRunProgress?> = exportCoordinator.exportProgress
 
@@ -124,18 +86,11 @@ class RecordingsViewModel @Inject constructor(
         exportCoordinator.cancel()
     }
 
-    /** Server rows are a lazy one-shot fetch, kept out of the Room flow so an offline server can't stall it. */
-    private data class ServerListState(
-        val items: List<ServerRecordingDto> = emptyList(),
-        val isLoading: Boolean = false
-    )
-    private val _serverState = MutableStateFlow(ServerListState())
-
     private data class SourceData(
         val recordings: List<Recording>,
         val devices: List<Device>,
         val settings: AppSettings?,
-        val server: ServerListState
+        val server: GalleryServerList.State
     )
 
     private val filterState =
@@ -147,7 +102,7 @@ class RecordingsViewModel @Inject constructor(
         repository.allRecordings,
         repository.allDevices,
         repository.settingsFlow,
-        _serverState
+        serverList.state
     ) { recordings, devices, settings, server ->
         SourceData(recordings, devices, settings, server)
     }
@@ -182,29 +137,8 @@ class RecordingsViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RecordingsUiState())
 
-    /**
-     * Fetches the server's completed recordings; called when the screen is shown. A no-op that also clears
-     * any stale list outside PYTHON_SERVER mode, so the app never dials a server the user is not using.
-     * A failure is reported as a message and leaves whatever was already listed in place.
-     */
     fun refreshServerRecordings() {
-        viewModelScope.launch {
-            val settings = repository.getSettings()
-            if (settings.recordingMode != RecordingMode.PYTHON_SERVER) {
-                _serverState.value = ServerListState()
-                return@launch
-            }
-            _serverState.value = _serverState.value.copy(isLoading = true)
-            serverClient.listRecordings(
-                serverUrl = settings.serverBaseUrl,
-                apiKey = settings.serverApiKey.ifBlank { null }
-            ).onSuccess { list ->
-                _serverState.value = ServerListState(items = list)
-            }.onFailure { error ->
-                _serverState.value = _serverState.value.copy(isLoading = false)
-                message(R.string.recordings_toast_server_unreachable, error.message ?: "")
-            }
-        }
+        serverList.refresh()
     }
 
     fun selectDeviceFilter(deviceId: Long?) {
@@ -322,43 +256,12 @@ class RecordingsViewModel @Inject constructor(
 
     // --- Server recording actions (mutating, on the merged gallery) ---
 
-    /** Flips the server-side protection flag and reflects the new state in the listed row on success. */
     fun toggleServerProtection(item: GalleryItem.Remote) {
-        val dto = item.dto
-        val newProtected = !dto.isProtected
-        viewModelScope.launch {
-            val settings = repository.getSettings()
-            serverClient.setProtected(
-                serverUrl = settings.serverBaseUrl,
-                apiKey = settings.serverApiKey.ifBlank { null },
-                recordingId = dto.id,
-                isProtected = newProtected
-            ).onSuccess {
-                _serverState.update { state ->
-                    state.copy(items = state.items.map { if (it.id == dto.id) it.copy(isProtected = newProtected) else it })
-                }
-            }.onFailure { error ->
-                message(R.string.recordings_toast_server_action_failed, error.message ?: "")
-            }
-        }
+        serverList.setProtected(item.dto)
     }
 
-    /** Deletes a completed recording on the server and drops it from the list on success. */
     fun deleteServerRecording(item: GalleryItem.Remote) {
-        val dto = item.dto
-        viewModelScope.launch {
-            val settings = repository.getSettings()
-            serverClient.deleteRecording(
-                serverUrl = settings.serverBaseUrl,
-                apiKey = settings.serverApiKey.ifBlank { null },
-                recordingId = dto.id
-            ).onSuccess {
-                _serverState.update { state -> state.copy(items = state.items.filterNot { it.id == dto.id }) }
-                message(R.string.recordings_toast_server_deleted, short = true)
-            }.onFailure { error ->
-                message(R.string.recordings_toast_server_action_failed, error.message ?: "")
-            }
-        }
+        serverList.delete(item.dto)
     }
 
     /**
