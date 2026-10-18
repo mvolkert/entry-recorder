@@ -30,7 +30,12 @@
       and green, and the file is roughly 300 lines.
       *(Every clause holds except the size estimate: the file is 437 lines, down from 608. What remains is
       exactly the retained list — the probe is ~95 of those lines and `routeAudioToSpeaker`, kept out of scope
-      by the proposal, another ~25 — so ~300 would need a seam this change does not authorise.)*
+      by the proposal, another ~25 — so ~300 would need a seam this change does not authorise. Re-checked when
+      the other size targets were closed: reaching 300 means moving either `probeRegistration` (a Non-Goal —
+      its throw-away-core mechanics, `probeLock` and port rotation are frozen) or the `coreListener` /
+      `configureLogging` blocks (both named in the Goals as what the manager keeps), and the `SipAudioRouter`
+      the Open Question names was excluded on purpose. The owner chose to leave the figure as a deviation
+      rather than rewrite that decision.)*
 
 ## 4. On-device acceptance gate (blocks archive)
 
