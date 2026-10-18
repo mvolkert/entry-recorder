@@ -1,6 +1,7 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
 import com.google.gson.Gson
+import io.github.mvolkert.entryrecorder.data.backup.BackupRestoreRunner
 import io.github.mvolkert.entryrecorder.domain.model.AppSettings
 import io.github.mvolkert.entryrecorder.domain.server.SyncDeviceUseCase
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
@@ -74,20 +75,32 @@ class SettingsViewModelTest {
             serverClient = server,
             syncDevice = SyncDeviceUseCase(repository, server),
             monitorStatusRegistry = MonitorStatusRegistry(),
-            gson = Gson(),
             strings = FakeUiStrings(),
-            storageDirs = AppStorageDirs(File(root, "recordings"), File(root, "thumbnails"), File(root, "export")),
             themeModeStore = themeModes,
             autoBootStore = autoBoots,
             cleanupScheduler = FakeRetentionCleanupScheduler(),
-            backupStore = FakeBackupDocumentStore(),
-            credentialCipher = testCredentialCipher(),
             ioDispatcher = testDispatcher,
-            exportGateway = FakeExportGateway(),
-            snapshotClient = HttpSnapshotClient(OkHttpClient(), testDispatcher),
-            deviceFactory = IntercomDeviceFactory(OkHttpClient(), OkHttpClient(), testDispatcher, CoroutineScope(SupervisorJob())),
-            sipRegistrar = FakeSipRegistrar(),
             exportFailureMonitor = ExportFailureMonitor(),
+            backupRestoreRunner = BackupRestoreRunner(
+                repository = repository,
+                backupStore = FakeBackupDocumentStore(),
+                gson = Gson(),
+                credentialCipher = testCredentialCipher(),
+                themeModeStore = themeModes,
+                ioDispatcher = testDispatcher,
+            ),
+            storageHubRunner = StorageHubRunner(
+                exportGateway = FakeExportGateway(),
+                storageDirs = AppStorageDirs(File(root, "recordings"), File(root, "thumbnails"), File(root, "export")),
+                ioDispatcher = testDispatcher,
+            ),
+            // The two OkHttp-backed probe collaborators have no interface to fake against, so they stay real
+            // here: no case in this class runs a probe, so they are only ever constructed, never dialled out.
+            probeRunner = DeviceProbeRunner(
+                deviceFactory = IntercomDeviceFactory(OkHttpClient(), OkHttpClient(), testDispatcher, CoroutineScope(SupervisorJob())),
+                snapshotClient = HttpSnapshotClient(OkHttpClient(), testDispatcher),
+                sipRegistrar = FakeSipRegistrar(),
+            ),
         )
     }
 

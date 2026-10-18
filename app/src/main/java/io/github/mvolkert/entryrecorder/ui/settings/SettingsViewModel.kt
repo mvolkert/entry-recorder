@@ -5,43 +5,31 @@ import android.util.Log
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.gson.Gson
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.mvolkert.entryrecorder.R
-import io.github.mvolkert.entryrecorder.data.backup.AppBackup
-import io.github.mvolkert.entryrecorder.data.backup.BackupDocumentStore
-import io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory
-import io.github.mvolkert.entryrecorder.data.mapper.toEntity
+import io.github.mvolkert.entryrecorder.data.backup.BackupRestoreOutcome
+import io.github.mvolkert.entryrecorder.data.backup.BackupRestoreRunner
 import io.github.mvolkert.entryrecorder.domain.model.AppSettings
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.domain.server.ServerDeleteResult
 import io.github.mvolkert.entryrecorder.domain.server.ServerSyncResult
 import io.github.mvolkert.entryrecorder.domain.server.SyncDeviceUseCase
-import io.github.mvolkert.entryrecorder.data.local.crypto.CredentialCipher
-import io.github.mvolkert.entryrecorder.data.local.entity.normalizedForRestore
 import io.github.mvolkert.entryrecorder.data.local.prefs.AutoBootStore
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
-import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.data.server.ServerClient
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.service.MonitorStatusRegistry
 import io.github.mvolkert.entryrecorder.sip.SipRegistrar
 import io.github.mvolkert.entryrecorder.ui.theme.ThemeModeStore
-import io.github.mvolkert.entryrecorder.util.AppStorageDirs
-import io.github.mvolkert.entryrecorder.util.ExportEntry
-import io.github.mvolkert.entryrecorder.util.ExportFailureMonitor
 import io.github.mvolkert.entryrecorder.util.ExportFolderAccess
-import io.github.mvolkert.entryrecorder.util.ExportGateway
+import io.github.mvolkert.entryrecorder.util.ExportFailureMonitor
 import io.github.mvolkert.entryrecorder.util.StorageUsage
 import io.github.mvolkert.entryrecorder.util.UiStrings
-import io.github.mvolkert.entryrecorder.util.thumbnailUsageBytes
 import io.github.mvolkert.entryrecorder.worker.RetentionCleanupScheduler
 import javax.inject.Inject
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -49,15 +37,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlin.time.Duration.Companion.milliseconds
 
 /** One-shot results the screen turns into snack bar messages. */
 sealed interface SettingsUiEvent {
@@ -80,25 +65,19 @@ class SettingsViewModel @Inject constructor(
     private val serverClient: ServerClient,
     private val syncDevice: SyncDeviceUseCase,
     private val monitorStatusRegistry: MonitorStatusRegistry,
-    private val gson: Gson,
     private val strings: UiStrings,
-    // The screen's file, theme, cleanup and SIP needs all arrive as JVM-only contracts or plain values —
-    // storage dirs, a theme-mode mirror, a cleanup trigger, a document stream — so no Context is held
-    // here and the whole ViewModel can be constructed and driven from an ordinary unit test. The only
-    // Android types left are the caller-supplied `Uri`s the SAF picker returns, which pass straight
-    // through to [ExportGateway] / [BackupDocumentStore].
-    private val storageDirs: AppStorageDirs,
+    // Everything the screen needs from the framework reaches this class as a JVM-only contract or a plain
+    // value, so no Context is held here and the whole ViewModel can be constructed and driven from an
+    // ordinary unit test. The only Android types left are the caller-supplied `Uri`s the SAF picker returns,
+    // which pass straight through to the runners below.
     private val themeModeStore: ThemeModeStore,
     private val autoBootStore: AutoBootStore,
     private val cleanupScheduler: RetentionCleanupScheduler,
-    private val backupStore: BackupDocumentStore,
-    private val credentialCipher: CredentialCipher,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
-    private val exportGateway: ExportGateway,
-    private val snapshotClient: HttpSnapshotClient,
-    private val deviceFactory: IntercomDeviceFactory,
-    private val sipRegistrar: SipRegistrar,
     private val exportFailureMonitor: ExportFailureMonitor,
+    private val backupRestoreRunner: BackupRestoreRunner,
+    private val storageHubRunner: StorageHubRunner,
+    private val probeRunner: DeviceProbeRunner,
 ) : ViewModel() {
 
     private val tag = "SettingsViewModel"
@@ -142,7 +121,7 @@ class SettingsViewModel @Inject constructor(
         probeTick
     ) { folderUri, tick -> folderUri to tick }
         .distinctUntilChanged()
-        .map { (folderUri, _) -> exportGateway.probeExportFolderAccess(folderUri) }
+        .map { (folderUri, _) -> storageHubRunner.probeFolderAccess(folderUri) }
         .flowOn(ioDispatcher)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ExportFolderAccess.UNKNOWN)
 
@@ -159,7 +138,7 @@ class SettingsViewModel @Inject constructor(
         .map { key ->
             StorageUsage(
                 recordingsBytes = key.first,
-                thumbnailBytes = thumbnailUsageBytes(storageDirs.thumbnailsDir)
+                thumbnailBytes = storageHubRunner.thumbnailCacheBytes()
             )
         }
         .flowOn(ioDispatcher)
@@ -183,14 +162,7 @@ class SettingsViewModel @Inject constructor(
         .map { (folderUri, probe) ->
             val access = probe.second
             if (folderUri.isBlank() || access != ExportFolderAccess.OK) null
-            else runCatching {
-                exportGateway.listExportedFiles(folderUri)
-                    .filter(ExportEntry::isAppCreated)
-                    .sumOf { it.sizeBytes }
-            }.onFailure {
-                if (it is CancellationException) throw it
-                Log.w(tag, "Export folder listing for $folderUri failed", it)
-            }.getOrNull()
+            else storageHubRunner.exportedBytes(folderUri)
         }
         .flowOn(ioDispatcher)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -206,12 +178,7 @@ class SettingsViewModel @Inject constructor(
         .map { it?.exportFolderUri.orEmpty() }
         .distinctUntilChanged()
         .map { folderUri ->
-            if (folderUri.isBlank()) "" else runCatching {
-                exportGateway.safFolderDisplayName(folderUri)
-            }.onFailure {
-                if (it is CancellationException) throw it
-                Log.w(tag, "Export folder name for $folderUri could not be read", it)
-            }.getOrDefault("")
+            if (folderUri.isBlank()) "" else storageHubRunner.folderDisplayName(folderUri)
         }
         .flowOn(ioDispatcher)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
@@ -274,7 +241,7 @@ class SettingsViewModel @Inject constructor(
             if (previous.isNotBlank() && previous != uri.toString()) {
                 releaseExportFolderGrant(previous)
             }
-            if (exportGateway.takePersistableTreeGrant(uri)) {
+            if (storageHubRunner.takeGrant(uri)) {
                 repository.updateSettings(settings.copy(exportFolderUri = uri.toString()))
             } else {
                 // The gateway already logged the refusal; the user just hears that it failed.
@@ -297,8 +264,8 @@ class SettingsViewModel @Inject constructor(
         probeTick.update { it + 1 }
     }
 
-    private fun releaseExportFolderGrant(folderUri: String) {
-        exportGateway.releasePersistableTreeGrant(folderUri)
+    private suspend fun releaseExportFolderGrant(folderUri: String) {
+        storageHubRunner.releaseGrant(folderUri)
     }
 
     // --- Probes the create/edit form runs against unsaved values ---
@@ -322,17 +289,13 @@ class SettingsViewModel @Inject constructor(
 
     /**
      * The snapshot rate the endpoint actually delivered lately, polled for whichever device the form is
-     * showing. It lives here rather than in the section because [HttpSnapshotClient.achievedFps] is a
-     * getter and not a stream: the loop that turned it into state used to sit in a `LaunchedEffect`, so
-     * rotating the phone restarted it and left a gap where the reading should have been.
+     * showing. The loop lives in [DeviceProbeRunner] because the rate it reads is a getter and not a
+     * stream; the shared flow stays here so rotating the phone does not restart the poll and leave a gap
+     * where the reading should have been.
      */
-    val measuredSnapshotFps: StateFlow<Float> = flow {
-        while (true) {
-            val deviceId = measuredFpsDeviceId.value
-            emit(if (deviceId == null) 0f else snapshotClient.achievedFps(deviceId))
-            delay(MEASURED_FPS_POLL_MS.milliseconds)
-        }
-    }.flowOn(ioDispatcher).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
+    val measuredSnapshotFps: StateFlow<Float> = probeRunner.measuredFps(measuredFpsDeviceId)
+        .flowOn(ioDispatcher)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
 
     /**
      * Points [measuredSnapshotFps] at [deviceId], or stops the poll when null. Switching to a different
@@ -354,30 +317,19 @@ class SettingsViewModel @Inject constructor(
      * same serial endpoint only slow both of them down.
      */
     fun testDeviceConnection(candidate: Device) {
-        if (_connectionTest.value is DeviceTestState.Running) return
+        if (_connectionTest.alreadyRunning(DeviceTestState.Running)) return
         viewModelScope.launch {
             _connectionTest.value = DeviceTestState.Running
-            val outcome = try {
-                deviceFactory.createDevice(candidate).testConnection()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // A device class that cannot even report why it failed still has to leave the button idle.
-                Log.w(tag, "Connection probe for ${candidate.name} threw", e)
-                _connectionTest.value = DeviceTestState.Failed(e.localizedMessage)
-                return@launch
-            }
-            _connectionTest.value = if (outcome.isSuccess) DeviceTestState.Passed
-            else DeviceTestState.Failed(outcome.exceptionOrNull()?.localizedMessage)
+            _connectionTest.value = probeRunner.connectionTest(candidate)
         }
     }
 
     /** Asks a registrar whether the typed SIP account would register. See [SipRegistrar.probeRegistration]. */
     fun testSipRegistration(candidate: Device) {
-        if (_sipTest.value is SipTestState.Running) return
+        if (_sipTest.alreadyRunning(SipTestState.Running)) return
         viewModelScope.launch {
             _sipTest.value = SipTestState.Running
-            _sipTest.value = SipTestState.Completed(sipRegistrar.probeRegistration(candidate))
+            _sipTest.value = probeRunner.sipRegistration(candidate)
         }
     }
 
@@ -386,15 +338,18 @@ class SettingsViewModel @Inject constructor(
      * nothing: the form owns its own fields, so the screen decides how to use the number.
      */
     fun probeSnapshotFps(candidate: Device) {
-        if (_snapshotProbe.value is SnapshotProbeState.Running) return
+        if (_snapshotProbe.alreadyRunning(SnapshotProbeState.Running)) return
         viewModelScope.launch {
             _snapshotProbe.value = SnapshotProbeState.Running
-            _snapshotProbe.value = SnapshotProbeState.Measured(snapshotClient.probeSnapshotFps(candidate))
+            _snapshotProbe.value = probeRunner.snapshotFps(candidate)
         }
     }
 
+    /** A second probe of the same kind is refused while one is in flight, rather than queued behind it. */
+    private fun <T : Any> MutableStateFlow<T>.alreadyRunning(running: T): Boolean = value == running
+
     /** True while the monitor service holds a Linphone core, which is what a second probe would contend with. */
-    val monitorUsesSip: Boolean get() = sipRegistrar.hasActiveCore
+    val monitorUsesSip: Boolean get() = probeRunner.usesActiveRegistrar
 
     private val _isTestingServer = MutableStateFlow(false)
     val isTestingServer: StateFlow<Boolean> = _isTestingServer.asStateFlow()
@@ -428,25 +383,13 @@ class SettingsViewModel @Inject constructor(
     /** Writes a JSON backup of app settings + all devices to the user-chosen [uri]. */
     fun exportBackup(uri: Uri) {
         viewModelScope.launch {
-            try {
-                val backup = AppBackup(
-                    exportedAt = System.currentTimeMillis(),
-                    appSettings = repository.getSettings(),
-                    devices = repository.getAllDevicesList()
-                )
-                val json = gson.toJson(backup)
-                withContext(ioDispatcher) {
-                    backupStore.writeText(uri, json)
-                }
-                message(R.string.settings_backup_export_success, backup.devices.size)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(tag, "Backup export failed", e)
-                message(
+            when (val outcome = backupRestoreRunner.export(uri.toString())) {
+                is BackupRestoreOutcome.Exported -> message(R.string.settings_backup_export_success, outcome.deviceCount)
+                is BackupRestoreOutcome.Failed -> message(
                     R.string.settings_backup_export_failed,
-                    e.localizedMessage ?: strings(R.string.settings_unknown_error)
+                    outcome.cause.localizedMessage ?: strings(R.string.settings_unknown_error)
                 )
+                is BackupRestoreOutcome.Restored, BackupRestoreOutcome.Invalid -> Unit
             }
         }
     }
@@ -457,30 +400,20 @@ class SettingsViewModel @Inject constructor(
      */
     fun restoreBackup(uri: Uri) {
         viewModelScope.launch {
-            try {
-                val json = withContext(ioDispatcher) { backupStore.readText(uri) }
-                val backup = gson.fromJson(json, AppBackup::class.java)
-                    ?: throw IllegalStateException(
-                        strings(R.string.settings_backup_invalid_file)
-                    )
-
-                backup.appSettings?.let {
-                    themeModeStore.setThemeMode(it.themeMode)
-                    repository.insertOrUpdateSettingsEntity(it.toEntity(credentialCipher).normalizedForRestore())
-                }
-                // Reset serverDeviceId: a backup may have been taken against a different server, so the
-                // restored devices re-register lazily against whichever server is configured now.
-                backup.devices.forEach { repository.upsertDevice(it.copy(serverDeviceId = null)) }
-
-                message(R.string.settings_backup_restore_success, backup.devices.size)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(tag, "Backup restore failed", e)
-                message(
+            when (val outcome = backupRestoreRunner.restore(uri.toString())) {
+                is BackupRestoreOutcome.Restored -> message(R.string.settings_backup_restore_success, outcome.deviceCount)
+                // A document that parsed to nothing is still reported through the restore-failed string, with
+                // the invalid-file text as its argument, exactly as when the parse threw.
+                BackupRestoreOutcome.Invalid -> message(
                     R.string.settings_backup_restore_failed,
-                    e.localizedMessage ?: strings(R.string.settings_unknown_error)
+                    strings(R.string.settings_backup_invalid_file)
                 )
+
+                is BackupRestoreOutcome.Failed -> message(
+                    R.string.settings_backup_restore_failed,
+                    outcome.cause.localizedMessage ?: strings(R.string.settings_unknown_error)
+                )
+                is BackupRestoreOutcome.Exported -> Unit
             }
         }
     }
@@ -491,10 +424,5 @@ class SettingsViewModel @Inject constructor(
 
     private fun messageText(text: String) {
         _events.trySend(SettingsUiEvent.Message(text))
-    }
-
-    companion object {
-        /** How often [measuredSnapshotFps] re-reads a rate that is a getter, not a stream. */
-        private const val MEASURED_FPS_POLL_MS = 2_000L
     }
 }

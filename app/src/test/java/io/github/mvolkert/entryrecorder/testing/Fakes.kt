@@ -1,6 +1,5 @@
 package io.github.mvolkert.entryrecorder.testing
 
-import android.net.Uri
 import io.github.mvolkert.entryrecorder.data.backup.BackupDocumentStore
 import io.github.mvolkert.entryrecorder.data.local.crypto.CredentialCipher
 import io.github.mvolkert.entryrecorder.data.local.crypto.SymmetricKeyProvider
@@ -332,6 +331,13 @@ class FakeExportGateway : ExportGateway {
     val grantReleaseCalls = mutableListOf<String>()
     var grantTakeResult = true
 
+    /** The tree contents [listExportedFiles] answers with, so a usage number has something to count. */
+    var exportedFiles: List<ExportEntry> = emptyList()
+
+    /** When set, the two provider queries throw it — the refused listing a folder must report as no data. */
+    var listFailure: Throwable? = null
+    var displayNameFailure: Throwable? = null
+
     override fun shareFiles(context: android.content.Context, files: List<File>, onMessage: (String) -> Unit) = Unit
 
     override fun shareFile(
@@ -360,9 +366,15 @@ class FakeExportGateway : ExportGateway {
 
     override fun probeExportFolderAccess(folderUri: String): ExportFolderAccess = probeAccessResult
 
-    override fun safFolderDisplayName(folderUri: String): String = folderDisplayName
+    override fun safFolderDisplayName(folderUri: String): String {
+        displayNameFailure?.let { throw it }
+        return folderDisplayName
+    }
 
-    override fun listExportedFiles(folderUri: String): List<ExportEntry> = emptyList()
+    override fun listExportedFiles(folderUri: String): List<ExportEntry> {
+        listFailure?.let { throw it }
+        return exportedFiles
+    }
 
     override fun deleteExportedFile(folderUri: String, displayName: String): Boolean = true
 
@@ -378,14 +390,18 @@ class FakeExportGateway : ExportGateway {
 
 /** The backup-document seam: writes are kept in memory, reads answer a programmable [content]. */
 class FakeBackupDocumentStore : BackupDocumentStore {
-    val writeCalls = mutableListOf<Pair<Uri, String>>()
+    val writeCalls = mutableListOf<Pair<String, String>>()
     var content: String = ""
 
-    override fun writeText(uri: Uri, text: String) {
-        writeCalls += uri to text
+    /** When set, [writeText] throws it — the refused output stream a backup reports as a failure. */
+    var writeFailure: Throwable? = null
+
+    override fun writeText(documentUri: String, text: String) {
+        writeFailure?.let { throw it }
+        writeCalls += documentUri to text
     }
 
-    override fun readText(uri: Uri): String = content
+    override fun readText(documentUri: String): String = content
 }
 
 /** Plain values the ViewModel tests hand to the seams and the fake repositories. */
