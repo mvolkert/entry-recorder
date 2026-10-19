@@ -27,7 +27,11 @@ import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.ui.theme.AndroidThemeModeStore
 import io.github.mvolkert.entryrecorder.ui.theme.ThemeModeStore
 import io.github.mvolkert.entryrecorder.data.local.prefs.AndroidAutoBootStore
+import io.github.mvolkert.entryrecorder.data.local.prefs.AndroidOnboardingStore
 import io.github.mvolkert.entryrecorder.data.local.prefs.AutoBootStore
+import io.github.mvolkert.entryrecorder.data.local.prefs.OnboardingStore
+import io.github.mvolkert.entryrecorder.ui.onboarding.AndroidPermissionChecker
+import io.github.mvolkert.entryrecorder.ui.onboarding.PermissionChecker
 import io.github.mvolkert.entryrecorder.util.AndroidExportGateway
 import io.github.mvolkert.entryrecorder.util.AndroidUiStrings
 import io.github.mvolkert.entryrecorder.util.AppStorageDirs
@@ -107,6 +111,23 @@ object AppModule {
     @Singleton
     fun provideAutoBootStore(@ApplicationContext context: Context): AutoBootStore =
         AndroidAutoBootStore(context)
+
+    /**
+     * The first-run flow's own synchronous mirror. It has to be readable before the window inflates, which is
+     * why it is SharedPreferences behind this seam rather than a settings column.
+     */
+    @Provides
+    @Singleton
+    fun provideOnboardingStore(@ApplicationContext context: Context): OnboardingStore =
+        AndroidOnboardingStore(context)
+
+    /** Whether the system still shows its sheet for a permission, and whether the battery exemption is held. */
+    @Provides
+    @Singleton
+    fun providePermissionChecker(
+        @ApplicationContext context: Context,
+        store: OnboardingStore,
+    ): PermissionChecker = AndroidPermissionChecker(context, store)
 
     /** The "clean up now" button, behind the one method the settings ViewModel calls. */
     @Provides

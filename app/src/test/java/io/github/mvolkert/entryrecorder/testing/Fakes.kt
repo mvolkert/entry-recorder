@@ -15,6 +15,10 @@ import io.github.mvolkert.entryrecorder.sip.SipProbeResult
 import io.github.mvolkert.entryrecorder.sip.SipRegistrar
 import io.github.mvolkert.entryrecorder.ui.theme.ThemeModeStore
 import io.github.mvolkert.entryrecorder.data.local.prefs.AutoBootStore
+import io.github.mvolkert.entryrecorder.data.local.prefs.OnboardingStore
+import io.github.mvolkert.entryrecorder.ui.onboarding.GrantState
+import io.github.mvolkert.entryrecorder.ui.onboarding.OnboardingPermission
+import io.github.mvolkert.entryrecorder.ui.onboarding.PermissionChecker
 import io.github.mvolkert.entryrecorder.util.ExportEntry
 import io.github.mvolkert.entryrecorder.util.ExportFolderAccess
 import io.github.mvolkert.entryrecorder.util.ExportGateway
@@ -78,6 +82,57 @@ class FakeAutoBootStore : AutoBootStore {
     override fun setAutoBootEnabled(enabled: Boolean) {
         lastEnabled = enabled
         setCount++
+    }
+}
+
+/**
+ * The intro's own prefs seam, in memory: the completed flag, whether any answer exists yet, and the
+ * per-permission ask count the flow counts on to decide when the system sheet has stopped appearing.
+ */
+class FakeOnboardingStore : OnboardingStore {
+    var answered = false
+    var completedAnswer = false
+    var setCompletedCount = 0
+    val askCounts = mutableMapOf<String, Int>()
+
+    override fun hasAnswer(): Boolean = answered
+
+    override fun isCompleted(): Boolean = completedAnswer
+
+    override fun setCompleted(completed: Boolean) {
+        completedAnswer = completed
+        answered = true
+        setCompletedCount++
+    }
+
+    override fun askCount(permissionKey: String): Int = askCounts[permissionKey] ?: 0
+
+    override fun recordAsk(permissionKey: String) {
+        askCounts[permissionKey] = askCount(permissionKey) + 1
+    }
+}
+
+/**
+ * The platform seam with hand-set answers, so a test states the device condition it means rather than
+ * stubbing a Context. Every ask the flow records shows up in [recordedAsks].
+ */
+class FakePermissionChecker : PermissionChecker {
+    var notificationsSupported = true
+    var batteryExempt = false
+    val states = mutableMapOf<OnboardingPermission, GrantState>()
+    val recordedAsks = mutableListOf<OnboardingPermission>()
+
+    override fun supportsNotifications(): Boolean = notificationsSupported
+
+    override fun grantState(permission: OnboardingPermission): GrantState =
+        states[permission] ?: GrantState.Requestable
+
+    override fun isBatteryExempt(): Boolean = batteryExempt
+
+    override fun platformName(permission: OnboardingPermission): String = "platform-${permission.name}"
+
+    override fun recordAsk(permission: OnboardingPermission) {
+        recordedAsks += permission
     }
 }
 

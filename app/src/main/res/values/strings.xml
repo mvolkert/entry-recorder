@@ -26,11 +26,31 @@
     <string name="action_done">Done</string>
     <string name="action_save">Save</string>
 
-    <!-- Launch-time permission rationale -->
-    <string name="permission_rationale_title">Permissions for monitoring</string>
-    <string name="permission_rationale_body">EntryRecorder watches your intercom in the background: notifications deliver doorbell rings and motion alerts, and the microphone is used for SIP two-way calls and in-app motion analysis. Without them the app still records, but rings arrive silently and calls stay one-way.</string>
-    <string name="permission_rationale_continue">Continue</string>
-    <string name="permission_rationale_skip">Skip</string>
+    <!-- First-run onboarding. One title/body pair per page, plus the two footer button slots. -->
+    <string name="onboarding_step_counter">Step %1$d of %2$d</string>
+    <string name="onboarding_welcome_title">Your intercom, watched</string>
+    <string name="onboarding_welcome_body">Entry Recorder keeps your 2N intercom under observation around the clock: it records who rings, files the clips it catches on motion, and rings your phone when the doorbell does. A few short pages set that up.</string>
+    <string name="onboarding_notifications_title">Alerts arrive</string>
+    <string name="onboarding_notifications_body">Notifications carry doorbell rings and motion alerts to your phone. Recording runs without them, but nothing tells you when something happened.</string>
+    <string name="onboarding_microphone_title">Two-way calls</string>
+    <string name="onboarding_microphone_body">The microphone is what you speak through when you answer the doorbell in the app, and it is the input for in-app call analysis. Video keeps recording without it; talking does not.</string>
+    <string name="onboarding_battery_title">Stay asleep-proof</string>
+    <string name="onboarding_battery_body">Android puts background services to rest to protect battery, which is how a monitor misses a ring. Letting this app ignore battery optimisation is what keeps detection running while the phone sits idle.</string>
+    <string name="onboarding_finish_title">Ready when you are</string>
+    <string name="onboarding_finish_body">Add your first intercom to start recording. Every choice made here can be revisited in Settings later.</string>
+    <string name="onboarding_action_start">Get started</string>
+    <string name="onboarding_action_allowed">Allowed</string>
+    <string name="onboarding_action_grant_notifications">Grant notifications</string>
+    <string name="onboarding_action_grant_microphone">Grant microphone</string>
+    <string name="onboarding_action_open_phone_settings">Open phone settings</string>
+    <string name="onboarding_action_open_battery_settings">Open battery settings</string>
+    <string name="onboarding_action_add_device">Add your first intercom</string>
+    <string name="onboarding_action_skip_setup">Skip setup</string>
+    <string name="onboarding_action_continue">Continue</string>
+    <string name="onboarding_action_not_now">Not now</string>
+    <string name="onboarding_action_leave_as_is">Leave as is</string>
+    <string name="onboarding_action_browse_without_device">Browse without a device</string>
+    <string name="onboarding_notice_settings_missing">This phone has no battery settings screen to open.</string>
 
     <!-- Live screen -->
     <string name="live_title">Live Intercom View</string>
@@ -219,6 +239,8 @@
     <string name="settings_wake_noise">Wake Screen on Noise Detection</string>
     <string name="device_keep_locks_label">Keep awake while idle</string>
     <string name="device_keep_locks_hint">Holds the CPU and Wi-Fi awake the whole time this device is monitored, so a ring is never delayed by device sleep. Costs battery; by default the locks are only held during a recording or ring.</string>
+    <string name="settings_rerun_onboarding_title">Re-run intro and permissions</string>
+    <string name="settings_rerun_onboarding_subtitle">Show the first-run pages again, including both permission asks.</string>
     <string name="settings_section_backup">Backup &amp; Restore</string>
     <string name="settings_backup_hint">Export or import your app settings and configured devices as a single file. Recordings are not included. The file stores device/SIP credentials in plain text, so keep it somewhere private.</string>
     <string name="settings_backup_export">Export backup</string>

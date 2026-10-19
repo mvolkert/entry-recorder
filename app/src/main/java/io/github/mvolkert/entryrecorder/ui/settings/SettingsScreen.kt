@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -50,7 +51,8 @@ internal const val ROUTE_SETTINGS_BACKUP = "settings/backup"
 fun SettingsScreen(
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
-    onNavigate: (String) -> Unit = {}
+    onNavigate: (String) -> Unit = {},
+    onReplayOnboarding: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val exportFolderAccess by viewModel.exportFolderAccess.collectAsStateWithLifecycle()
@@ -158,6 +160,16 @@ fun SettingsScreen(
                     iconContainerColor = scheme.surfaceContainerHighest,
                     iconContentColor = scheme.onSurfaceVariant,
                     onClick = { onNavigate(ROUTE_SETTINGS_BACKUP) }
+                )
+            }
+            item {
+                SettingsNavRow(
+                    icon = Icons.Default.Refresh,
+                    titleRes = R.string.settings_rerun_onboarding_title,
+                    subtitle = stringResource(R.string.settings_rerun_onboarding_subtitle),
+                    iconContainerColor = scheme.secondaryContainer,
+                    iconContentColor = scheme.onSecondaryContainer,
+                    onClick = onReplayOnboarding,
                 )
             }
         }

@@ -83,6 +83,21 @@ sealed class Screen(val route: String, @StringRes val labelRes: Int, val icon: I
 
 private val TopLevelScreens = listOf(Screen.Live, Screen.Recordings, Screen.Devices, Screen.Settings)
 
+/** Where the pager has to be when nothing in particular asked for a page. */
+val LiveTabIndex = TopLevelScreens.indexOf(Screen.Live)
+
+/** Where the first-run flow hands off to the device form. */
+val DevicesTabIndex = TopLevelScreens.indexOf(Screen.Devices)
+
+/**
+ * The page the tabs should open on, with the nonce that makes it an intent rather than a value.
+ *
+ * [requestId] exists because the pager saves its own page: finishing the intro twice, landing on the same
+ * tab both times, would otherwise look to [androidx.compose.foundation.pager.PagerState] like nothing
+ * changed and leave the second replay wherever the user had swiped to.
+ */
+data class TabLanding(val pageIndex: Int = LiveTabIndex, val requestId: Int = 0)
+
 // Single NavHost destination hosting the three swipeable tab pages.
 private const val ROUTE_TABS = "tabs"
 
@@ -101,10 +116,17 @@ private fun deviceEditRoute(deviceId: Long): String = "settings/device/$deviceId
  * bottom [androidx.compose.material3.NavigationBar] or a leading [androidx.compose.material3.NavigationRail]
  * depending on window width. It also owns the one [LocalAppSnackbar] host the whole graph reports through,
  * and the gallery player layer that is drawn over that scaffold rather than inside it.
+ *
+ * [onboardingLanding] is the first-run flow's hand-off and [onReplayOnboarding] is the Settings row that opens
+ * it again; the flow itself is not part of this graph, which is why it is not a route.
  */
 @Composable
 @OptIn(ExperimentalSharedTransitionApi::class)
-fun AppRoot(settingsViewModel: SettingsViewModel) {
+fun AppRoot(
+    settingsViewModel: SettingsViewModel,
+    onboardingLanding: TabLanding = TabLanding(),
+    onReplayOnboarding: () -> Unit = {},
+) {
     val windowInfo = rememberWindowInfo()
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
@@ -113,7 +135,17 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
     val snackbarHost = remember { SnackbarHostState() }
     // Hoisted above the NavHost: it is rememberSaveable internally, so it survives both the detail
     // pushes (whose composition tears the pager down) and configuration changes.
-    val pagerState = rememberPagerState(pageCount = { TopLevelScreens.size })
+    val pagerState = rememberPagerState(
+        initialPage = onboardingLanding.pageIndex.coerceIn(0, TopLevelScreens.lastIndex),
+        pageCount = { TopLevelScreens.size },
+    )
+    // The landing intent is re-applied rather than only seeded, because a replay of the intro happens while
+    // this composition is already alive. Zero requests means nobody asked for a page yet.
+    LaunchedEffect(onboardingLanding.requestId) {
+        if (onboardingLanding.requestId > 0) {
+            pagerState.scrollToPage(onboardingLanding.pageIndex.coerceIn(0, TopLevelScreens.lastIndex))
+        }
+    }
     val currentEntry by navController.currentBackStackEntryAsState()
     val currentDestination = currentEntry?.destination
     val onTabsRoute = currentDestination == null || currentDestination.route == ROUTE_TABS
@@ -234,6 +266,7 @@ fun AppRoot(settingsViewModel: SettingsViewModel) {
                                     Screen.Settings -> SettingsScreen(
                                         viewModel = settingsViewModel,
                                         onNavigate = { route -> navController.navigate(route) },
+                                        onReplayOnboarding = onReplayOnboarding,
                                     )
                                 }
                             }

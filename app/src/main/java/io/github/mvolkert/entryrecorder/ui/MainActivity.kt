@@ -1,6 +1,5 @@
 package io.github.mvolkert.entryrecorder.ui
 
-import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -9,33 +8,25 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
-import io.github.mvolkert.entryrecorder.R
+import io.github.mvolkert.entryrecorder.data.local.prefs.OnboardingStore
 import io.github.mvolkert.entryrecorder.service.IntercomMonitorService
+import io.github.mvolkert.entryrecorder.ui.onboarding.OnboardingScreen
+import io.github.mvolkert.entryrecorder.ui.onboarding.shouldShowOnboarding
 import io.github.mvolkert.entryrecorder.ui.settings.SettingsViewModel
 import io.github.mvolkert.entryrecorder.ui.theme.AppTheme
 import io.github.mvolkert.entryrecorder.ui.theme.ThemeMode
 import io.github.mvolkert.entryrecorder.ui.theme.UiModePrefs
 import io.github.mvolkert.entryrecorder.ui.theme.themeModeAt
+import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
@@ -43,20 +34,27 @@ class MainActivity : ComponentActivity() {
 
     private val settingsViewModel: SettingsViewModel by viewModels()
 
+    /**
+     * Injected rather than reached through [io.github.mvolkert.entryrecorder.data.local.prefs.OnboardingPrefs]
+     * directly: the store is the one owner of that file, and this is its second reader.
+     */
+    @Inject lateinit var onboardingStore: OnboardingStore
+
     // The activity's own resources carry the uiMode override below, so once attachBaseContext has
     // run they can no longer answer what the *device* setting is. Captured before the override;
     // in ThemeMode.System the framework recreates us on a device flip, which refreshes it.
     private var systemNightAtLaunch = false
 
-    /** Runtime permissions still missing at launch; empty skips the rationale, non-empty gates the request behind it. */
-    private var pendingPermissions: Array<String> = emptyArray()
+    /**
+     * Whether the window owes the first-run flow. A [MutableStateFlow] rather than Compose state because
+     * it is decided from synchronous preferences before the first frame, and because finishing the flow
+     * has to survive a process death that happens while it is open — the flag it reads is the same one
+     * the flow writes.
+     */
+    private val showOnboarding = MutableStateFlow(false)
 
-    private val permissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ ->
-        // Monitor service can be started or refreshed
-        IntercomMonitorService.start(this)
-    }
+    /** Where the tabs hand the user off once the intro is done; see [TabLanding]. */
+    private val tabLanding = MutableStateFlow(TabLanding())
 
     override fun attachBaseContext(newBase: Context) {
         val mode = themeModeAt(UiModePrefs.themeMode(newBase))
@@ -77,7 +75,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        pendingPermissions = missingRequiredPermissions()
+        showOnboarding.value = onboardingIsOwed()
         IntercomMonitorService.start(this)
 
         lifecycleScope.launch {
@@ -109,15 +107,41 @@ class MainActivity : ComponentActivity() {
                 tertiaryIndex = settings.themeTertiaryIndex,
                 useDynamicColor = settings.themeUseDynamicColor,
             ) {
-                if (pendingPermissions.isNotEmpty()) {
-                    PermissionRationaleGate(
-                        pendingPermissions = pendingPermissions,
-                        onRequest = { permissionLauncher.launch(it) },
+                val onboarding by showOnboarding.collectAsStateWithLifecycle()
+                val landing by tabLanding.collectAsStateWithLifecycle()
+                if (onboarding) {
+                    OnboardingScreen(
+                        onFinished = { landOnDevices ->
+                            showOnboarding.value = false
+                            tabLanding.update {
+                                TabLanding(
+                                    pageIndex = if (landOnDevices) DevicesTabIndex else LiveTabIndex,
+                                    requestId = it.requestId + 1,
+                                )
+                            }
+                        },
+                        // Same refresh the launch-time dialog used to fire on: the mic and the
+                        // notification channel are both inputs the monitor re-reads.
+                        onPermissionsSettled = { IntercomMonitorService.start(this@MainActivity) },
+                    )
+                } else {
+                    AppRoot(
+                        settingsViewModel = settingsViewModel,
+                        onboardingLanding = landing,
+                        onReplayOnboarding = ::replayOnboarding,
                     )
                 }
-                AppRoot(settingsViewModel)
             }
         }
+    }
+
+    /**
+     * Settings' way back into the flow. Clears the flag before opening it, so a process death during a
+     * replay does not strand the install on the tabs with a first run nobody finished.
+     */
+    private fun replayOnboarding() {
+        onboardingStore.setCompleted(completed = false)
+        showOnboarding.value = true
     }
 
     private fun nightFor(mode: ThemeMode): Boolean = when (mode) {
@@ -129,47 +153,34 @@ class MainActivity : ComponentActivity() {
     private fun Configuration.isNight(): Boolean =
         uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
 
-    private fun missingRequiredPermissions(): Array<String> {
-        val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        return permissions.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }.toTypedArray()
+    /**
+     * Whether this install has never answered the first-run flow, with the upgrade seed applied. The
+     * launch-time modal this flow replaces persisted nothing, so the install record is the only durable
+     * evidence that a phone was asked before; seeding it once, as an answer, is what stops the same rule
+     * firing on every open.
+     */
+    private fun onboardingIsOwed(): Boolean {
+        val hasAnswer = onboardingStore.hasAnswer()
+        val owed = shouldShowOnboarding(
+            hasAnswer = hasAnswer,
+            isCompleted = onboardingStore.isCompleted(),
+            upgradedInPlace = isUpgradeInstall(),
+        )
+        if (!hasAnswer && !owed) onboardingStore.setCompleted(completed = true)
+        return owed
     }
-}
 
-/**
- * One-shot rationale shown before the launch-time permission request: the app needs the mic and
- * notifications for background monitoring, and asking cold invites a deny-without-understanding.
- * "Continue" runs the system dialog, "Skip" leaves the app degraded but working — the monitor
- * service was already started in [MainActivity.onCreate] either way. Survives rotation via
- * [rememberSaveable], so the system sheet is never gated twice per process.
- */
-@Composable
-private fun PermissionRationaleGate(
-    pendingPermissions: Array<String>,
-    onRequest: (Array<String>) -> Unit,
-) {
-    var acknowledged by rememberSaveable { mutableStateOf(false) }
-    if (acknowledged) return
-    AlertDialog(
-        onDismissRequest = { acknowledged = true },
-        title = {
-            Text(stringResource(R.string.permission_rationale_title), modifier = Modifier.semantics { heading() })
-        },
-        text = { Text(stringResource(R.string.permission_rationale_body)) },
-        confirmButton = {
-            TextButton(onClick = {
-                acknowledged = true
-                onRequest(pendingPermissions)
-            }) { Text(stringResource(R.string.permission_rationale_continue)) }
-        },
-        dismissButton = {
-            TextButton(onClick = { acknowledged = true }) {
-                Text(stringResource(R.string.permission_rationale_skip))
-            }
-        },
-    )
+    /**
+     * True when the package was put on this phone before the currently installed build was put over it.
+     * A fresh install has both stamps equal, including after "Clear data", which does not touch them.
+     */
+    private fun isUpgradeInstall(): Boolean {
+        @Suppress("DEPRECATION") // Owner-approved legacy branch: below 33 only the int-flags form exists.
+        val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+        } else {
+            packageManager.getPackageInfo(packageName, 0)
+        }
+        return info.firstInstallTime != info.lastUpdateTime
+    }
 }
