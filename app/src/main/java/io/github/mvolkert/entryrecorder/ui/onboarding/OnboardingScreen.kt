@@ -62,9 +62,10 @@ import io.github.mvolkert.entryrecorder.ui.theme.rememberExpressiveMotionEnabled
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
- * The first-run flow: one page per step in a [HorizontalPager], with the action slot pinned to the window
- * beneath it rather than carried by each page. Every page's text block is centered on both axes and its
- * title is a real heading for TalkBack; the [OnboardingPermissionBar] below never moves.
+ * The first-run flow: one page per step in a [HorizontalPager], with the action slot and the pager's own
+ * Previous | Next row pinned to the window beneath it rather than carried by each page. Every page's text
+ * block is centered on both axes and its title is a real heading for TalkBack; the
+ * [OnboardingPermissionBar] and [OnboardingNavRow] below never move.
  *
  * Deliberately no snack bar — this composes outside `AppRoot`, so there is no [androidx.compose.material3.SnackbarHost]
  * here for [io.github.mvolkert.entryrecorder.ui.LocalAppSnackbar] to reach. Anything that goes wrong is said
@@ -150,10 +151,14 @@ fun OnboardingScreen(
             // inset-free rather than pushing the bar up by the navigation bar a second time.
             contentWindowInsets = WindowInsets(0),
         ) { paddingValues ->
-            // The bar is a sibling the pager stops above rather than an overlay it scrolls under: the filled
-            // button's height never changes between pages, so this keeps its y-position fixed *and* keeps a
-            // page that grew at 200 % font scale from sliding its last lines behind the button.
-            Column(Modifier.fillMaxSize().padding(paddingValues)) {
+            // The bar and the nav row are siblings the pager stops above rather than overlays it scrolls
+            // under: the filled button's height never changes between pages, so this keeps its y-position
+            // fixed *and* keeps a page that grew at 200 % font scale from sliding its last lines behind it.
+            // Centered horizontally so both capped slots line up with the capped page block on a foldable.
+            Column(
+                Modifier.fillMaxSize().padding(paddingValues),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier
@@ -173,6 +178,15 @@ fun OnboardingScreen(
                     onPrimaryClick = viewModel::onPrimaryAction,
                     onSecondaryClick = viewModel::onSecondaryAction,
                     modifier = Modifier.padding(horizontal = Spacing.lg),
+                )
+                // The positional way through the pages, under the action slots and above the system bar.
+                // Nothing about a grant state reaches it, so a declined permission cannot stop the tour.
+                OnboardingNavRow(
+                    previous = state.previousAction,
+                    next = state.nextAction,
+                    onPreviousClick = viewModel::onPreviousAction,
+                    onNextClick = viewModel::onNextAction,
+                    modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.xs),
                 )
             }
         }

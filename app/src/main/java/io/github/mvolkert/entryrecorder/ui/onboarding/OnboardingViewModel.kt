@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 
-/** Everything the first-run screen draws, including the two button slots it always shows. */
+/** Everything the first-run screen draws, including the button slots it always shows. */
 data class OnboardingUiState(
     val pages: List<OnboardingStep> = emptyList(),
     val currentPage: Int = 0,
@@ -34,6 +34,12 @@ data class OnboardingUiState(
 
     val secondaryAction: OnboardingAction =
         OnboardingContract.secondaryAction(step, grantState, batteryExempt)
+
+    /** The bottom navigation row, which depends on the page alone and never on a grant state. */
+    val previousAction: OnboardingAction = OnboardingContract.previousAction(currentPage == 0)
+
+    /** Forward motion out of every page but the last, whatever the user did or did not grant. */
+    val nextAction: OnboardingAction = OnboardingContract.nextAction(currentPage >= pages.lastIndex)
 }
 
 /** The one-shot intents the screen has to carry out itself: its launchers, not the ViewModel's. */
@@ -101,6 +107,12 @@ class OnboardingViewModel @Inject constructor(
 
     fun onSecondaryAction() = act(uiState.value.secondaryAction)
 
+    /** The bottom row's way back: a page step only, never a permission ask and never a completion write. */
+    fun onPreviousAction() = act(uiState.value.previousAction)
+
+    /** The bottom row's way forward, live on every page that has a next one regardless of grant state. */
+    fun onNextAction() = act(uiState.value.nextAction)
+
     /**
      * System back never leaves the flow: it walks one page, and on the first page it does what the
      * flow's own skip button does. Leaving mid-onboarding would strand an install that was never
@@ -128,8 +140,11 @@ class OnboardingViewModel @Inject constructor(
     private fun canGoBack(): Boolean = currentPage.value > 0
 
     private fun act(action: OnboardingAction) {
+        if (!action.enabled) return
         when (action.target) {
             OnboardingTarget.Advance -> advance()
+            OnboardingTarget.GoBack -> goTo(currentPage.value - 1)
+            OnboardingTarget.GoForward -> goTo(currentPage.value + 1)
             OnboardingTarget.SkipFlow -> finish(landOnDevices = false)
             OnboardingTarget.FinishOnDevices -> finish(landOnDevices = true)
             OnboardingTarget.FinishOnLive -> finish(landOnDevices = false)

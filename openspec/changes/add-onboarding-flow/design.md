@@ -16,7 +16,8 @@ Motivation is in `proposal.md` — Why. The constraints that shape the approach:
 - minSdk is 26 and `POST_NOTIFICATIONS` only exists from API 33, so the page list cannot be a constant.
 - The launch-time modal this flow replaces persisted nothing — it gated on `rememberSaveable` state that
   died with the process — so no stored flag can tell an install that was asked before from one that wasn't.
-  The package's own install record can.
+  The package's own install record can, but it is not read: an install cannot recover from an intro that
+  never appeared, whereas an extra tour is one press away from being over.
 
 ## Goals / Non-Goals
 
@@ -26,7 +27,8 @@ Motivation is in `proposal.md` — Why. The constraints that shape the approach:
   every font scale. That is the acceptance criterion, not a nicety.
 - Every rule the pages express (page list, label, target, enabled-ness, copy, owed-ness) lives in one pure
   table with no Android types, so it is testable on the JVM.
-- No dead ends: any state reachable from the system prompt has a visible, working next action.
+- No dead ends: any state reachable from the system prompt has a visible, working next action, and the page
+  is always turnable — forward and back key off the page index, never off a grant state.
 
 **Non-Goals:**
 
@@ -40,15 +42,20 @@ Motivation is in `proposal.md` — Why. The constraints that shape the approach:
 
 ## Decisions
 
-### One pure contract, one thin ViewModel, three composables
+### One pure contract, one thin ViewModel, one screen with two pinned strips
 
 `ui/onboarding/OnboardingContract.kt` holds `pagesFor(supportsNotifications)`, `stepAt`, `copyFor`,
-`primaryAction`, `secondaryAction` and the top-level `shouldShowOnboarding(hasAnswer, isCompleted,
-upgradedInPlace)`. `copyFor` deliberately has no `else` branch — adding a page without copy is a
+`primaryAction`, `secondaryAction`, `previousAction`, `nextAction` and the top-level
+`shouldShowOnboarding(isCompleted)`. The nav row's two actions are derived from the page index alone, so
+the contract states plainly that nothing in a permission's grant state reaches them. `copyFor`
+deliberately has no `else` branch — adding a page without copy is a
 compile error, not a blank screen. `OnboardingViewModel` only holds state (`combine` → `stateIn(
 SharingStarted.Eagerly)`) and dispatches; the one-shot intents the screen must carry out itself
 (`RequestPermission`, `OpenAppSettings`, `OpenBatterySettings`, `GoToPage`, `Finished`) go through a
-`Channel(BUFFERED).receiveAsFlow()` because they must not replay on rotation. `RequestPermission` carries
+`Channel(BUFFERED).receiveAsFlow()` because they must not replay on rotation. `GoBack` / `GoForward` are
+`OnboardingTarget`s the ViewModel resolves to `goTo(index ± 1)` rather than new events: the pager already
+owns the downward `GoToPage` path, so the nav row reuses the one writer per concern below.
+`RequestPermission` carries
 the `OnboardingPermission`, not the manifest string: `platformName` is resolved where the sheet is fired, so
 no platform constant crosses into the UI contract.
 
@@ -59,11 +66,15 @@ page list is not reusable by the counter and the migration rule stays in `MainAc
 ### The streamlined button: a `Column` sibling, not an overlay
 
 `OnboardingScreen` composes `Scaffold(contentWindowInsets = WindowInsets(0))` → `Column` → `HorizontalPager`
-with `Modifier.weight(1f)`, then `OnboardingPermissionBar` below it. The bar is
-`Column(Modifier.appContentMaxWidth().windowInsetsPadding(WindowInsets.navigationBars))` containing exactly
+with `Modifier.weight(1f)`, then `OnboardingPermissionBar` below it and `OnboardingNavRow` below that. The bar
+is `Column(Modifier.appContentMaxWidth())` containing exactly
 one `Button(Modifier.fillMaxWidth())` and one always-present `TextButton(Modifier.fillMaxWidth())`. No
 height, width, corner, color or size overrides anywhere: `ButtonDefaults.buttonColors()`, default `shapes.full`
 variant, and the 48 dp touch target comes from `Button`'s own `minimumInteractiveComponentSize`.
+
+The root `Column` sets `horizontalAlignment = Alignment.CenterHorizontally` because both capped children are
+narrower than the window on a foldable; centring the column is what keeps the bar and the nav row in one
+vertical strip instead of two differently offset ones.
 
 The plan proposed a bottom-anchored overlay in a `Box`; a `Column` sibling was chosen instead because an
 overlay lets a 200 % font-scale page scroll its last lines under the button. The y-position is constant
@@ -82,6 +93,22 @@ artifact — sizing is height-constant driven (`ButtonDefaults.MinHeight` 40 dp,
 carries **no** `ExperimentalMaterial3Api` marker, so no `@OptIn` is needed. Consequence: the plan's
 "one size up, if the pinned version exposes an expressive large size" is *not* taken — no such public size
 exists for `Button`, and hand-setting a container height would be a §7 exception. The default size stands.
+
+### Previous | Next is paging, not a second permission surface
+
+`OnboardingNavRow` is a `Row` of two `TextButton`s, each `weight(1f)`, under the bar: back on every page but
+the first, forward on every page but the last, both enabled by the page index and by nothing else. `act()`
+returns immediately for a disabled action, so an edge press is a no-op rather than a wrap or an accidental
+finish — the flow still ends only through its own finish/skip actions, which are the only writers of the
+recorded answer. Both slots stay composed at the ends so the filled button above keeps the frame the plan
+requires. The row is the bottom-most element and therefore carries
+`windowInsetsPadding(WindowInsets.navigationBars)`; the bar no longer does, or the footer would grow by an
+inset whenever the nav row is drawn. The glyphs are `Icons.AutoMirrored.Filled.ArrowBack` /
+`ArrowForward` with `contentDescription = null` because each button already announces its label.
+
+*Alternatives:* folding paging into the primary action (a grant state would then decide whether the user can
+leave a page, which is exactly the dead end this flow removes); a single "Continue" that also advances the
+asks (the primary action already owns that, and two controls doing one thing drift).
 
 ### Centered text is set per-`Text`, not per-column
 
@@ -149,14 +176,19 @@ scrolls in `LaunchedEffect(onboardingLanding.requestId)` when `requestId > 0`. "
 
 ### Migration and re-entry
 
-`shouldShowOnboarding`: an install with a recorded answer shows the flow only if that answer is
-`completed = false`; with no answer, an install whose `firstInstallTime` differs from its `lastUpdateTime`
-suppresses the flow and `MainActivity` seeds `completed = true` once — a phone that was put on this device
-before the flow existed has been asked by the dialog it replaces. A fresh install has both stamps equal and
-gets page 1; clearing app data does not change them, so it does not re-arm the tour either (the gate for
-that needs an uninstall). Re-running from Settings writes `completed = false` and flips `showOnboarding`;
-the flow re-enters at page 0 and every already-granted ask renders as an acknowledgement rather than a
-prompt. `PermissionPromptPrefs`, the never-written latch this replaced, is deleted.
+`shouldShowOnboarding(isCompleted)`: the recorded completion answer is the only input. No answer recorded —
+including on an install that updated into this build — shows the pages; an answer, completion or skip, does
+not. The earlier rule also read the package's install record to seed `completed = true` for update-in-place
+installs; that seed is removed because it made the intro unreachable on every development phone that had
+ever been reinstalled (Android Studio's Run and `adb install -r` are both updates-in-place, and
+`firstInstallTime` survives "Clear data"), and because a permission the user declined must not be able to
+keep the tour away. The cost is one unavoidable tour per pre-existing install, which the owner took.
+
+Re-entry wipes rather than rewinds: the Settings row calls `OnboardingPrefs.reset()`, an `edit { clear() }`
+over the whole `"onboarding"` file, so the completion answer and both `ask_<key>` counters go together and
+the pages re-ask what the counters had silenced. `MainActivity` then flips `showOnboarding` in the same
+session, so the flow re-enters at page 0 and every already-granted ask renders as an acknowledgement rather
+than a prompt. `PermissionPromptPrefs`, the never-written latch this replaced, is deleted.
 
 Ending the flow is likewise single-shot: a `finished` guard in the ViewModel makes a second tap on finish or
 skip a no-op, so one run records one answer and emits one hand-off — otherwise a double tap writes twice
@@ -176,10 +208,11 @@ changed is the failure this flow exists to remove.
   bug being fixed, and the counter is what makes it checkable.
 - Footer is a `Column` sibling rather than a bottom overlay (see above).
 - The landing intent carries a `requestId` nonce instead of a bare index.
-- `copyFor` and `shouldShowOnboarding` were added to the contract so the migration rule and the copy
-  coverage are unit-testable rather than living in `MainActivity`.
-- The seed signal is the install record rather than the stored latch the plan named: that latch had no
-  writer anywhere in the repository's history, so the seed could never have fired.
+- `copyFor`, `previousAction` / `nextAction` and `shouldShowOnboarding` were added to the contract so the
+  copy coverage, the paging rules and the owed rule are unit-testable rather than living in `MainActivity`.
+- The plan's "no gating" is implemented as the single-Boolean owed rule. The implementation briefly carried a
+  second signal — the install record, used to seed old installs as answered — and that seed is what made the
+  flow invisible after an update-in-place, so it was removed rather than tuned.
 
 ## Risks / Trade-offs
 
@@ -194,10 +227,13 @@ changed is the failure this flow exists to remove.
 - [The pager's settle is now the only thing that moves the flow's state, so a scroll interrupted by a second
   tap could leave the labels a page behind] → `goTo` requests the page it intends and the collector skips a
   request the pager has already settled on; gate 5 and the fling scenario are the checks.
-- [An install that was updated in place is seeded as answered, and `firstInstallTime` survives both app
-  updates and "Clear data"] → a development phone that has ever been reinstalled will not show the flow on
-  a data clear; gate 1 must start from an uninstall. That is the honest cost of a signal the previous dialog
-  never recorded, and the alternative — touring every existing install — was the option rejected.
+- [Every pre-existing install shows the intro once after this update, including ones that were asked by the
+  dialog the flow replaces] → the accepted price of an owed rule that no permission state can suppress; the
+  pages for permissions the install already holds open as acknowledgements, and Previous | Next lets the user
+  walk past them without granting anything. Gate 6 checks the behaviour instead of an exemption.
+- [A reset that cleared only the answer would leave the ask counters and reopen a page whose prompt the
+  system no longer shows] → `reset()` clears the whole prefs file, which is the only way the row can honestly
+  promise "show the first-run pages again".
 - [Two slots always composed means a page with nothing to decline shows a `TextButton` that reads oddly] →
   its label is page-specific ("Continue", "Leave as is", "Skip setup"), which is why the labels come from
   the same table as the targets.
@@ -210,10 +246,9 @@ changed is the failure this flow exists to remove.
 ## Migration Plan
 
 1. Land the code as written; nothing in Room or the manifest changes, so there is no data migration.
-2. Installs that predate the build are handled at runtime by the install-record seed described above.
-   `PermissionPromptPrefs` is deleted rather than kept as a legacy read: nothing in the repository's history
-   ever wrote its key, so reading it could only ever return false.
+2. Installs that predate the build simply get the tour once. No seed and no migration code reads the install
+   record, and `PermissionPromptPrefs` is deleted rather than kept as a legacy read: nothing in the
+   repository's history ever wrote its key, so reading it could only ever return false.
 3. Rollback is a revert of the commit: the flow's prefs file is additive and unused by anything else, so an
-   install that ran the flow and rolls back simply sees the old modal again. The one-time seed it wrote does
-   not survive a rollback that reinstalls the old prefs path.
-4. Ship only after the nine on-device gates in `tasks.md` pass; green compile/test/lint is not acceptance.
+   install that ran the flow and rolls back simply sees the old modal again.
+4. Ship only after the eleven on-device gates in `tasks.md` pass; green compile/test/lint is not acceptance.

@@ -117,15 +117,16 @@ private fun deviceEditRoute(deviceId: Long): String = "settings/device/$deviceId
  * depending on window width. It also owns the one [LocalAppSnackbar] host the whole graph reports through,
  * and the gallery player layer that is drawn over that scaffold rather than inside it.
  *
- * [onboardingLanding] is the first-run flow's hand-off and [onReplayOnboarding] is the Settings row that opens
- * it again; the flow itself is not part of this graph, which is why it is not a route.
+ * [onboardingLanding] is the first-run flow's hand-off and [onResetOnboarding] is the Settings row that clears
+ * the intro's record and opens it again; the flow itself is not part of this graph, which is why it is not a
+ * route.
  */
 @Composable
 @OptIn(ExperimentalSharedTransitionApi::class)
 fun AppRoot(
     settingsViewModel: SettingsViewModel,
     onboardingLanding: TabLanding = TabLanding(),
-    onReplayOnboarding: () -> Unit = {},
+    onResetOnboarding: () -> Unit = {},
 ) {
     val windowInfo = rememberWindowInfo()
     val navController = rememberNavController()
@@ -139,7 +140,7 @@ fun AppRoot(
         initialPage = onboardingLanding.pageIndex.coerceIn(0, TopLevelScreens.lastIndex),
         pageCount = { TopLevelScreens.size },
     )
-    // The landing intent is re-applied rather than only seeded, because a replay of the intro happens while
+    // The landing intent is re-applied rather than only seeded, because a reset of the intro happens while
     // this composition is already alive. Zero requests means nobody asked for a page yet.
     LaunchedEffect(onboardingLanding.requestId) {
         if (onboardingLanding.requestId > 0) {
@@ -266,7 +267,7 @@ fun AppRoot(
                                     Screen.Settings -> SettingsScreen(
                                         viewModel = settingsViewModel,
                                         onNavigate = { route -> navController.navigate(route) },
-                                        onReplayOnboarding = onReplayOnboarding,
+                                        onResetOnboarding = onResetOnboarding,
                                     )
                                 }
                             }

@@ -10,10 +10,10 @@ UI once it ends.
 
 ### Requirement: The first-run flow is shown exactly when the install owes an answer
 
-The system SHALL show the first-run flow instead of the main UI when the install has no recorded answer for
-it, SHALL NOT show it when an answer — completion or skip — has already been recorded, and SHALL record an
-install that predates this flow as answered the first time it opens, rather than re-asking permissions the
-dialog it replaces already asked for.
+The system SHALL show the first-run flow instead of the main UI whenever the install has no recorded
+completion answer for it, and SHALL NOT show it once an answer — completion or skip — has been recorded.
+No permission outcome, no denial count and no install record shall suppress the flow: an intro the user can
+get back into from settings is recoverable, an intro that never appears is not.
 
 #### Scenario: Fresh install
 - **WHEN** the app is opened for the first time after install
@@ -23,13 +23,15 @@ dialog it replaces already asked for.
 - **WHEN** the app is opened again after the flow was completed or skipped
 - **THEN** the main UI opens directly, with no trace of the flow
 
-#### Scenario: Install that predates this flow
-- **WHEN** an install that was put on the phone before this build existed opens the updated app
-- **THEN** the flow is not shown and the app opens directly on the live view
+#### Scenario: Install that updated into this build
+- **WHEN** an install that never answered opens the app after an update
+- **THEN** the flow is shown rather than seeded as answered, and the pages whose permissions the install
+  already holds open as acknowledgements
 
-#### Scenario: Deliberately re-run
+#### Scenario: Reset from settings
 - **WHEN** the user starts the intro again from settings
-- **THEN** the flow is shown again from its first page in the same session
+- **THEN** the recorded answer and both denial counts are forgotten, the flow opens from its first page in
+  the same session, and a permission that had stopped offering its prompt can offer it again
 
 ### Requirement: The flow presents only the pages the device supports, in a fixed order
 
@@ -70,9 +72,9 @@ do not hide content behind the action area.
 
 ### Requirement: The flow's actions live in one pinned area that never moves
 
-The system SHALL pin the flow's actions outside the paged content, always showing exactly two slots — one
-filled primary action and one secondary text action — so the primary action keeps the same size, shape and
-position on every page and only its label changes.
+The system SHALL pin the flow's actions outside the paged content — one filled primary action, one
+secondary text action, and the pager's own previous and forward row — always composing all of them, so the
+primary action keeps the same size, shape and position on every page and only its label changes.
 
 #### Scenario: Page transition
 - **WHEN** the user moves between any two pages of the flow
@@ -85,6 +87,26 @@ position on every page and only its label changes.
 #### Scenario: Label change
 - **WHEN** a page's action changes from asking to acknowledging
 - **THEN** only the label and its leading glyph change; the button's fill, height and width do not
+
+### Requirement: The pager has its own navigation that no permission state can block
+
+The system SHALL offer a previous and a forward control under the flow's action slots, SHALL enable forward
+on every page but the last and back on every page but the first whatever each permission's state is, and
+SHALL make a press of either move the page only: never a prompt, never a settings screen, never a recorded
+answer.
+
+#### Scenario: A declined permission does not stop the tour
+- **WHEN** the user has declined a permission twice and presses forward on that page
+- **THEN** the flow moves to the next page without opening a prompt or a settings screen
+
+#### Scenario: Forward at the end of the flow
+- **WHEN** the user is on the last page
+- **THEN** the forward control is disabled and pressing it neither records an answer nor leaves the flow
+
+#### Scenario: Either end of the flow
+- **WHEN** the flow is on its first or its last page
+- **THEN** both navigation controls are still drawn, the unusable one disabled, so the filled action above
+  them keeps the frame it has on every other page
 
 ### Requirement: Each ask requests one permission and names that permission
 
@@ -198,7 +220,7 @@ page a user comes back to reflects the phone's actual state.
 
 The system SHALL keep the user on the page they were reading across configuration changes, SHALL NOT fire a
 prompt the user has already answered, and SHALL show already-granted permissions as acknowledgements when
-the flow is re-run.
+the flow is opened again from settings.
 
 #### Scenario: Rotate mid-flow
 - **WHEN** the user rotates the device on any page
@@ -213,7 +235,7 @@ the flow is re-run.
 - **WHEN** the user flings the pager past two pages in one gesture
 - **THEN** the flow settles where the gesture ended rather than being pulled back to a page in between
 
-#### Scenario: Re-run after granting everything
-- **WHEN** the user re-runs the intro on a phone that already grants both permissions
+#### Scenario: Reset after granting everything
+- **WHEN** the user resets the intro from settings on a phone that already grants both permissions
 - **THEN** each ask page opens as an acknowledgement and no prompt fires unless the user asks for one
   again from that page

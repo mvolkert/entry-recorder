@@ -1,9 +1,7 @@
 package io.github.mvolkert.entryrecorder.ui
 
 import android.content.Context
-import android.content.pm.PackageManager
 import android.content.res.Configuration
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -46,10 +44,8 @@ class MainActivity : ComponentActivity() {
     private var systemNightAtLaunch = false
 
     /**
-     * Whether the window owes the first-run flow. A [MutableStateFlow] rather than Compose state because
-     * it is decided from synchronous preferences before the first frame, and because finishing the flow
-     * has to survive a process death that happens while it is open — the flag it reads is the same one
-     * the flow writes.
+     * Whether the window owes the first-run flow. Decided from synchronous preferences before the first
+     * frame, and the one fact it reads is the one the flow writes — see [shouldShowOnboarding].
      */
     private val showOnboarding = MutableStateFlow(false)
 
@@ -75,7 +71,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        showOnboarding.value = onboardingIsOwed()
+        showOnboarding.value = shouldShowOnboarding(isCompleted = onboardingStore.isCompleted())
         IntercomMonitorService.start(this)
 
         lifecycleScope.launch {
@@ -128,7 +124,7 @@ class MainActivity : ComponentActivity() {
                     AppRoot(
                         settingsViewModel = settingsViewModel,
                         onboardingLanding = landing,
-                        onReplayOnboarding = ::replayOnboarding,
+                        onResetOnboarding = ::resetOnboarding,
                     )
                 }
             }
@@ -136,11 +132,12 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Settings' way back into the flow. Clears the flag before opening it, so a process death during a
-     * replay does not strand the install on the tabs with a first run nobody finished.
+     * Settings' way back into the flow. Wipes the recorded answer and both denial counters before opening
+     * it, so a replay starts from the system sheet rather than from "Open phone settings", and so a process
+     * death during a replay cannot strand the install on the tabs with a first run nobody finished.
      */
-    private fun replayOnboarding() {
-        onboardingStore.setCompleted(completed = false)
+    private fun resetOnboarding() {
+        onboardingStore.reset()
         showOnboarding.value = true
     }
 
@@ -152,35 +149,4 @@ class MainActivity : ComponentActivity() {
 
     private fun Configuration.isNight(): Boolean =
         uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-
-    /**
-     * Whether this install has never answered the first-run flow, with the upgrade seed applied. The
-     * launch-time modal this flow replaces persisted nothing, so the install record is the only durable
-     * evidence that a phone was asked before; seeding it once, as an answer, is what stops the same rule
-     * firing on every open.
-     */
-    private fun onboardingIsOwed(): Boolean {
-        val hasAnswer = onboardingStore.hasAnswer()
-        val owed = shouldShowOnboarding(
-            hasAnswer = hasAnswer,
-            isCompleted = onboardingStore.isCompleted(),
-            upgradedInPlace = isUpgradeInstall(),
-        )
-        if (!hasAnswer && !owed) onboardingStore.setCompleted(completed = true)
-        return owed
-    }
-
-    /**
-     * True when the package was put on this phone before the currently installed build was put over it.
-     * A fresh install has both stamps equal, including after "Clear data", which does not touch them.
-     */
-    private fun isUpgradeInstall(): Boolean {
-        @Suppress("DEPRECATION") // Owner-approved legacy branch: below 33 only the int-flags form exists.
-        val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
-        } else {
-            packageManager.getPackageInfo(packageName, 0)
-        }
-        return info.firstInstallTime != info.lastUpdateTime
-    }
 }

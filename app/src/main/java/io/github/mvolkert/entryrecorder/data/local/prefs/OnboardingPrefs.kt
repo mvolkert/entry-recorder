@@ -23,9 +23,6 @@ object OnboardingPrefs {
     private const val KEY_COMPLETED = "completed"
     private const val KEY_ASK_PREFIX = "ask_"
 
-    fun hasAnswer(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).contains(KEY_COMPLETED)
-
     fun isCompleted(context: Context): Boolean = context
         .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         .getBoolean(KEY_COMPLETED, false)
@@ -36,6 +33,16 @@ object OnboardingPrefs {
         // put a finished flow back on screen next open, the exact nag this file exists to stop.
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit(commit = true) { putBoolean(KEY_COMPLETED, completed) }
+    }
+
+    /**
+     * Forgets everything the intro recorded about this install: the completion answer and every ask
+     * counter, so the flow both re-appears on the next launch and can fire the system sheet again instead
+     * of routing a twice-denied permission to phone settings. Deliberately a wipe rather than a per-key
+     * write — this file holds nothing but the intro's own state.
+     */
+    fun reset(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { clear() }
     }
 
     fun askCount(context: Context, permissionKey: String): Int = context
@@ -59,12 +66,12 @@ object OnboardingPrefs {
  */
 interface OnboardingStore {
 
-    /** Whether the install has any answer recorded; what tells a fresh install from an upgraded one. */
-    fun hasAnswer(): Boolean
-
     fun isCompleted(): Boolean
 
     fun setCompleted(completed: Boolean)
+
+    /** Wipes the completion answer and every ask counter; what Settings' reset row calls. */
+    fun reset()
 
     /** How many times the system sheet has been fired for [permissionKey], newest first ask at zero. */
     fun askCount(permissionKey: String): Int
@@ -77,11 +84,11 @@ class AndroidOnboardingStore @Inject constructor(
     @ApplicationContext private val context: Context,
 ) : OnboardingStore {
 
-    override fun hasAnswer(): Boolean = OnboardingPrefs.hasAnswer(context)
-
     override fun isCompleted(): Boolean = OnboardingPrefs.isCompleted(context)
 
     override fun setCompleted(completed: Boolean) = OnboardingPrefs.setCompleted(context, completed)
+
+    override fun reset() = OnboardingPrefs.reset(context)
 
     override fun askCount(permissionKey: String): Int = OnboardingPrefs.askCount(context, permissionKey)
 

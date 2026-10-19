@@ -179,20 +179,37 @@ class OnboardingContractTest {
     }
 
     @Test
-    fun `a fresh install owes the flow and an answered one does not`() {
-        assertTrue(shouldShowOnboarding(hasAnswer = false, isCompleted = false, upgradedInPlace = false))
-        assertFalse(shouldShowOnboarding(hasAnswer = true, isCompleted = true, upgradedInPlace = false))
+    fun `only the recorded completion answer keeps the intro away`() {
+        // One Boolean is the whole gate: a permission the user declined, a denial count, or the install
+        // record cannot reach it, which is what keeps a half-answered phone from losing the flow entirely.
+        assertTrue(shouldShowOnboarding(isCompleted = false), "an install that never answered owes the flow")
+        assertFalse(shouldShowOnboarding(isCompleted = true), "an answered flow does not come back by itself")
+    }
+
+    @Test
+    fun `the forward slot is live on every page but the last and reads the same in any grant state`() {
+        val next = OnboardingContract.nextAction(isLastPage = false)
+
+        assertEquals(R.string.onboarding_action_next, next.labelRes)
+        assertEquals(OnboardingTarget.GoForward, next.target)
+        assertTrue(next.enabled)
+        assertFalse(OnboardingContract.nextAction(isLastPage = true).enabled)
         assertTrue(
-            shouldShowOnboarding(hasAnswer = true, isCompleted = false, upgradedInPlace = true),
-            "re-running the intro from Settings is the only way back to a half-answered flow",
+            !next.completed,
+            "a page step is not a receipt; it must not look like one the way a satisfied ask does",
         )
     }
 
     @Test
-    fun `an install that predates this build is not toured again`() {
-        assertFalse(
-            shouldShowOnboarding(hasAnswer = false, isCompleted = false, upgradedInPlace = true),
-            "the launch-time modal already asked for these same two permissions and recorded nothing",
+    fun `both nav slots stay composed at the ends of the flow`() {
+        val atFirstPage = OnboardingContract.previousAction(isFirstPage = true)
+
+        assertEquals(R.string.onboarding_action_previous, atFirstPage.labelRes)
+        assertEquals(OnboardingTarget.GoBack, atFirstPage.target)
+        assertFalse(atFirstPage.enabled, "there is no page before the first one")
+        assertTrue(
+            OnboardingContract.previousAction(isFirstPage = false).enabled,
+            "a disabled slot still draws, because dropping it would move the filled button above it",
         )
     }
 
@@ -209,6 +226,10 @@ class OnboardingContractTest {
                     }
                 }
             }
+            for (flag in listOf(false, true)) {
+                add(OnboardingContract.previousAction(flag).labelRes)
+                add(OnboardingContract.nextAction(flag).labelRes)
+            }
         }
 
         val known = setOf(
@@ -224,6 +245,8 @@ class OnboardingContractTest {
             R.string.onboarding_action_not_now,
             R.string.onboarding_action_leave_as_is,
             R.string.onboarding_action_browse_without_device,
+            R.string.onboarding_action_previous,
+            R.string.onboarding_action_next,
         )
         assertTrue(
             labels.all { it in known },

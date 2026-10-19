@@ -40,6 +40,8 @@ sealed interface OnboardingStep {
 /** What a footer button does when pressed — the entire action surface of the flow. */
 enum class OnboardingTarget {
     Advance,
+    GoBack,
+    GoForward,
     SkipFlow,
     RequestPermission,
     AppSettings,
@@ -69,23 +71,12 @@ data class OnboardingCopy(
 )
 
 /**
- * Whether the window owes the first-run flow.
- *
- * Two facts answer it: the flow's own recorded answer, and whether the install predates this build. The
- * launch-time modal this flow replaces recorded nothing at all — it gated on in-memory state only — so an
- * in-place upgrade is the durable signal that an install has been asked before, and a tour that re-asks
- * these same two permissions is the nag that modal was criticized for. Re-running the intro from Settings
- * clears [isCompleted], which is what puts the flow back on screen.
+ * Whether the window owes the first-run flow. One fact answers it: the flow's own recorded completion
+ * answer. Nothing else may suppress it — not a permission the user declined, not the install record —
+ * because an intro that re-appears is recoverable from Settings while one that never appears is not.
+ * Resetting the intro from Settings is what puts the flow back on screen for an install that answered.
  */
-fun shouldShowOnboarding(
-    hasAnswer: Boolean,
-    isCompleted: Boolean,
-    upgradedInPlace: Boolean,
-): Boolean = when {
-    hasAnswer -> !isCompleted
-    upgradedInPlace -> false
-    else -> true
-}
+fun shouldShowOnboarding(isCompleted: Boolean): Boolean = !isCompleted
 
 /**
  * The flow's shape and its action table, with no Android types in it: the page list, what each page's
@@ -232,4 +223,28 @@ object OnboardingContract {
             OnboardingTarget.FinishOnLive,
         )
     }
+
+    /**
+     * The pager's own way back, in the bottom navigation row. It is disabled rather than removed on the
+     * first page: a slot that appeared only on some pages would shift the filled button above it, which is
+     * the one thing the pinned bar exists to prevent.
+     */
+    fun previousAction(isFirstPage: Boolean): OnboardingAction =
+        OnboardingAction(
+            R.string.onboarding_action_previous,
+            OnboardingTarget.GoBack,
+            enabled = !isFirstPage,
+        )
+
+    /**
+     * The pager's own way forward. It moves on the same page table whatever each permission's grant state
+     * is, so a denial can never park the user on a page; the last page disables it rather than finishing,
+     * because finishing is what the two slots above it are for.
+     */
+    fun nextAction(isLastPage: Boolean): OnboardingAction =
+        OnboardingAction(
+            R.string.onboarding_action_next,
+            OnboardingTarget.GoForward,
+            enabled = !isLastPage,
+        )
 }

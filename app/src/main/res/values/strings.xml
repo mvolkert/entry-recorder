@@ -50,6 +50,8 @@
     <string name="onboarding_action_not_now">Not now</string>
     <string name="onboarding_action_leave_as_is">Leave as is</string>
     <string name="onboarding_action_browse_without_device">Browse without a device</string>
+    <string name="onboarding_action_previous">Previous</string>
+    <string name="onboarding_action_next">Next</string>
     <string name="onboarding_notice_settings_missing">This phone has no battery settings screen to open.</string>
 
     <!-- Live screen -->
@@ -239,8 +241,8 @@
     <string name="settings_wake_noise">Wake Screen on Noise Detection</string>
     <string name="device_keep_locks_label">Keep awake while idle</string>
     <string name="device_keep_locks_hint">Holds the CPU and Wi-Fi awake the whole time this device is monitored, so a ring is never delayed by device sleep. Costs battery; by default the locks are only held during a recording or ring.</string>
-    <string name="settings_rerun_onboarding_title">Re-run intro and permissions</string>
-    <string name="settings_rerun_onboarding_subtitle">Show the first-run pages again, including both permission asks.</string>
+    <string name="settings_reset_onboarding_title">Reset intro and permissions</string>
+    <string name="settings_reset_onboarding_subtitle">Forget the intro\'s answer and both denial counts, then show the first-run pages again.</string>
     <string name="settings_section_backup">Backup &amp; Restore</string>
     <string name="settings_backup_hint">Export or import your app settings and configured devices as a single file. Recordings are not included. The file stores device/SIP credentials in plain text, so keep it somewhere private.</string>
     <string name="settings_backup_export">Export backup</string>

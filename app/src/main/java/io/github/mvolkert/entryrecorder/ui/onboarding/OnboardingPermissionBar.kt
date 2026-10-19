@@ -7,11 +7,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Button
@@ -29,14 +26,15 @@ import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 import io.github.mvolkert.entryrecorder.ui.theme.rememberExpressiveMotionEnabled
 
 /**
- * The first-run flow's single action slot, pinned to the bottom of the window and composed *outside* the
+ * The first-run flow's primary action slot, pinned above [OnboardingNavRow] and composed *outside* the
  * pager so the filled button never moves, resizes or changes variant between pages: one [Button], always
  * `fillMaxWidth()` under [appContentMaxWidth], sized by the component itself rather than a hand-set
  * height (Design.md §1). Only its label changes, and only that label animates.
  *
  * The [secondary] slot is always composed as well — every page has a way to decline or step past the ask —
  * because a slot that appeared only on some pages would shift the filled button's y-position, which is the
- * one thing this bar exists to prevent.
+ * one thing this bar exists to prevent. The system-bar inset belongs to the nav row under this one, which
+ * is the bottom-most element of the screen.
  */
 @Composable
 fun OnboardingPermissionBar(
@@ -48,9 +46,7 @@ fun OnboardingPermissionBar(
 ) {
     val animateLabels = rememberExpressiveMotionEnabled()
     Column(
-        modifier = modifier
-            .appContentMaxWidth()
-            .windowInsetsPadding(WindowInsets.navigationBars),
+        modifier = modifier.appContentMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {

@@ -86,23 +86,27 @@ class FakeAutoBootStore : AutoBootStore {
 }
 
 /**
- * The intro's own prefs seam, in memory: the completed flag, whether any answer exists yet, and the
- * per-permission ask count the flow counts on to decide when the system sheet has stopped appearing.
+ * The intro's own prefs seam, in memory: the completed flag and the per-permission ask count the flow
+ * counts on to decide when the system sheet has stopped appearing. [resetCount] says how often Settings'
+ * reset row was what cleared them.
  */
 class FakeOnboardingStore : OnboardingStore {
-    var answered = false
     var completedAnswer = false
     var setCompletedCount = 0
+    var resetCount = 0
     val askCounts = mutableMapOf<String, Int>()
-
-    override fun hasAnswer(): Boolean = answered
 
     override fun isCompleted(): Boolean = completedAnswer
 
     override fun setCompleted(completed: Boolean) {
         completedAnswer = completed
-        answered = true
         setCompletedCount++
+    }
+
+    override fun reset() {
+        completedAnswer = false
+        askCounts.clear()
+        resetCount++
     }
 
     override fun askCount(permissionKey: String): Int = askCounts[permissionKey] ?: 0

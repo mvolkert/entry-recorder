@@ -250,6 +250,55 @@ class OnboardingViewModelTest {
     }
 
     @Test
+    fun `the nav row pages the flow without asking for anything or answering for the user`() =
+        runViewModelTest {
+            val viewModel = viewModel()
+            // A permission that has stopped offering its sheet leaves the forward slot exactly as live as
+            // an allowed one does: the row reads the page index and nothing else.
+            permissions.states[OnboardingPermission.Notifications] = GrantState.SettingsOnly
+            viewModel.onResume()
+            advanceUntilIdle()
+
+            viewModel.events.test {
+                viewModel.onNextAction()
+                advanceUntilIdle()
+                assertEquals(OnboardingEvent.GoToPage(1), awaitItem())
+                assertEquals(1, viewModel.uiState.value.currentPage)
+
+                viewModel.onPreviousAction()
+                advanceUntilIdle()
+                assertEquals(OnboardingEvent.GoToPage(0), awaitItem())
+
+                assertTrue(permissions.recordedAsks.isEmpty(), "a page step never fires the system sheet")
+                assertEquals(0, store.setCompletedCount, "a page step never records an answer")
+                expectNoEvents()
+            }
+        }
+
+    @Test
+    fun `the nav row does nothing at either end rather than wrapping or finishing`() = runViewModelTest {
+        val viewModel = viewModel()
+
+        viewModel.events.test {
+            viewModel.onPreviousAction()
+            advanceUntilIdle()
+            assertEquals(0, viewModel.uiState.value.currentPage, "the first page has no page before it")
+            expectNoEvents()
+
+            goTo(viewModel, viewModel.uiState.value.pages.lastIndex)
+            assertFalse(
+                viewModel.uiState.value.nextAction.enabled,
+                "the last page hands finishing to the two slots above the nav row",
+            )
+            viewModel.onNextAction()
+            advanceUntilIdle()
+
+            expectNoEvents()
+            assertEquals(0, store.setCompletedCount, "walking into the end of the flow is not an answer")
+        }
+    }
+
+    @Test
     fun `back walks one page and only declines the flow from the first`() = runViewModelTest {
         val viewModel = viewModel()
 

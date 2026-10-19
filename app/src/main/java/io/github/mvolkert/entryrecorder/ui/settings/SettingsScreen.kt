@@ -52,7 +52,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
     onNavigate: (String) -> Unit = {},
-    onReplayOnboarding: () -> Unit = {},
+    onResetOnboarding: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val exportFolderAccess by viewModel.exportFolderAccess.collectAsStateWithLifecycle()
@@ -97,8 +97,8 @@ fun SettingsScreen(
     val backupSubtitle = stringResource(R.string.settings_hub_backup_subtitle)
 
     val scheme = MaterialTheme.colorScheme
-    // Lifts the bar to its scrolled tone whenever the rows do pass under it; on a tall window where the
-    // four rows never scroll, the state stays at rest and the bar keeps `surface`.
+    // Lifts the bar to its scrolled tone whenever the rows do pass under it; on a tall window where none
+    // of them scroll, the state stays at rest and the bar keeps `surface`.
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
 
     Scaffold(
@@ -165,11 +165,11 @@ fun SettingsScreen(
             item {
                 SettingsNavRow(
                     icon = Icons.Default.Refresh,
-                    titleRes = R.string.settings_rerun_onboarding_title,
-                    subtitle = stringResource(R.string.settings_rerun_onboarding_subtitle),
+                    titleRes = R.string.settings_reset_onboarding_title,
+                    subtitle = stringResource(R.string.settings_reset_onboarding_subtitle),
                     iconContainerColor = scheme.secondaryContainer,
                     iconContentColor = scheme.onSecondaryContainer,
-                    onClick = onReplayOnboarding,
+                    onClick = onResetOnboarding,
                 )
             }
         }
