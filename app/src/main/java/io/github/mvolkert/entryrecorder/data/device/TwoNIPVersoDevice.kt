@@ -267,7 +267,7 @@ class TwoNIPVersoDevice(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        Log.w(tag, "Logging subscribe error: ${e.message}")
+        Log.d(tag, "Logging subscribe error: ${e.message}")
         SubscribeResult.Failed(null, null, permanent = false)
     }
 
@@ -288,7 +288,7 @@ class TwoNIPVersoDevice(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        Log.w(tag, "Logging pull error: ${e.message}")
+        Log.d(tag, "Logging pull error: ${e.message}")
         PullResult.Retryable
     }
 
@@ -326,7 +326,10 @@ class TwoNIPVersoDevice(
             else ->
                 "2N Logging API unavailable (HTTP ${failed.httpStatus ?: '-'}, attempt $attempt)"
         }
-        Log.w(tag, message)
+        // Per-attempt detail stays at debug: the transition itself is announced once, at WARN, when the
+        // guarded OFFLINE ConnectionState below reaches MonitorEventHandler, so a backed-off retry loop
+        // must not print this same reason every LOG_SUBSCRIBE_RETRY_MS.
+        Log.d(tag, message)
         if (!transportReportedDown) {
             transportReportedDown = true
             listener.onEvent(

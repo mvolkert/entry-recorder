@@ -189,4 +189,17 @@ class SipDeviceAccountSync {
     fun clear() {
         managed.clear()
     }
+
+    /**
+     * The monitored device whose live [account] this is, by matching the account's identity address, or null
+     * when the account belongs to no managed device. Used to name a registration change with the device the
+     * operator configured rather than a bare SIP URI.
+     */
+    fun deviceNameForAccount(account: Account): String? {
+        val address = account.params.identityAddress?.asStringUriOnly()
+        return managed.values.firstOrNull { entry ->
+            val acct = entry.account
+            acct != null && (acct === account || acct.params.identityAddress?.asStringUriOnly() == address)
+        }?.device?.name
+    }
 }

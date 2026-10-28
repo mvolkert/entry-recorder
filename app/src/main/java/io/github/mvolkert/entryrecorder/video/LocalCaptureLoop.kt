@@ -341,7 +341,8 @@ internal class LocalCaptureLoop(
                 if (quality != reportedQuality) {
                     reportedQuality = quality
                     val failures = snapshotClient.consecutiveFailures(device.id)
-                    Log.w(tag, "Snapshot endpoint for ${device.name} is $quality ($failures polls in a row without a frame)")
+                    // The loss/recovery line itself is logged once, centrally, when this state event reaches
+                    // MonitorEventHandler; here we only route the transition so the card and logcat stay in sync.
                     events.trySend(
                         RecorderEvent.Connection(
                             IntercomEvent.ConnectionState(

@@ -10,6 +10,10 @@ import io.github.mvolkert.entryrecorder.domain.call.CallScreenLauncher
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.triggers.TriggerCoordinator
 import io.github.mvolkert.entryrecorder.notification.NotificationHelper
+import io.github.mvolkert.entryrecorder.util.ConnectionEdge
+import io.github.mvolkert.entryrecorder.util.ConnectionEdgeTracker
+import io.github.mvolkert.entryrecorder.util.ConnectionLog
+import io.github.mvolkert.entryrecorder.util.ConnectionSource
 import io.github.mvolkert.entryrecorder.video.RecordingController
 
 /**
@@ -31,6 +35,15 @@ class MonitorEventHandler(
     private val callScreenLauncher: CallScreenLauncher,
 ) {
     private val tag = "IntercomMonitorService"
+
+    /**
+     * Collapses the [IntercomEvent.ConnectionState] stream into one loss line and one recovery line per link.
+     * Every producer of a connection health report (the snapshot pollers, the camera-event transports) funnels
+     * through here, so this is the single place that decides the wording and the outage duration; the producers
+     * themselves stay quiet on repeated reads. Keyed by capability + device id so the snapshot path and the
+     * camera-event path of one device keep independent outage clocks.
+     */
+    private val connectionEdges = ConnectionEdgeTracker()
 
     /** Routes one device event. Called from the service's own coroutine, on the worker dispatcher. */
     suspend fun handle(event: IntercomEvent) {
@@ -124,10 +137,26 @@ class MonitorEventHandler(
                 episodeRunner.handleTriggerEnded(device = event.device, label = "Noise", eventType = EventType.NOISE)
 
             is IntercomEvent.ConnectionState -> {
-                val detail = "Device ${event.device.name} connection: ${event.quality} (${event.message})"
-                // Degraded monitoring (e.g. the 2N polling fallback that cannot see doorbells at all)
-                // has to be visible in logcat and on the live card, not only in logcat.
-                if (event.quality == ConnectionQuality.ONLINE) Log.i(tag, detail) else Log.w(tag, detail)
+                // Announce a link only when it crosses into a down state (DEGRADED/OFFLINE) or comes back
+                // ONLINE, not on every health read: the snapshot pollers and the camera-event transports
+                // each report repeatedly, so an unconditioned log would bury the one transition that matters.
+                val source = when (event.capability) {
+                    ConnectionCapability.SNAPSHOT -> ConnectionSource.Snapshot
+                    ConnectionCapability.DEVICE_EVENTS -> ConnectionSource.CameraEvents
+                }
+                val online = event.quality == ConnectionQuality.ONLINE
+                when (val edge = connectionEdges.observe(
+                    key = "${event.capability}|${event.device.id}",
+                    online = online,
+                    reason = event.message ?: event.quality.name,
+                    nowMs = event.timestamp,
+                )) {
+                    is ConnectionEdge.Lost ->
+                        Log.w(tag, ConnectionLog.lost(source, event.device.name, edge.reason))
+                    is ConnectionEdge.Recovered ->
+                        Log.i(tag, ConnectionLog.recovered(source, event.device.name, edge.downMs))
+                    ConnectionEdge.None -> Unit
+                }
                 // Keep the two delivery paths tracked separately so the live card and Settings can
                 // say which one is down: a dead event stream only breaks the camera-driven triggers,
                 // a dead snapshot path only breaks live/recording/in-app analysis. The overall status

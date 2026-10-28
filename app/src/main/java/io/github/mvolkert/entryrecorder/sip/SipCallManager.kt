@@ -9,6 +9,10 @@ import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.mvolkert.entryrecorder.di.ApplicationScope
 import io.github.mvolkert.entryrecorder.domain.model.Device
+import io.github.mvolkert.entryrecorder.util.ConnectionEdge
+import io.github.mvolkert.entryrecorder.util.ConnectionEdgeTracker
+import io.github.mvolkert.entryrecorder.util.ConnectionLog
+import io.github.mvolkert.entryrecorder.util.ConnectionSource
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -46,6 +50,14 @@ class SipCallManager @Inject constructor(
     private var currentCall: Call? = null
     private val audioManager = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var idleResetJob: Job? = null
+
+    /**
+     * Narrows the live core's per-change registration callback to loss/recovery edges per account, so an
+     * operator sees one WARN when a PBX registration drops and one INFO when it comes back — not a line for
+     * every intermediate state. Keyed by the account's identity address (stable even when the device-name
+     * lookup is unavailable). Driven only from the SDK's main-thread callback, so it needs no lock.
+     */
+    private val sipRegistrationEdges = ConnectionEdgeTracker()
 
     /**
      * The per-device account reconciliation: this class owns the core, the sync class decides what lives on
@@ -122,7 +134,40 @@ class SipCallManager @Inject constructor(
             state: RegistrationState?,
             message: String
         ) {
-            Log.i(tag, "SIP PBX Registration state: $state ($message)")
+            // Only the terminal states decide a link transition; the in-flight ones (None/InProgress/Refreshing)
+            // stay at debug so a normal re-register does not masquerade as a loss/recovery cycle.
+            val key = account.params.identityAddress?.asStringUriOnly().orEmpty().ifBlank { "unknown-account" }
+            val name = accountSync.deviceNameForAccount(account) ?: key
+            when (state) {
+                RegistrationState.Ok ->
+                    announceSipRegistration(sipRegistrationEdges.observe(key, online = true, reason = "", nowMs = System.currentTimeMillis()), name)
+                RegistrationState.Failed, RegistrationState.Cleared ->
+                    announceSipRegistration(
+                        sipRegistrationEdges.observe(
+                            key,
+                            online = false,
+                            reason = if (message.isBlank()) state.name else "$state: $message",
+                            nowMs = System.currentTimeMillis(),
+                        ),
+                        name,
+                    )
+                else -> Log.d(tag, "SIP registration $name: $state ($message)")
+            }
+        }
+    }
+
+    /**
+     * Logs one SIP registration transition — if [edge] is a loss or recovery — with the shared connection
+     * wording so an operator can grep the whole log stream for `sip-registration` alongside the other links.
+     * A [ConnectionEdge.None] (a normal re-register, or the first-ever Ok) prints nothing.
+     */
+    private fun announceSipRegistration(edge: ConnectionEdge, name: String) {
+        when (edge) {
+            is ConnectionEdge.Lost ->
+                Log.w(tag, ConnectionLog.lost(ConnectionSource.SipRegistration, name, edge.reason))
+            is ConnectionEdge.Recovered ->
+                Log.i(tag, ConnectionLog.recovered(ConnectionSource.SipRegistration, name, edge.downMs))
+            ConnectionEdge.None -> Unit
         }
     }
 

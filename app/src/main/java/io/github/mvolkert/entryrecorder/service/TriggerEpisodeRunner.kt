@@ -11,6 +11,8 @@ import io.github.mvolkert.entryrecorder.domain.call.CallScreenLauncher
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.domain.triggers.TriggerCoordinator
 import io.github.mvolkert.entryrecorder.notification.NotificationHelper
+import io.github.mvolkert.entryrecorder.util.ConnectionLog
+import io.github.mvolkert.entryrecorder.util.ConnectionSource
 import io.github.mvolkert.entryrecorder.video.PreRollFrame
 import io.github.mvolkert.entryrecorder.video.RecordingController
 import java.util.concurrent.ConcurrentHashMap
@@ -152,7 +154,11 @@ class TriggerEpisodeRunner(
                     deviceName = device.name,
                     timestampMs = System.currentTimeMillis(),
                 )
-            ).onFailure { Log.w(tag, "Remote motion alert to ${settings.motionAlertRecipient} failed: ${it.message}") }
+            ).onFailure {
+                // Same python-server wording as the control-plane client, so grepping the stream finds every
+                // link to the server in one place. Fire-and-forget: a failed push never touches the local path.
+                Log.w(tag, ConnectionLog.lost(ConnectionSource.PythonServer, settings.serverBaseUrl, it.message ?: "motion alert delivery failed"))
+            }
         }
     }
 }

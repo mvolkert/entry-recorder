@@ -206,11 +206,11 @@ class HttpSnapshotClient @Inject constructor(
                 outcome.bytes
             }
             is FetchOutcome.Rejected -> {
-                countedFailure(device, outcome.reason)
+                countedFailure(device)
                 null
             }
             else -> {
-                countedFailure(device, "no image after one retry")
+                countedFailure(device)
                 null
             }
         }
@@ -226,7 +226,9 @@ class HttpSnapshotClient @Inject constructor(
                 httpClient.withCancellableResponse(withAuthHeader(device, baseRequest)) { response ->
                     if (!response.isSuccessful) {
                         val reason = "HTTP ${response.code}"
-                        Log.w(TAG, "Snapshot fetch failed $reason url=$snapshotUrl attempt=$attempt")
+                        // Per-attempt detail stays at debug: the loss of the snapshot path is announced once,
+                        // as an edge, by MonitorEventHandler, so a sustained outage must not emit one WARN per poll.
+                        Log.d(TAG, "Snapshot fetch failed $reason url=$snapshotUrl attempt=$attempt")
                         if (response.code == 401 || response.code == 403) {
                             // Credentials were refused even after the challenge round, so the replayed
                             // Digest scheme is not what this endpoint wants right now — drop back to Basic.
@@ -241,7 +243,7 @@ class HttpSnapshotClient @Inject constructor(
                             contentType.subtype in ERROR_BODY_SUBTYPES
                         ) {
                             val reason = "content type $contentType"
-                            Log.w(TAG, "Snapshot endpoint returned $reason instead of an image url=$snapshotUrl")
+                            Log.d(TAG, "Snapshot endpoint returned $reason instead of an image url=$snapshotUrl")
                             FetchOutcome.Rejected(reason)
                         } else {
                             FetchOutcome.Frame(response.body.bytes())
@@ -252,18 +254,17 @@ class HttpSnapshotClient @Inject constructor(
                 // A cancelled poll is not an endpoint that deserves the retry budget or the failure streak.
                 throw e
             } catch (e: Exception) {
-                Log.w(TAG, "Snapshot fetch exception (attempt $attempt) for ${device.name}: ${e.message}")
+                Log.d(TAG, "Snapshot fetch exception (attempt $attempt) for ${device.name}: ${e.message}")
                 FetchOutcome.Retryable
             }
         }
 
-    private fun countedFailure(device: Device, reason: String) {
+    private fun countedFailure(device: Device) {
         val failures = (consecutiveFailures[device.id] ?: 0) + 1
         consecutiveFailures[device.id] = failures
         rateEstimates.remove(device.id)
-        if (failures == DEGRADED_AFTER_POLLS || failures == OFFLINE_AFTER_POLLS) {
-            Log.w(TAG, "Snapshot path for ${device.name} failed $failures polls in a row ($reason)")
-        }
+        // No log here: crossing a quality threshold is a state change the pollers already observe via
+        // snapshotQuality() and route as a ConnectionState edge, so MonitorEventHandler announces it once.
     }
 
     /**
