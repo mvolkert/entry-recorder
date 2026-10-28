@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.video
 
-import android.util.Log
+import timber.log.Timber
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.RandomAccessFile
@@ -86,7 +86,7 @@ class Fmp4StreamMuxer(
             mdhdDurPos = moovStart + MDHD_DURATION_OFF
             isHeaderWritten = true
         } catch (e: Exception) {
-            Log.e(tag, "Failed to write fMP4 header", e)
+            Timber.tag(tag).e(e, "Failed to write fMP4 header")
         }
     }
 
@@ -133,7 +133,7 @@ class Fmp4StreamMuxer(
             fragmentRecords.add(FragmentRecord(moofOffset, startMs))
             totalDurationMs = (startMs + durationMs).coerceAtLeast(totalDurationMs)
         } catch (e: Exception) {
-            Log.e(tag, "Error flushing fragment to disk", e)
+            Timber.tag(tag).e(e, "Error flushing fragment to disk")
         } finally {
             samplePayloads.clear()
             sampleFlags.clear()
@@ -369,7 +369,7 @@ class Fmp4StreamMuxer(
                 finalizeTimeline()
             }
         } catch (e: Exception) {
-            Log.e(tag, "Failed to finalize fMP4 timeline", e)
+            Timber.tag(tag).e(e, "Failed to finalize fMP4 timeline")
         } finally {
             runCatching { raf.close() }
         }
@@ -401,7 +401,7 @@ class Fmp4StreamMuxer(
         if (pos < 0) return
         raf.seek(guardAt)
         if (raf.readInt() != expect) {
-            Log.w(tag, "Skipping duration patch at 0x%x: guard field mismatch".format(pos))
+            Timber.tag(tag).w("Skipping duration patch at 0x%x: guard field mismatch".format(pos))
             return
         }
         raf.seek(pos)

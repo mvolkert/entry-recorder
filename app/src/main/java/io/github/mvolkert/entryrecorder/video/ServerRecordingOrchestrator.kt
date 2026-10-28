@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.video
 
-import android.util.Log
+import timber.log.Timber
 import io.github.mvolkert.entryrecorder.data.local.entity.ActiveServerRecordingEntity
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
@@ -81,13 +81,13 @@ internal class ServerRecordingOrchestrator(
         maxDurationSeconds: Int,
         settings: AppSettings,
     ): ServerStartOutcome {
-        Log.i(tag, "Initiating server recording on ${settings.serverBaseUrl} for ${device.name}")
+        Timber.tag(tag).i("Initiating server recording on ${settings.serverBaseUrl} for ${device.name}")
         // Just-in-time registration is the safety net for a device that never synced through
         // Settings (created while in APP_LOCAL, or a registration that failed then): without a
         // server id there is nothing to address, so register now and persist the id.
         val serverDeviceId = device.serverDeviceId ?: ensureRegistered(device)
         if (serverDeviceId == null) {
-            Log.w(tag, "Could not register ${device.name} on the server; falling back to local recording")
+            Timber.tag(tag).w("Could not register ${device.name} on the server; falling back to local recording")
             return ServerStartOutcome.FallbackToLocal
         }
         val serverDevice = if (device.serverDeviceId == null) device.copy(serverDeviceId = serverDeviceId) else device
@@ -101,7 +101,7 @@ internal class ServerRecordingOrchestrator(
         )
 
         if (!result.isSuccess) {
-            Log.w(tag, "Server recording failed, falling back to local recording: ${result.exceptionOrNull()?.message}")
+            Timber.tag(tag).w("Server recording failed, falling back to local recording: ${result.exceptionOrNull()?.message}")
             return ServerStartOutcome.FallbackToLocal
         }
 
@@ -128,7 +128,7 @@ internal class ServerRecordingOrchestrator(
             )
         )
         if (!start.startedByThisRequest) {
-            Log.i(tag, "Server was already recording ${device.name}; watching that job instead of arming a stop for it")
+            Timber.tag(tag).i("Server was already recording ${device.name}; watching that job instead of arming a stop for it")
         }
         // Reconcile against the server's own job list rather than trusting a blind local timer:
         // the job can finish early, be stopped from the server's web UI, or outlive what this
@@ -145,10 +145,10 @@ internal class ServerRecordingOrchestrator(
     fun stop(deviceId: Long, reason: EventType?): Boolean {
         val serverRecording = activeServerRecordings[deviceId] ?: return false
         if (reason != null && serverRecording.eventType != reason) {
-            Log.i(tag, "Ignoring $reason post-record stop for device $deviceId: server recording is ${serverRecording.eventType}")
+            Timber.tag(tag).i("Ignoring $reason post-record stop for device $deviceId: server recording is ${serverRecording.eventType}")
             return false
         }
-        Log.i(tag, "Stopping active server recording for device $deviceId")
+        Timber.tag(tag).i("Stopping active server recording for device $deviceId")
         activeServerRecordings.remove(deviceId)
         onActiveChanged()
         scope.launch {
@@ -159,7 +159,7 @@ internal class ServerRecordingOrchestrator(
             if (serverDeviceId != null) {
                 requestServerStop(serverDeviceId, "device $deviceId", settings.serverBaseUrl, settings.serverApiKey.ifBlank { null })
             } else {
-                Log.w(tag, "No server id for device $deviceId; cannot stop its server job")
+                Timber.tag(tag).w("No server id for device $deviceId; cannot stop its server job")
             }
         }
         return true
@@ -193,7 +193,7 @@ internal class ServerRecordingOrchestrator(
                 startedAtMs = row.startedAtMs
             )
             onActiveChanged()
-            Log.i(tag, "Resumed tracking a server recording on ${device.name} across restart (id ${row.recordingId ?: "none"})")
+            Timber.tag(tag).i("Resumed tracking a server recording on ${device.name} across restart (id ${row.recordingId ?: "none"})")
             scope.launch { watchServerRecording(device) }
         }
     }
@@ -210,7 +210,7 @@ internal class ServerRecordingOrchestrator(
             .registerDevice(settings.serverBaseUrl, settings.serverApiKey.ifBlank { null }, device)
             .getOrNull() ?: return null
         repository.saveDevice(device.copy(serverDeviceId = id))
-        Log.i(tag, "Registered ${device.name} on the server as id $id")
+        Timber.tag(tag).i("Registered ${device.name} on the server as id $id")
         return id
     }
 
@@ -247,8 +247,7 @@ internal class ServerRecordingOrchestrator(
             when {
                 probe.isFailure -> {
                     failedProbes++
-                    Log.w(
-                        tag,
+                    Timber.tag(tag).w(
                         "Server job for ${device.name} not reconcilable (attempt $failedProbes): " +
                             probe.exceptionOrNull()?.message
                     )
@@ -269,8 +268,7 @@ internal class ServerRecordingOrchestrator(
 
                 System.currentTimeMillis() >= stopAtMs -> {
                     if (active.startedByThisRequest) {
-                        Log.i(
-                            tag,
+                        Timber.tag(tag).i(
                             "Server job on ${device.name} still live after ${tracked.maxDurationSeconds}s " +
                                 "(elapsed ${job.elapsedSeconds}s of ${job.maxDurationSeconds}s), asking it to stop"
                         )
@@ -280,7 +278,7 @@ internal class ServerRecordingOrchestrator(
                     }
                     // Not this request's job to end: it carries its own duration, so keep watching until the
                     // server drops it instead of truncating someone else's recording.
-                    Log.i(tag, "Server job on ${device.name} outlived the requested duration; leaving it running")
+                    Timber.tag(tag).i("Server job on ${device.name} outlived the requested duration; leaving it running")
                 }
             }
         }
@@ -291,7 +289,7 @@ internal class ServerRecordingOrchestrator(
         if (activeServerRecordings.remove(deviceId) != null) {
             onActiveChanged()
             repository.deleteActiveServerRecording(deviceId)
-            Log.i(tag, "No longer tracking the server recording of device $deviceId ($reason)")
+            Timber.tag(tag).i("No longer tracking the server recording of device $deviceId ($reason)")
         }
     }
 
@@ -299,10 +297,10 @@ internal class ServerRecordingOrchestrator(
         val outcome = serverClient.stopRecording(serverUrl, apiKey, serverDeviceId)
         val answer = outcome.getOrNull()
         when {
-            answer == null -> Log.w(tag, "Server stop for $label failed: ${outcome.exceptionOrNull()?.message}")
-            answer.hadActiveJob -> Log.i(tag, "Server stopped the recording of $label")
+            answer == null -> Timber.tag(tag).w("Server stop for $label failed: ${outcome.exceptionOrNull()?.message}")
+            answer.hadActiveJob -> Timber.tag(tag).i("Server stopped the recording of $label")
             // The job had already ended on its own: exactly the drift the reconcile loop exists to catch.
-            else -> Log.i(tag, "Server had no job left to stop for $label (it had already ended)")
+            else -> Timber.tag(tag).i("Server had no job left to stop for $label (it had already ended)")
         }
     }
 

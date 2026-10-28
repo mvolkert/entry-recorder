@@ -4,7 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
-import android.util.Log
+import timber.log.Timber
 import java.io.File
 import java.io.FileOutputStream
 import androidx.core.graphics.scale
@@ -38,7 +38,7 @@ object ThumbnailUtil {
             bitmap.recycle()
             thumbFile.absolutePath
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to save JPEG thumbnail for device $deviceId", e)
+            Timber.tag(TAG).e(e, "Failed to save JPEG thumbnail for device $deviceId")
             null
         }
     }
@@ -62,7 +62,7 @@ object ThumbnailUtil {
                 thumbFile.absolutePath
             } else null
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to extract thumbnail for $videoPath", e)
+            Timber.tag(TAG).e(e, "Failed to extract thumbnail for $videoPath")
             null
         } finally {
             try {
@@ -70,7 +70,7 @@ object ThumbnailUtil {
             } catch (e: Exception) {
                 // Usually the benign "already released by the finalizer" race, but it can also be a real
                 // failure to hand the native codec back, so name the clip instead of dropping it silently.
-                Log.w(TAG, "Failed to release the retriever for $videoPath: ${e.message}")
+                Timber.tag(TAG).w("Failed to release the retriever for $videoPath: ${e.message}")
             }
         }
     }

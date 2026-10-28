@@ -1,7 +1,7 @@
 package io.github.mvolkert.entryrecorder.video
 
 import android.content.Context
-import android.util.Log
+import timber.log.Timber
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -124,7 +124,7 @@ class RtspStreamRecorder @Inject constructor(
         if (serverOrchestrator.isActive(device.id)) {
             // The server owns that job's trigger and length, and its API offers no way to add a second tag to
             // a running recording, so there is nothing to fold into.
-            Log.i(tag, "Device ${device.id} is recording on the server; a $eventType event adds no second job")
+            Timber.tag(tag).i("Device ${device.id} is recording on the server; a $eventType event adds no second job")
             return
         }
 

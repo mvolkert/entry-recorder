@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.data.device
 
-import android.util.Log
+import timber.log.Timber
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
@@ -38,7 +38,7 @@ object TwoNEventDecoder {
     fun decodeAll(device: Device, root: JsonObject, tag: String): List<IntercomEvent> {
         val entries = extractEventElements(root)
         if (entries.isEmpty()) {
-            Log.d(tag, "No event array in 2N Logging payload: ${root.toString().take(160)}")
+            Timber.tag(tag).d("No event array in 2N Logging payload: ${root.toString().take(160)}")
             return emptyList()
         }
         return entries.mapNotNull { element ->
@@ -79,7 +79,7 @@ object TwoNEventDecoder {
                     true -> IntercomEvent.MotionStarted(device)
                     false -> IntercomEvent.MotionEnded(device)
                     null -> {
-                        Log.w(tag, "MotionDetected without a usable state field: ${eventObj.toString().take(160)}")
+                        Timber.tag(tag).w("MotionDetected without a usable state field: ${eventObj.toString().take(160)}")
                         null
                     }
                 }
@@ -91,7 +91,7 @@ object TwoNEventDecoder {
                     true -> IntercomEvent.NoiseStarted(device)
                     false -> IntercomEvent.NoiseEnded(device)
                     null -> {
-                        Log.w(tag, "NoiseDetected without a usable state field: ${eventObj.toString().take(160)}")
+                        Timber.tag(tag).w("NoiseDetected without a usable state field: ${eventObj.toString().take(160)}")
                         null
                     }
                 }
@@ -104,7 +104,7 @@ object TwoNEventDecoder {
                 val action = params.get("action")?.takeIf { it.isJsonPrimitive }?.asString
                     ?.lowercase(Locale.US).orEmpty()
                 if (action in KEY_RELEASE_ACTIONS) {
-                    Log.d(tag, "KeyPressed action=$action ignored (not a press edge)")
+                    Timber.tag(tag).d("KeyPressed action=$action ignored (not a press edge)")
                     null
                 } else {
                     IntercomEvent.DoorbellRung(device, callerNumber = "Doorbell Button")
@@ -113,7 +113,7 @@ object TwoNEventDecoder {
             "CallStateChanged" -> {
                 val state = params.get("state")?.asString ?: ""
                 val direction = params.get("direction")?.asString ?: ""
-                Log.d(tag, "2N CallStateChanged: state=$state direction=$direction")
+                Timber.tag(tag).d("2N CallStateChanged: state=$state direction=$direction")
                 // "dialing" is kept on purpose: a doorbell press makes the intercom dial this phone,
                 // so from the device's point of view the ringing call is *outgoing*. Filtering by
                 // direction would therefore discard the primary ring path; the debounce upstream is

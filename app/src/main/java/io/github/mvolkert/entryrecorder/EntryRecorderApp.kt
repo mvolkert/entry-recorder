@@ -1,7 +1,7 @@
 package io.github.mvolkert.entryrecorder
 
 import android.app.Application
-import android.util.Log
+import timber.log.Timber
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Constraints
 import androidx.work.Configuration
@@ -14,9 +14,11 @@ import io.github.mvolkert.entryrecorder.di.ApplicationScope
 import io.github.mvolkert.entryrecorder.notification.NotificationHelper
 import io.github.mvolkert.entryrecorder.service.IntercomMonitorService
 import io.github.mvolkert.entryrecorder.util.ExportFailureMonitor
+import io.github.mvolkert.entryrecorder.util.FileTree
 import io.github.mvolkert.entryrecorder.worker.RetentionCleanupWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
@@ -46,6 +48,10 @@ class EntryRecorderApp : Application(), Configuration.Provider {
     @ApplicationScope
     lateinit var appScope: CoroutineScope
 
+    // The opt-in file tree, planted while Settings has file logging on and uprooted the moment it turns off.
+    // Kept as one nullable field so re-emissions of the settings stream never plant a second writer.
+    private var plantedFileTree: Timber.Tree? = null
+
     /**
      * WorkManager is initialised on demand (its own startup initializer is removed in the manifest), so
      * this is what gives it a factory able to construct the `@HiltWorker` classes.
@@ -55,6 +61,10 @@ class EntryRecorderApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+
+        // Logcat tree, always: the app-wide facade every class now logs through. Planted first so the setup
+        // below is itself captured. The file tree is planted later, only while the Settings toggle is on.
+        Timber.plant(Timber.DebugTree())
 
         // 0. Setup crash protection for known Media3 RTSP bugs
         setupExoPlayerCrashProtection()
@@ -76,6 +86,30 @@ class EntryRecorderApp : Application(), Configuration.Provider {
         // 4. Surface a retained export-write failure as a persistent notification while the app is
         //    backgrounded, and withdraw it once a write lands again.
         observeExportFailures()
+
+        // 5. Plant or uproot the file-capture tree as the Settings toggle changes, so turning logging to
+        //    file on or off takes effect at runtime without a restart.
+        observeFileLogging()
+    }
+
+    private fun observeFileLogging() {
+        appScope.launch {
+            repository.settingsFlow.collect { settings ->
+                val enabled = settings?.loggingToFileEnabled == true
+                if (enabled && plantedFileTree == null) {
+                    val tree = FileTree(
+                        dir = File(filesDir, LOG_DIR_NAME),
+                        maxBytes = MAX_LOG_BYTES,
+                        maxGenerations = MAX_LOG_GENERATIONS,
+                    )
+                    Timber.plant(tree)
+                    plantedFileTree = tree
+                } else if (!enabled && plantedFileTree != null) {
+                    plantedFileTree?.let(Timber::uproot)
+                    plantedFileTree = null
+                }
+            }
+        }
     }
 
     private fun observeMonitorDemand() {
@@ -133,12 +167,23 @@ class EntryRecorderApp : Application(), Configuration.Provider {
                     throwable.stackTrace.any { it.className.contains("RtspClient") }
 
             if (isExoPlayerRtspCrash) {
-                Log.e("EntryRecorderApp", "Caught fatal Media3 RTSP crash on thread ${thread.name}. Preventing app exit.", throwable)
+                Timber.tag("EntryRecorderApp").e(throwable, "Caught fatal Media3 RTSP crash on thread ${thread.name}. Preventing app exit.")
                 // We don't call the default handler, so the process stays alive.
                 // The player UI will eventually show an error or the user will retry.
             } else {
                 defaultHandler?.uncaughtException(thread, throwable)
             }
         }
+    }
+
+    private companion object {
+        /** Subdirectory of the app's private files dir that holds the rolling log files. */
+        const val LOG_DIR_NAME = "logs"
+
+        /** Per-file byte cap; once passed the writer rolls to a new generation. */
+        const val MAX_LOG_BYTES = 2L * 1024 * 1024
+
+        /** How many rolled files are kept before the oldest is dropped. */
+        const val MAX_LOG_GENERATIONS = 5
     }
 }

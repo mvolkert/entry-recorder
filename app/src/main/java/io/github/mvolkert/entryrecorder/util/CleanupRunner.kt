@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.util
 
-import android.util.Log
+import timber.log.Timber
 import io.github.mvolkert.entryrecorder.domain.model.AppSettings
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.data.repository.RecordingDeleteResult
@@ -50,12 +50,11 @@ class CleanupRunner @Inject constructor(
 
     suspend fun run(settings: AppSettings): CleanupReport = withContext(ioDispatcher) {
         if (!settings.internalCleanupEnabled && !settings.externalCleanupEnabled) {
-            Log.i(TAG, "Both cleanup passes are disabled in settings, skipping.")
+            Timber.tag(TAG).i("Both cleanup passes are disabled in settings, skipping.")
             return@withContext CleanupReport()
         }
 
-        Log.i(
-            TAG,
+        Timber.tag(TAG).i(
             "Running cleanup (retentionDays=${settings.retentionDays}, " +
                 "internal=${settings.internalQuotaMb}MB/${settings.internalCleanupEnabled}, " +
                 "external=${settings.externalQuotaMb}MB/${settings.externalCleanupEnabled})"
@@ -87,7 +86,7 @@ class CleanupRunner @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "The $name pass failed", e)
+            Timber.tag(TAG).e(e, "The $name pass failed")
             onFailure(name)
         }
     }
@@ -100,7 +99,7 @@ class CleanupRunner @Inject constructor(
         if (!settings.internalCleanupEnabled) return
         if (settings.retentionDays <= 0) return
         val expired = repository.getExpiredRecordings(settings.retentionDays)
-        Log.i(TAG, "Found ${expired.size} expired recordings to delete")
+        Timber.tag(TAG).i("Found ${expired.size} expired recordings to delete")
         expired.forEach { logOrphans(repository.deleteRecording(it), "retention") }
     }
 
@@ -112,7 +111,7 @@ class CleanupRunner @Inject constructor(
      */
     private suspend fun purgeInternal(settings: AppSettings) {
         if (!settings.internalCleanupEnabled) {
-            Log.i(TAG, "Internal cleanup disabled, skipping the quota pass")
+            Timber.tag(TAG).i("Internal cleanup disabled, skipping the quota pass")
             return
         }
         val usage = StorageUsage(
@@ -124,18 +123,16 @@ class CleanupRunner @Inject constructor(
         }
         val plan = CleanupPlan.internal(candidates, settings.internalQuotaMb)
         if (plan.bytesToFree <= 0L) {
-            Log.i(
-                TAG,
+            Timber.tag(TAG).i(
                 "Internal usage ${usage.totalBytes} bytes with ${plan.deletableBytes} deletable of a " +
                     "${settings.internalQuotaMb}MB quota: nothing to free"
             )
             return
         }
 
-        Log.i(TAG, "Internal usage ${usage.totalBytes} bytes is over quota, need to free ${plan.bytesToFree} bytes")
+        Timber.tag(TAG).i("Internal usage ${usage.totalBytes} bytes is over quota, need to free ${plan.bytesToFree} bytes")
         plan.deletions.forEach { logOrphans(repository.deleteRecording(it.recording), "internal quota") }
-        Log.i(
-            TAG,
+        Timber.tag(TAG).i(
             "Internal pass deleted ${plan.deletions.size} recordings, reclaimed ~${plan.reclaimedBytes} " +
                 "of ${plan.bytesToFree} bytes"
         )
@@ -161,7 +158,7 @@ class CleanupRunner @Inject constructor(
         val folderUri = settings.exportFolderUri
         if (folderUri.isBlank()) return
         if (exportGateway.probeExportFolderAccess(folderUri) != ExportFolderAccess.OK) {
-            Log.i(TAG, "Export folder is not usable right now, skipping the external pass")
+            Timber.tag(TAG).i("Export folder is not usable right now, skipping the external pass")
             return
         }
 
@@ -173,8 +170,7 @@ class CleanupRunner @Inject constructor(
         )
         if (plan.bytesToFree <= 0L) {
             val appBytes = documents.filter(ExportEntry::isAppCreated).sumOf { it.sizeBytes }
-            Log.i(
-                TAG,
+            Timber.tag(TAG).i(
                 "Export folder holds $appBytes of app files with ${plan.deletableBytes} prunable of a " +
                     "${settings.externalQuotaMb}MB quota: nothing to free"
             )
@@ -195,8 +191,7 @@ class CleanupRunner @Inject constructor(
                 refused++
             }
         }
-        Log.i(
-            TAG,
+        Timber.tag(TAG).i(
             "External pass deleted $deleted of ${plan.deletions.size} planned exported files, " +
                 "reclaimed ~$freed of ${plan.bytesToFree} bytes" +
                 if (refused > 0) " ($refused refused by the provider)" else ""
@@ -205,8 +200,7 @@ class CleanupRunner @Inject constructor(
             // The plan itself cannot come up short: its target is measured over the very files it picked.
             // So whatever is missing was refused or moved, and saying so is the only signal a user gets that
             // the folder will keep growing despite the switch being on.
-            Log.w(
-                TAG,
+            Timber.tag(TAG).w(
                 "Export folder quota not met: the provider removed less than the plan asked for " +
                     "(${plan.bytesToFree - freed} bytes short)"
             )
@@ -238,8 +232,7 @@ class CleanupRunner @Inject constructor(
             }
         }
         if (removed > 0 || refused > 0) {
-            Log.i(
-                TAG,
+            Timber.tag(TAG).i(
                 "Orphan sweep removed $removed unreferenced file(s), reclaimed ~$reclaimedBytes bytes" +
                     if (refused > 0) " ($refused refused by the filesystem)" else ""
             )
@@ -252,8 +245,7 @@ class CleanupRunner @Inject constructor(
      */
     private fun logOrphans(result: RecordingDeleteResult, pass: String) {
         if (result is RecordingDeleteResult.DeletedWithOrphans) {
-            Log.w(
-                TAG,
+            Timber.tag(TAG).w(
                 "The $pass pass deleted the row but left ${result.orphanPaths.size} unreferenced file(s): " +
                     result.orphanPaths.joinToString()
             )

@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
-import android.util.Log
+import timber.log.Timber
 import io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.domain.model.Device
@@ -38,7 +38,7 @@ class DeviceProbeRunner @Inject constructor(
         throw e
     } catch (e: Exception) {
         // A device class that cannot even report why it failed still has to leave the button idle.
-        Log.w(tag, "Connection probe for ${candidate.name} threw", e)
+        Timber.tag(tag).w(e, "Connection probe for ${candidate.name} threw")
         DeviceTestState.Failed(e.localizedMessage)
     }
 

@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.util
 
-import android.util.Log
+import timber.log.Timber
 import androidx.annotation.PluralsRes
 import androidx.annotation.StringRes
 import io.github.mvolkert.entryrecorder.R
@@ -161,7 +161,7 @@ class ExportRunner @Inject constructor(
                         deletePartialTranscode(src)
                         throw e
                     } catch (e: Exception) {
-                        Log.w(tag, "Batch transcode failed for ${rec.id}, exporting raw", e)
+                        Timber.tag(tag).w(e, "Batch transcode failed for ${rec.id}, exporting raw")
                         src
                     }
                 } else src

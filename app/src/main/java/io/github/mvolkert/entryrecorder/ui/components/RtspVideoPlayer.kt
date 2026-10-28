@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.ui.components
 
-import android.util.Log
+import timber.log.Timber
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
@@ -127,7 +127,7 @@ fun RtspVideoPlayer(
             } catch (e: Exception) {
                 // A double-release on an already-released player is benign, but said out loud
                 // (debug-only) so a real MediaCodec leak on this device is still traceable.
-                Log.d("RtspVideoPlayer", "Player release failed (usually already released)", e)
+                Timber.tag("RtspVideoPlayer").d(e, "Player release failed (usually already released)")
             }
         }
     }

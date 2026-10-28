@@ -157,6 +157,7 @@ fun AppSettingsEntity.toDomain(cipher: CredentialCipher): AppSettings = AppSetti
     autoBootEnabled = autoBootEnabled,
     motionAlertEnabled = motionAlertEnabled,
     motionAlertRecipient = motionAlertRecipient,
+    loggingToFileEnabled = loggingToFileEnabled,
 )
 
 /** The entity's declared-but-unread legacy columns take their table defaults through the data-class defaults. */
@@ -180,4 +181,5 @@ fun AppSettings.toEntity(cipher: CredentialCipher): AppSettingsEntity = AppSetti
     autoBootEnabled = autoBootEnabled,
     motionAlertEnabled = motionAlertEnabled,
     motionAlertRecipient = motionAlertRecipient,
+    loggingToFileEnabled = loggingToFileEnabled,
 )

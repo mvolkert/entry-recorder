@@ -102,6 +102,10 @@ dependencies {
     // JSON parsing
     implementation(libs.gson)
 
+    // Timber: the app-wide logging facade. DebugTree writes logcat; an opt-in FileTree writes the
+    // bounded log file behind the Settings toggle. Ships consumer ProGuard rules, so R8 is covered.
+    implementation(libs.timber)
+
     // Coil for image/snapshot loading
     implementation(libs.coil.compose)
 

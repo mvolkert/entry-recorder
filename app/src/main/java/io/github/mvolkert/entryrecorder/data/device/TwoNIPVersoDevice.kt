@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.data.device
 
-import android.util.Log
+import timber.log.Timber
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
@@ -147,7 +147,7 @@ class TwoNIPVersoDevice(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(tag, "Connection test failed", e)
+            Timber.tag(tag).e(e, "Connection test failed")
             Result.failure(e)
         }
     }
@@ -155,14 +155,14 @@ class TwoNIPVersoDevice(
     override suspend fun startMonitoring(listener: IntercomEventListener) = withContext(ioDispatcher) {
         if (isMonitoring.getAndSet(true)) return@withContext
 
-        Log.i(tag, "Starting 2N IP Verso monitoring on ${device.ipAddress} (FW 2.50+, Logging API)")
+        Timber.tag(tag).i("Starting 2N IP Verso monitoring on ${device.ipAddress} (FW 2.50+, Logging API)")
 
         // The Logging subscription exists to carry camera-reported motion and noise, the two events with no
         // on-device fallback. A ring needs no HTTP subscription at all: it arrives over the SIP INVITE, and
         // in-app motion analysis rides the snapshot path. So, exactly as the old poll gate, ask for nothing
         // when nothing is consumed — and report no connection state, since there is no path to be down.
         if (!motionEventRequested && !noiseEventRequested) {
-            Log.i(tag, "Logging API subscription not started — no camera motion/noise trigger requested")
+            Timber.tag(tag).i("Logging API subscription not started — no camera motion/noise trigger requested")
             return@withContext
         }
 
@@ -267,7 +267,7 @@ class TwoNIPVersoDevice(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        Log.d(tag, "Logging subscribe error: ${e.message}")
+        Timber.tag(tag).d("Logging subscribe error: ${e.message}")
         SubscribeResult.Failed(null, null, permanent = false)
     }
 
@@ -288,7 +288,7 @@ class TwoNIPVersoDevice(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        Log.d(tag, "Logging pull error: ${e.message}")
+        Timber.tag(tag).d("Logging pull error: ${e.message}")
         PullResult.Retryable
     }
 
@@ -302,7 +302,7 @@ class TwoNIPVersoDevice(
             client.newCall(request).enqueue(
                 object : Callback {
                     override fun onFailure(call: okhttp3.Call, e: IOException) {
-                        Log.d(tag, "Logging unsubscribe skipped: ${e.message}")
+                        Timber.tag(tag).d("Logging unsubscribe skipped: ${e.message}")
                     }
 
                     override fun onResponse(call: okhttp3.Call, response: Response) {
@@ -311,7 +311,7 @@ class TwoNIPVersoDevice(
                 }
             )
         } catch (e: Exception) {
-            Log.d(tag, "Logging unsubscribe could not be issued: ${e.message}")
+            Timber.tag(tag).d("Logging unsubscribe could not be issued: ${e.message}")
         }
     }
 
@@ -329,7 +329,7 @@ class TwoNIPVersoDevice(
         // Per-attempt detail stays at debug: the transition itself is announced once, at WARN, when the
         // guarded OFFLINE ConnectionState below reaches MonitorEventHandler, so a backed-off retry loop
         // must not print this same reason every LOG_SUBSCRIBE_RETRY_MS.
-        Log.d(tag, message)
+        Timber.tag(tag).d(message)
         if (!transportReportedDown) {
             transportReportedDown = true
             listener.onEvent(
@@ -374,7 +374,7 @@ class TwoNIPVersoDevice(
      */
     override suspend fun stopMonitoring() {
         if (isMonitoring.getAndSet(false)) {
-            Log.i(tag, "2N monitoring stopped")
+            Timber.tag(tag).i("2N monitoring stopped")
         }
         val channel = channelId
         channelId = null

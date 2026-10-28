@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.data.server
 
-import android.util.Log
+import timber.log.Timber
 import com.google.gson.Gson
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.domain.model.Device
@@ -58,9 +58,9 @@ class ServerRecordingClient @Inject constructor(
         }
         when (edge) {
             is ConnectionEdge.Lost ->
-                Log.w(tag, ConnectionLog.lost(ConnectionSource.PythonServer, key, edge.reason))
+                Timber.tag(tag).w(ConnectionLog.lost(ConnectionSource.PythonServer, key, edge.reason))
             is ConnectionEdge.Recovered ->
-                Log.i(tag, ConnectionLog.recovered(ConnectionSource.PythonServer, key, edge.downMs))
+                Timber.tag(tag).i(ConnectionLog.recovered(ConnectionSource.PythonServer, key, edge.downMs))
             ConnectionEdge.None -> Unit
         }
     }
@@ -100,7 +100,7 @@ class ServerRecordingClient @Inject constructor(
             // report "connection failed" for a test the user simply walked away from.
             throw e
         } catch (e: Exception) {
-            Log.e(tag, "Failed to connect to Python server at $serverUrl", e)
+            Timber.tag(tag).e(e, "Failed to connect to Python server at $serverUrl")
             Result.failure(e)
         }
     }
@@ -149,11 +149,10 @@ class ServerRecordingClient @Inject constructor(
                     if (answer == null) {
                         // Success with an unreadable body: assume the job is ours, which is what the caller
                         // did before the answer was read at all, so an older server keeps working.
-                        Log.w(tag, "Start answer for $deviceName carried no readable body; assuming it started")
+                        Timber.tag(tag).w("Start answer for $deviceName carried no readable body; assuming it started")
                         Result.success(ServerStartResponse(status = "started", deviceId = serverDeviceId))
                     } else {
-                        Log.i(
-                            tag,
+                        Timber.tag(tag).i(
                             "Server recording ${answer.status} for $deviceName" +
                                 (answer.recordingId?.let { " (server recording id $it)" } ?: "")
                         )
@@ -161,7 +160,7 @@ class ServerRecordingClient @Inject constructor(
                     }
                 } else {
                     val err = "HTTP ${response.code}: ${response.body.string()}"
-                    Log.w(tag, "Server recording error: $err")
+                    Timber.tag(tag).w("Server recording error: $err")
                     Result.failure(Exception(err))
                 }
             }
@@ -169,7 +168,7 @@ class ServerRecordingClient @Inject constructor(
             throw e
         } catch (e: Exception) {
             reportServerFailure(serverUrl, e)
-            Log.e(tag, "Server recording request failed for $deviceName", e)
+            Timber.tag(tag).e(e, "Server recording request failed for $deviceName")
             Result.failure(e)
         }
     }
@@ -210,7 +209,7 @@ class ServerRecordingClient @Inject constructor(
                 reportServerHealth(serverUrl, reachable = true, reason = "")
                 val answer = runCatching { gson.fromJson(response.body.string(), ServerDeviceDto::class.java) }.getOrNull()
                 if (response.isSuccessful && answer != null && answer.id > 0) {
-                    Log.i(tag, "Registered device ${device.name} on server as id ${answer.id}")
+                    Timber.tag(tag).i("Registered device ${device.name} on server as id ${answer.id}")
                     Result.success(answer.id)
                 } else {
                     Result.failure(Exception("HTTP ${response.code}: ${response.message}"))
@@ -220,7 +219,7 @@ class ServerRecordingClient @Inject constructor(
             throw e
         } catch (e: Exception) {
             reportServerFailure(serverUrl, e)
-            Log.e(tag, "Registering device ${device.name} on server failed", e)
+            Timber.tag(tag).e(e, "Registering device ${device.name} on server failed")
             Result.failure(e)
         }
     }
@@ -252,7 +251,7 @@ class ServerRecordingClient @Inject constructor(
             throw e
         } catch (e: Exception) {
             reportServerFailure(serverUrl, e)
-            Log.e(tag, "Updating server device $serverDeviceId failed", e)
+            Timber.tag(tag).e(e, "Updating server device $serverDeviceId failed")
             Result.failure(e)
         }
     }
@@ -285,7 +284,7 @@ class ServerRecordingClient @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(tag, "Deleting server device $serverDeviceId failed", e)
+            Timber.tag(tag).e(e, "Deleting server device $serverDeviceId failed")
             Result.failure(e)
         }
     }
@@ -317,7 +316,7 @@ class ServerRecordingClient @Inject constructor(
             throw e
         } catch (e: Exception) {
             reportServerFailure(serverUrl, e)
-            Log.e(tag, "Server status probe failed for device $deviceId", e)
+            Timber.tag(tag).e(e, "Server status probe failed for device $deviceId")
             Result.failure(e)
         }
     }
@@ -352,7 +351,7 @@ class ServerRecordingClient @Inject constructor(
             throw e
         } catch (e: Exception) {
             reportServerFailure(serverUrl, e)
-            Log.e(tag, "Server stop recording failed for device $deviceId", e)
+            Timber.tag(tag).e(e, "Server stop recording failed for device $deviceId")
             Result.failure(e)
         }
     }
@@ -390,7 +389,7 @@ class ServerRecordingClient @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(tag, "Listing server recordings failed", e)
+            Timber.tag(tag).e(e, "Listing server recordings failed")
             Result.failure(e)
         }
     }
@@ -422,7 +421,7 @@ class ServerRecordingClient @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(tag, "Protecting server recording $recordingId failed", e)
+            Timber.tag(tag).e(e, "Protecting server recording $recordingId failed")
             Result.failure(e)
         }
     }
@@ -449,7 +448,7 @@ class ServerRecordingClient @Inject constructor(
                 }
             }
         } catch (e: Exception) {
-            Log.e(tag, "Deleting server recording $recordingId failed", e)
+            Timber.tag(tag).e(e, "Deleting server recording $recordingId failed")
             Result.failure(e)
         }
     }
@@ -507,7 +506,7 @@ class ServerRecordingClient @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(tag, "Downloading server video failed", e)
+            Timber.tag(tag).e(e, "Downloading server video failed")
             Result.failure(e)
         }
     }
@@ -547,7 +546,7 @@ class ServerRecordingClient @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(tag, "Relaying motion alert to $recipient for $deviceName failed", e)
+            Timber.tag(tag).e(e, "Relaying motion alert to $recipient for $deviceName failed")
             Result.failure(e)
         }
     }

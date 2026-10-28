@@ -4,7 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaCodec
 import android.media.MediaFormat
-import android.util.Log
+import timber.log.Timber
 import androidx.core.graphics.scale
 
 /**
@@ -108,8 +108,7 @@ class H264Encoder(
         encoder.start()
         codec = encoder
         started = true
-        Log.i(
-            tag,
+        Timber.tag(tag).i(
             "H.264 encoder started ${width}x$height @ ${safeFps}fps ${bitrateBps}bps, " +
                 "colorFormat=${chosen.codecFormat} layout=$layout stride=$stride sliceHeight=$sliceHeight",
         )
@@ -148,14 +147,14 @@ class H264Encoder(
             val index = c.dequeueInputBuffer(20_000)
             if (index < 0) {
                 // Encoder input momentarily full; drop this frame rather than block the capture loop.
-                Log.d(tag, "No input buffer available, dropping frame")
+                Timber.tag(tag).d("No input buffer available, dropping frame")
                 return
             }
             val inputBuffer = c.getInputBuffer(index) ?: return
             if (yuv.size > inputBuffer.capacity()) {
                 // The codec asked for a buffer smaller than the geometry it reported; feeding a
                 // mismatched frame would corrupt it, so drop and keep the encoder alive.
-                Log.w(tag, "Packed frame ${yuv.size}B exceeds input buffer ${inputBuffer.capacity()}B, dropping frame")
+                Timber.tag(tag).w("Packed frame ${yuv.size}B exceeds input buffer ${inputBuffer.capacity()}B, dropping frame")
                 c.queueInputBuffer(index, 0, 0, presentationTimeUs, 0)
                 return
             }
@@ -163,7 +162,7 @@ class H264Encoder(
             inputBuffer.put(yuv)
             c.queueInputBuffer(index, 0, yuv.size, presentationTimeUs, 0)
         } catch (e: Exception) {
-            Log.w(tag, "Failed to feed input frame: ${e.message}")
+            Timber.tag(tag).w("Failed to feed input frame: ${e.message}")
         } finally {
             bitmap.recycle()
         }
@@ -189,7 +188,7 @@ class H264Encoder(
                     return result
                 }
                 outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                    Log.d(tag, "Encoder output format changed: ${c.outputFormat}")
+                    Timber.tag(tag).d("Encoder output format changed: ${c.outputFormat}")
                 }
                 outIndex >= 0 -> {
                     val outBuffer = c.getOutputBuffer(outIndex)

@@ -1,7 +1,7 @@
 package io.github.mvolkert.entryrecorder.video
 
 import android.content.Context
-import android.util.Log
+import timber.log.Timber
 import io.github.mvolkert.entryrecorder.data.model.ConnectionCapability
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.EventType
@@ -113,10 +113,10 @@ internal class LocalCaptureLoop(
     fun stop(deviceId: Long, reason: EventType?): Boolean {
         val active = activeRecordings[deviceId] ?: return false
         if (reason != null && active.triggers.primary != reason) {
-            Log.i(tag, "Ignoring $reason post-record stop for device $deviceId: active recording is ${active.triggers.primary.name}")
+            Timber.tag(tag).i("Ignoring $reason post-record stop for device $deviceId: active recording is ${active.triggers.primary.name}")
             return false
         }
-        Log.i(tag, "Stopping active local recording for device $deviceId")
+        Timber.tag(tag).i("Stopping active local recording for device $deviceId")
         activeRecordings.remove(deviceId)
         onActiveChanged()
         active.job.cancel()
@@ -187,14 +187,13 @@ internal class LocalCaptureLoop(
         maxDurationSeconds: Int,
     ) {
         if (!running.triggers.fold(eventType)) {
-            Log.d(tag, "Device ${device.id} is already recording a $eventType clip")
+            Timber.tag(tag).d("Device ${device.id} is already recording a $eventType clip")
             return
         }
         val wantedDeadlineMs = System.currentTimeMillis() + maxDurationSeconds * 1000L
         running.deadlineMs.updateAndGet { current -> maxOf(current, wantedDeadlineMs) }
         val secondsLeft = ((running.deadlineMs.get() - System.currentTimeMillis()) / 1000L).coerceAtLeast(0L)
-        Log.i(
-            tag,
+        Timber.tag(tag).i(
             "Folded $eventType into the running ${running.triggers.primary.name} clip on ${device.name}; " +
                 "it now records ${secondsLeft}s more and will be filed as ${running.triggers.primary.name}"
         )
@@ -213,7 +212,7 @@ internal class LocalCaptureLoop(
         // Start the timeline at the earliest pre-roll frame so the recording's timestamp/duration cover
         // the moment that triggered motion, not just what happened after detection confirmed it.
         val startTime = preRoll.firstOrNull()?.timestampMs ?: System.currentTimeMillis()
-        Log.i(tag, "Starting local MKV recording for ${device.name} [${eventType.name}] -> ${outputFile.name}")
+        Timber.tag(tag).i("Starting local MKV recording for ${device.name} [${eventType.name}] -> ${outputFile.name}")
 
         val firstFrameRef = AtomicReference<ByteArray?>(null)
         val triggers = MutableTriggers(eventType)
@@ -223,9 +222,9 @@ internal class LocalCaptureLoop(
                 // Recording capture loop: captures snapshot frames / MJPEG stream chunks into crash-safe MKV
                 recordStreamToMkv(device, outputFile, deadlineMs, firstFrameRef, startTime, preRoll)
             } catch (_: CancellationException) {
-                Log.d(tag, "Recording cancelled/stopped normally for ${device.name}")
+                Timber.tag(tag).d("Recording cancelled/stopped normally for ${device.name}")
             } catch (e: Exception) {
-                Log.e(tag, "Error during recording for ${device.name}", e)
+                Timber.tag(tag).e(e, "Error during recording for ${device.name}")
             } finally {
                 // Finalization performs suspending DB writes (recording row, thumbnail, auto-export
                 // mirror). On a manual early stop this coroutine is already cancelled, which would
@@ -276,7 +275,7 @@ internal class LocalCaptureLoop(
             val source = h264Source
             if (device.streamProtocol == StreamProtocol.RTSP && source != null) {
                 if (preRoll.isNotEmpty()) {
-                    Log.d(tag, "Dropping ${preRoll.size} MJPEG pre-roll frames on the ${device.name} H.264 passthrough clip")
+                    Timber.tag(tag).d("Dropping ${preRoll.size} MJPEG pre-roll frames on the ${device.name} H.264 passthrough clip")
                 }
                 val passthrough = H264PassthroughMuxer(muxer, width = 1280, height = 720)
                 try {
@@ -287,7 +286,7 @@ internal class LocalCaptureLoop(
                         passthrough.writeUnit(unit, baselineMs)
                     }
                 } catch (e: Exception) {
-                    Log.w(tag, "RTSP H.264 passthrough for ${device.name} ended (${e.message})")
+                    Timber.tag(tag).w("RTSP H.264 passthrough for ${device.name} ended (${e.message})")
                 }
                 return@use
             }
@@ -316,7 +315,7 @@ internal class LocalCaptureLoop(
                 } catch (e: Exception) {
                     // Snapshot polling continues below. Not silent: a stream that dies after a few frames
                     // otherwise looks identical to a recording that simply has no motion in it.
-                    Log.w(tag, "MJPEG stream for ${device.name} ended (${e.message}), continuing with snapshot polling")
+                    Timber.tag(tag).w("MJPEG stream for ${device.name} ended (${e.message}), continuing with snapshot polling")
                 }
             }
 
@@ -362,8 +361,7 @@ internal class LocalCaptureLoop(
             // The rate the loop actually got frames at, versus what was configured: the gap is what the
             // endpoint's serial ceiling costs, and it has to be visible without a LAN measurement.
             val elapsedSec = ((System.currentTimeMillis() - baselineMs) / 1000f).coerceAtLeast(1f)
-            Log.i(
-                tag,
+            Timber.tag(tag).i(
                 "Recorded ${device.name} at %.1f fps (configured %d fps, endpoint ceiling %d fps) "
                     .format(framesWritten / elapsedSec, fps, device.maxSnapshotFps) +
                     "${framesWritten} frames"
@@ -401,7 +399,7 @@ internal class LocalCaptureLoop(
                 thumbnailPath = thumbPath,
             )
             val id = repository.insertRecording(recording)
-            Log.i(tag, "Recording saved: id=$id, duration=${durationSec}s, size=$fileSize bytes")
+            Timber.tag(tag).i("Recording saved: id=$id, duration=${durationSec}s, size=$fileSize bytes")
 
             // Opt-in archive mirror: copy the finalized (lossless) MJPEG MKV into the user's SAF
             // export folder so sync tools always see complete, up-to-date recordings. Deliberately
@@ -413,20 +411,20 @@ internal class LocalCaptureLoop(
                 val mirrored = try {
                     exportGateway.saveFileToSafFolder(settings.exportFolderUri, outputFile, outputFile.name)
                 } catch (e: Exception) {
-                    Log.e(tag, "Auto-export mirror failed for ${outputFile.name}", e)
+                    Timber.tag(tag).e(e, "Auto-export mirror failed for ${outputFile.name}")
                     false
                 }
                 if (mirrored) {
                     // A mirror that lands clears any earlier backgrounded failure the user was warned about.
                     exportFailureMonitor.recordSuccess()
                 } else {
-                    Log.w(tag, "Auto-export to folder did not complete for ${outputFile.name} " +
+                    Timber.tag(tag).w("Auto-export to folder did not complete for ${outputFile.name} " +
                             "(folder grant broken or storage full?)")
                     exportFailureMonitor.recordFailure("Auto-export mirror failed for ${outputFile.name}")
                 }
             }
         } else {
-            Log.w(tag, "Recording produced empty file, discarding ${outputFile.name}")
+            Timber.tag(tag).w("Recording produced empty file, discarding ${outputFile.name}")
             if (outputFile.exists()) outputFile.delete()
         }
     }

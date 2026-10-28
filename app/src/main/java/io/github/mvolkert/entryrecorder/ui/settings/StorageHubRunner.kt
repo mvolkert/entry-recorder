@@ -1,7 +1,7 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
 import android.net.Uri
-import android.util.Log
+import timber.log.Timber
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.util.AppStorageDirs
 import io.github.mvolkert.entryrecorder.util.ExportEntry
@@ -50,7 +50,7 @@ class StorageHubRunner @Inject constructor(
             .sumOf { it.sizeBytes }
     }.onFailure {
         if (it is CancellationException) throw it
-        Log.w(tag, "Export folder listing for $folderUri failed", it)
+        Timber.tag(tag).w(it, "Export folder listing for $folderUri failed")
     }.getOrNull()
 
     /**
@@ -61,7 +61,7 @@ class StorageHubRunner @Inject constructor(
         exportGateway.safFolderDisplayName(folderUri)
     }.onFailure {
         if (it is CancellationException) throw it
-        Log.w(tag, "Export folder name for $folderUri could not be read", it)
+        Timber.tag(tag).w(it, "Export folder name for $folderUri could not be read")
     }.getOrDefault("")
 
     /** Claims the persistable permission for a freshly picked tree. False when the provider refuses it. */

@@ -1,7 +1,7 @@
 package io.github.mvolkert.entryrecorder.service
 
 import android.content.Context
-import android.util.Log
+import timber.log.Timber
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
@@ -102,7 +102,7 @@ class TriggerEpisodeRunner(
 
     /** Routes a "trigger ended" event: only the post-record buffer length and the log wording differ. */
     fun handleTriggerEnded(device: Device, label: String, eventType: EventType) {
-        Log.i(tag, "$label ended on ${device.name}")
+        Timber.tag(tag).i("$label ended on ${device.name}")
         if (eventType == EventType.MOTION) monitorStatusRegistry.update(device.id, MonitorStatus.MONITORING)
         // Allow post-record time buffer then stop
         schedulePostRecordStop(device, eventType, triggerCoordinator.postRecordSeconds(device, eventType))
@@ -157,7 +157,7 @@ class TriggerEpisodeRunner(
             ).onFailure {
                 // Same python-server wording as the control-plane client, so grepping the stream finds every
                 // link to the server in one place. Fire-and-forget: a failed push never touches the local path.
-                Log.w(tag, ConnectionLog.lost(ConnectionSource.PythonServer, settings.serverBaseUrl, it.message ?: "motion alert delivery failed"))
+                Timber.tag(tag).w(ConnectionLog.lost(ConnectionSource.PythonServer, settings.serverBaseUrl, it.message ?: "motion alert delivery failed"))
             }
         }
     }

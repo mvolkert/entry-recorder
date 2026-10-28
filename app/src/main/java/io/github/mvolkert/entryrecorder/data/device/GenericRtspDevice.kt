@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.data.device
 
-import android.util.Log
+import timber.log.Timber
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
@@ -37,7 +37,7 @@ class GenericRtspDevice(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(tag, "RTSP connection test failed", e)
+            Timber.tag(tag).e(e, "RTSP connection test failed")
             Result.failure(e)
         }
     }

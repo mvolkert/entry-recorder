@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
-import android.util.Log
+import timber.log.Timber
 import dagger.hilt.android.AndroidEntryPoint
 import io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
@@ -112,7 +112,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
 
     override fun onCreate() {
         super.onCreate()
-        Log.i(tag, "IntercomMonitorService creating...")
+        Timber.tag(tag).i("IntercomMonitorService creating...")
         NotificationHelper.createNotificationChannels(this)
 
         // Call startForeground() before anything else: the system gives a service launched with
@@ -158,7 +158,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(tag, "IntercomMonitorService onStartCommand (action=${intent?.action})")
+        Timber.tag(tag).d("IntercomMonitorService onStartCommand (action=${intent?.action})")
         // The foreground notification's Stop/Exit action routes here. stopSelf() triggers onDestroy()
         // which releases the devices, locks and SIP engine, so the user can halt monitoring without
         // force-closing the app.
@@ -208,7 +208,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
 
     /** Every device callback lands here; the fan-out itself lives in [MonitorEventHandler]. */
     override fun onEvent(event: IntercomEvent) {
-        Log.i(tag, "Received ${event.logIdentity()}")
+        Timber.tag(tag).i("Received ${event.logIdentity()}")
         serviceScope.launch { eventHandler.handle(event) }
     }
 
@@ -225,7 +225,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     private fun handleSipRing(deviceId: Long, remoteHost: String, caller: String) {
         val device = pool.deviceFor(deviceId)
         if (device == null) {
-            Log.w(tag, "SIP ring (device $deviceId from $remoteHost) is no longer monitored, ignoring")
+            Timber.tag(tag).w("SIP ring (device $deviceId from $remoteHost) is no longer monitored, ignoring")
             return
         }
         onEvent(IntercomEvent.DoorbellRung(device, callerNumber = caller))
@@ -233,7 +233,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
 
     override fun onDestroy() {
         super.onDestroy()
-        Log.i(tag, "IntercomMonitorService onDestroy")
+        Timber.tag(tag).i("IntercomMonitorService onDestroy")
         serviceScope.cancel()
 
         // All devices are torn down at once under one deadline: this blocks the main thread either way, and
@@ -276,7 +276,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             } catch (e: Exception) {
                 // Android 12+/14 may reject background FGS starts (e.g. from BOOT) with
                 // ForegroundServiceStartNotAllowedException. Log instead of crashing the receiver.
-                Log.e(TAG, "Foreground service start not allowed", e)
+                Timber.tag(TAG).e(e, "Foreground service start not allowed")
             }
         }
 

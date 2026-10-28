@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.data.network
 
-import android.util.Log
+import timber.log.Timber
 import okhttp3.Authenticator
 import okhttp3.Credentials
 import okhttp3.Request
@@ -157,7 +157,7 @@ class DigestAuthenticator(
         } catch (e: Exception) {
             // Both "MD5" and "SHA-256" are guaranteed by the platform, so this only fires on a broken
             // provider; said out loud rather than swallowed, because every request then hashes as MD5.
-            Log.w("DigestAuthenticator", "No provider for $instance, hashing as MD5", e)
+            Timber.tag("DigestAuthenticator").w(e, "No provider for $instance, hashing as MD5")
             MessageDigest.getInstance("MD5")
         }
         return md.digest(input.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }

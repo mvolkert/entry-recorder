@@ -30,7 +30,28 @@ data class AppSettings(
     // set, a detected motion event is relayed through the Python server to one other phone. Off by default.
     val motionAlertEnabled: Boolean = false,
     val motionAlertRecipient: String = "",
+    // File logging (change `add-timber-file-logging`): when on, a Timber FileTree is planted and appends the
+    // app's log lines to a bounded, rolling file under the app's private files dir. Off by default.
+    val loggingToFileEnabled: Boolean = false,
 ) {
+    /**
+     * Diagnostic form, mirroring [io.github.mvolkert.entryrecorder.domain.model.Device]’s: replaces the data-class
+     * `toString()`, which would print the decrypted `serverApiKey` in clear wherever a settings row is
+     * interpolated into a log — the one secret this change’s file capture could otherwise leak.
+     */
+    override fun toString(): String = buildString {
+        append("AppSettings(recordingMode=$recordingMode, serverBaseUrl=$serverBaseUrl")
+        append(", serverApiKey=$REDACTED, retentionDays=$retentionDays")
+        append(", transcodeOnExport=$transcodeOnExport, exportFolderUri=$exportFolderUri")
+        append(", autoExportOnFinalize=$autoExportOnFinalize, internalQuotaMb=$internalQuotaMb")
+        append(", internalCleanupEnabled=$internalCleanupEnabled, externalQuotaMb=$externalQuotaMb")
+        append(", externalCleanupEnabled=$externalCleanupEnabled, themePrimaryIndex=$themePrimaryIndex")
+        append(", themeSecondaryIndex=$themeSecondaryIndex, themeTertiaryIndex=$themeTertiaryIndex")
+        append(", themeMode=$themeMode, themeUseDynamicColor=$themeUseDynamicColor")
+        append(", autoBootEnabled=$autoBootEnabled, motionAlertEnabled=$motionAlertEnabled")
+        append(", motionAlertRecipient=$motionAlertRecipient, loggingToFileEnabled=$loggingToFileEnabled)")
+    }
+
     companion object {
         /**
          * What "no quota chosen yet" means in every place that has to say it: the fresh-install default, the
@@ -39,5 +60,8 @@ data class AppSettings(
          */
         const val DEFAULT_INTERNAL_QUOTA_MB = 10_240L
         const val DEFAULT_EXTERNAL_QUOTA_MB = 20_480L
+
+        /** Placeholder the one credential field collapses to in [toString]. */
+        private const val REDACTED = "<redacted>"
     }
 }

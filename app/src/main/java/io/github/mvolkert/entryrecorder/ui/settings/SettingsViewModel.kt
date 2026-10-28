@@ -1,7 +1,7 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
 import android.net.Uri
-import android.util.Log
+import timber.log.Timber
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -177,13 +177,13 @@ class SettingsViewModel @Inject constructor(
             when (val sync = syncDevice.saveAndSync(device).sync) {
                 ServerSyncResult.Skipped -> Unit
                 is ServerSyncResult.Registered ->
-                    Log.i(tag, "Registered ${device.name} on the server as id ${sync.serverDeviceId}")
+                    Timber.tag(tag).i("Registered ${device.name} on the server as id ${sync.serverDeviceId}")
                 is ServerSyncResult.Updated ->
-                    Log.d(tag, "Updated ${device.name} on the server (id ${sync.serverDeviceId})")
+                    Timber.tag(tag).d("Updated ${device.name} on the server (id ${sync.serverDeviceId})")
                 is ServerSyncResult.RegistrationDeferred ->
-                    Log.w(tag, "Server registration for ${device.name} deferred to record time", sync.cause)
+                    Timber.tag(tag).w("Server registration for ${device.name} deferred to record time", sync.cause)
                 is ServerSyncResult.UpdateFailed ->
-                    Log.w(tag, "Server update for ${device.name} (id ${sync.serverDeviceId}) failed", sync.cause)
+                    Timber.tag(tag).w("Server update for ${device.name} (id ${sync.serverDeviceId}) failed", sync.cause)
             }
         }
     }
@@ -193,9 +193,9 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             when (val sync = syncDevice.deleteAndSync(device)) {
                 ServerDeleteResult.NotRegistered -> Unit
-                ServerDeleteResult.Deleted -> Log.i(tag, "Deleted ${device.name} from the server")
+                ServerDeleteResult.Deleted -> Timber.tag(tag).i("Deleted ${device.name} from the server")
                 is ServerDeleteResult.Failed ->
-                    Log.w(tag, "Server delete for ${device.name} (id ${sync.serverDeviceId}) failed", sync.cause)
+                    Timber.tag(tag).w("Server delete for ${device.name} (id ${sync.serverDeviceId}) failed", sync.cause)
             }
         }
     }

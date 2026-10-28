@@ -4,7 +4,7 @@ import android.content.Context
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.PowerManager
-import android.util.Log
+import timber.log.Timber
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -76,7 +76,7 @@ class MonitorLockKeeper(
             }).also { wifiLock = it }
             if (!wifi.isHeld) wifi.acquire()
         } catch (e: Exception) {
-            Log.w(tag, "Could not acquire Wake/WiFi locks", e)
+            Timber.tag(tag).w(e, "Could not acquire Wake/WiFi locks")
         }
     }
 
@@ -105,7 +105,7 @@ class MonitorLockKeeper(
         } catch (e: Exception) {
             // A lock left held after release keeps the CPU or radio awake with nobody to let it go,
             // so a failed release has to be visible even though there is nothing left to handle it.
-            Log.w(tag, "Failed to release the wake/WiFi locks", e)
+            Timber.tag(tag).w(e, "Failed to release the wake/WiFi locks")
         }
     }
 

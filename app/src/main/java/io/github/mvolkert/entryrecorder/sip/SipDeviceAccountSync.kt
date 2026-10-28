@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.sip
 
-import android.util.Log
+import timber.log.Timber
 import io.github.mvolkert.entryrecorder.data.model.SipMode
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import kotlinx.coroutines.Dispatchers
@@ -88,7 +88,7 @@ class SipDeviceAccountSync {
     private fun applyDevice(sipCore: Core, device: Device) {
         when (device.sipMode) {
             SipMode.PEER_TO_PEER -> {
-                Log.i(tag, "Monitoring SIP in Direct Peer-to-Peer mode on port ${device.sipLocalPort}")
+                Timber.tag(tag).i("Monitoring SIP in Direct Peer-to-Peer mode on port ${device.sipLocalPort}")
                 managed[device.id] = ManagedDevice(device, account = null)
             }
             SipMode.PBX_REGISTRAR -> {
@@ -99,7 +99,7 @@ class SipDeviceAccountSync {
                 managed[device.id] = ManagedDevice(device, account)
             }
             SipMode.DISABLED -> {
-                Log.i(tag, "SIP disabled for ${device.name}")
+                Timber.tag(tag).i("SIP disabled for ${device.name}")
             }
         }
     }
@@ -134,7 +134,7 @@ class SipDeviceAccountSync {
         user: String,
         password: String
     ): Account {
-        Log.i(tag, "Configuring SIP PBX Registrar: user=$user server=$host:$port")
+        Timber.tag(tag).i("Configuring SIP PBX Registrar: user=$user server=$host:$port")
         val factory = Factory.instance()
         sipCore.addAuthInfo(factory.createAuthInfo(user, null, password, null, null, host))
 
@@ -155,7 +155,7 @@ class SipDeviceAccountSync {
     private fun applyInboundPort(sipCore: Core, peerToPeerDevices: List<Device>) {
         val ports = peerToPeerDevices.map { it.sipLocalPort }.distinct()
         if (ports.size > 1) {
-            Log.w(tag, "${peerToPeerDevices.size} peer-to-peer devices want distinct ports $ports; " +
+            Timber.tag(tag).w("${peerToPeerDevices.size} peer-to-peer devices want distinct ports $ports; " +
                 "only ${ports.first()} can be bound on the shared core")
         }
         val port = ports.firstOrNull() ?: SipCallTiming.DEFAULT_SIP_PORT
@@ -164,7 +164,7 @@ class SipDeviceAccountSync {
         transports.udpPort = port
         transports.tcpPort = port
         sipCore.transports = transports
-        Log.i(tag, "SIP inbound port set to $port")
+        Timber.tag(tag).i("SIP inbound port set to $port")
     }
 
     /**

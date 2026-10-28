@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.video
 
-import android.util.Log
+import timber.log.Timber
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -200,7 +200,7 @@ class MkvStreamMuxer(
             stream.write(finalClusterBytes)
             stream.flush()
         } catch (e: Exception) {
-            Log.e(tag, "Error flushing cluster to disk", e)
+            Timber.tag(tag).e(e, "Error flushing cluster to disk")
         } finally {
             currentClusterStream = null
             framesInCurrentCluster = 0
@@ -286,7 +286,7 @@ class MkvStreamMuxer(
 
             isHeaderWritten = true
         } catch (e: Exception) {
-            Log.e(tag, "Failed to write MKV header", e)
+            Timber.tag(tag).e(e, "Failed to write MKV header")
         }
     }
 
@@ -298,7 +298,7 @@ class MkvStreamMuxer(
         } catch (e: Exception) {
             // The file stays playable up to the last flushed cluster, but everything still buffered is lost
             // here, so a truncated recording has to leave a trace naming the clip it happened to.
-            Log.w(tag, "Failed to finish writing $outputName: ${e.message}")
+            Timber.tag(tag).w("Failed to finish writing $outputName: ${e.message}")
         }
         fos = null
     }

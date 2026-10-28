@@ -485,6 +485,16 @@ private val APP_DATABASE_MIGRATIONS: Array<Migration> = arrayOf(
             )
         }
     },
+
+    // v22 -> v23: the file-logging opt-in (change `add-timber-file-logging`). Default 0 leaves an upgraded
+    // install writing no log file, exactly as before, until the user turns the Settings toggle on.
+    object : Migration(22, 23) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE app_settings ADD COLUMN loggingToFileEnabled INTEGER NOT NULL DEFAULT 0"
+            )
+        }
+    },
 )
 
 /**

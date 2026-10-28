@@ -5,7 +5,7 @@ import android.content.pm.ApplicationInfo
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
-import android.util.Log
+import timber.log.Timber
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.mvolkert.entryrecorder.di.ApplicationScope
 import io.github.mvolkert.entryrecorder.domain.model.Device
@@ -99,7 +99,7 @@ class SipCallManager @Inject constructor(
             state: Call.State?,
             message: String
         ) {
-            Log.d(tag, "SIP Call State Changed: $state (msg: $message)")
+            Timber.tag(tag).d("SIP Call State Changed: $state (msg: $message)")
             val event = SipCallMapper.toEvent(state) ?: return
             val rawCallState = if (message.isBlank()) state?.name else "$state: $message"
             val result = SipCallReducer.reduce(
@@ -151,7 +151,7 @@ class SipCallManager @Inject constructor(
                         ),
                         name,
                     )
-                else -> Log.d(tag, "SIP registration $name: $state ($message)")
+                else -> Timber.tag(tag).d("SIP registration $name: $state ($message)")
             }
         }
     }
@@ -164,9 +164,9 @@ class SipCallManager @Inject constructor(
     private fun announceSipRegistration(edge: ConnectionEdge, name: String) {
         when (edge) {
             is ConnectionEdge.Lost ->
-                Log.w(tag, ConnectionLog.lost(ConnectionSource.SipRegistration, name, edge.reason))
+                Timber.tag(tag).w(ConnectionLog.lost(ConnectionSource.SipRegistration, name, edge.reason))
             is ConnectionEdge.Recovered ->
-                Log.i(tag, ConnectionLog.recovered(ConnectionSource.SipRegistration, name, edge.downMs))
+                Timber.tag(tag).i(ConnectionLog.recovered(ConnectionSource.SipRegistration, name, edge.downMs))
             ConnectionEdge.None -> Unit
         }
     }
@@ -186,7 +186,7 @@ class SipCallManager @Inject constructor(
         val displayName = remoteAddress?.displayName ?: caller
         val deviceId = resolveRingingDeviceId(call)
         if (deviceId == null) {
-            Log.w(tag, "SIP ring from '$remoteHost' (dialed '${call.callLog?.toAddress?.username}') matches none of " +
+            Timber.tag(tag).w("SIP ring from '$remoteHost' (dialed '${call.callLog?.toAddress?.username}') matches none of " +
                 "${accountSync.monitoredCount} monitored device(s), ignoring")
             return
         }
@@ -231,9 +231,9 @@ class SipCallManager @Inject constructor(
 
             newCore.start()
             core = newCore
-            Log.i(tag, "Linphone Core initialized successfully on port ${SipCallTiming.DEFAULT_SIP_PORT}")
+            Timber.tag(tag).i("Linphone Core initialized successfully on port ${SipCallTiming.DEFAULT_SIP_PORT}")
         } catch (e: Exception) {
-            Log.e(tag, "Failed to initialize Linphone Core", e)
+            Timber.tag(tag).e(e, "Failed to initialize Linphone Core")
         }
     }
 
@@ -267,10 +267,10 @@ class SipCallManager @Inject constructor(
             message: String
         ) {
             when (level) {
-                LogLevel.Debug, LogLevel.Trace -> Log.d(LOG_DOMAIN, message)
-                LogLevel.Warning -> Log.w(LOG_DOMAIN, message)
-                LogLevel.Error, LogLevel.Fatal -> Log.e(LOG_DOMAIN, message)
-                else -> Log.i(LOG_DOMAIN, message)
+                LogLevel.Debug, LogLevel.Trace -> Timber.tag(LOG_DOMAIN).d(message)
+                LogLevel.Warning -> Timber.tag(LOG_DOMAIN).w(message)
+                LogLevel.Error, LogLevel.Fatal -> Timber.tag(LOG_DOMAIN).e(message)
+                else -> Timber.tag(LOG_DOMAIN).i(message)
             }
         }
     }
@@ -318,7 +318,7 @@ class SipCallManager @Inject constructor(
                 message: String
             ) {
                 if (state != null) lastState.set(state)
-                Log.i(tag, "SIP probe on $server registration state: $state ($message)")
+                Timber.tag(tag).i("SIP probe on $server registration state: $state ($message)")
                 val outcome = SipProbeOutcomeMapper.toOutcome(
                     event = SipCallMapper.registrationEventOf(state),
                     stateName = state?.name ?: "",
@@ -346,7 +346,7 @@ class SipCallManager @Inject constructor(
                 // Attached before start(): a rejection can arrive on the core thread's very first pass.
                 probe.addListener(listener)
                 probe.start()
-                Log.i(tag, "SIP probe registering sip:$user@$server from local port $localPort")
+                Timber.tag(tag).i("SIP probe registering sip:$user@$server from local port $localPort")
 
                 withTimeoutOrNull(SipCallTiming.SIP_PROBE_TIMEOUT_MS.milliseconds) { registration.await() }
                     ?: SipProbeResult.NoAnswer(server, lastState.get()?.name)
@@ -354,7 +354,7 @@ class SipCallManager @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 // A malformed address or a core that refuses to start is a real answer the user must see.
-                Log.e(tag, "SIP probe on $server could not run", e)
+                Timber.tag(tag).e(e, "SIP probe on $server could not run")
                 SipProbeResult.Rejected("LocalError", e.localizedMessage ?: e.javaClass.simpleName)
             } finally {
                 // NonCancellable: leaving the screen cancels the caller, and a probe left running keeps its
@@ -375,7 +375,7 @@ class SipCallManager @Inject constructor(
                     probe.stop()
                 }
             }
-        }.also { Log.i(tag, "SIP probe on $server answered $it") }
+        }.also { Timber.tag(tag).i("SIP probe on $server answered $it") }
     }
 
     /** Drops the terminal call state back to IDLE after [SipCallTiming.POST_CALL_IDLE_MS], re-armed per terminal event. */
@@ -390,21 +390,21 @@ class SipCallManager @Inject constructor(
     fun acceptCall() {
         val call = currentCall
         if (call == null) {
-            Log.w(tag, "Accept ignored: no current SIP call to answer")
+            Timber.tag(tag).w("Accept ignored: no current SIP call to answer")
             return
         }
         // Accept any pre-answer incoming state. Nothing in this app calls startRinging(), so today the call
         // stays in IncomingReceived; relying on that single value would make the answer button a silent
         // no-op as soon as the core advances the call to early media (Linphone 5 has no IncomingRinging).
         if (!SipCallMapper.shouldAccept(call.state)) {
-            Log.w(tag, "Accept ignored: call is in ${call.state}, not incoming")
+            Timber.tag(tag).w("Accept ignored: call is in ${call.state}, not incoming")
             return
         }
         val params = core?.createCallParams(call)
         params?.isVideoEnabled = false // Audio intercom call
         call.acceptWithParams(params)
         routeAudioToSpeaker(true)
-        Log.i(tag, "Accepted incoming SIP call")
+        Timber.tag(tag).i("Accepted incoming SIP call")
     }
 
     fun terminateCall() {
@@ -412,7 +412,7 @@ class SipCallManager @Inject constructor(
         currentCall = null
         idleResetJob?.cancel()
         _sessionState.value = SipSessionState(state = CallUiState.IDLE)
-        Log.i(tag, "Terminated SIP call")
+        Timber.tag(tag).i("Terminated SIP call")
     }
 
     fun setMicrophoneMuted(muted: Boolean) {
@@ -441,7 +441,7 @@ class SipCallManager @Inject constructor(
             }
             _sessionState.value = _sessionState.value.copy(isSpeakerOn = speakerOn)
         } catch (e: Exception) {
-            Log.e(tag, "Failed to toggle speakerphone", e)
+            Timber.tag(tag).e(e, "Failed to toggle speakerphone")
         }
     }
 
@@ -470,7 +470,7 @@ class SipCallManager @Inject constructor(
                 loggingListenerAttached = false
             }
         } catch (e: Exception) {
-            Log.e(tag, "Error stopping Linphone Core", e)
+            Timber.tag(tag).e(e, "Error stopping Linphone Core")
         }
     }
 

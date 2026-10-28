@@ -2,7 +2,7 @@ package io.github.mvolkert.entryrecorder.data.network
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.util.Log
+import timber.log.Timber
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
@@ -228,7 +228,7 @@ class HttpSnapshotClient @Inject constructor(
                         val reason = "HTTP ${response.code}"
                         // Per-attempt detail stays at debug: the loss of the snapshot path is announced once,
                         // as an edge, by MonitorEventHandler, so a sustained outage must not emit one WARN per poll.
-                        Log.d(TAG, "Snapshot fetch failed $reason url=$snapshotUrl attempt=$attempt")
+                        Timber.tag(TAG).d("Snapshot fetch failed $reason url=$snapshotUrl attempt=$attempt")
                         if (response.code == 401 || response.code == 403) {
                             // Credentials were refused even after the challenge round, so the replayed
                             // Digest scheme is not what this endpoint wants right now — drop back to Basic.
@@ -243,7 +243,7 @@ class HttpSnapshotClient @Inject constructor(
                             contentType.subtype in ERROR_BODY_SUBTYPES
                         ) {
                             val reason = "content type $contentType"
-                            Log.d(TAG, "Snapshot endpoint returned $reason instead of an image url=$snapshotUrl")
+                            Timber.tag(TAG).d("Snapshot endpoint returned $reason instead of an image url=$snapshotUrl")
                             FetchOutcome.Rejected(reason)
                         } else {
                             FetchOutcome.Frame(response.body.bytes())
@@ -254,7 +254,7 @@ class HttpSnapshotClient @Inject constructor(
                 // A cancelled poll is not an endpoint that deserves the retry budget or the failure streak.
                 throw e
             } catch (e: Exception) {
-                Log.d(TAG, "Snapshot fetch exception (attempt $attempt) for ${device.name}: ${e.message}")
+                Timber.tag(TAG).d("Snapshot fetch exception (attempt $attempt) for ${device.name}: ${e.message}")
                 FetchOutcome.Retryable
             }
         }
@@ -293,7 +293,7 @@ class HttpSnapshotClient @Inject constructor(
         try {
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to decode snapshot bitmap: ${e.message}")
+            Timber.tag(TAG).w("Failed to decode snapshot bitmap: ${e.message}")
             null
         }
     }

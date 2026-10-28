@@ -78,7 +78,10 @@ data class AppSettingsEntity(
     // through the Python server to one other phone. MIGRATION_21_22 adds both off/empty, so an upgraded
     // install behaves exactly as before until the user opts in.
     val motionAlertEnabled: Boolean = false,
-    val motionAlertRecipient: String = ""
+    val motionAlertRecipient: String = "",
+    // File logging (change `add-timber-file-logging`): drives planting the Timber FileTree at runtime.
+    // MIGRATION_22_23 adds it off, so an upgraded install writes no log file until the user opts in.
+    val loggingToFileEnabled: Boolean = false
 ) {
     companion object {
         /**

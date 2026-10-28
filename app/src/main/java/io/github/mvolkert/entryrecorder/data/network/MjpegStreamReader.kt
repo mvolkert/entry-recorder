@@ -2,7 +2,7 @@ package io.github.mvolkert.entryrecorder.data.network
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.util.Log
+import timber.log.Timber
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.di.ControlClient
@@ -70,7 +70,7 @@ class MjpegStreamReader @Inject constructor(
         try {
             response = httpClient.executeCancellable(request)
             if (!response.isSuccessful) {
-                Log.w(tag, "MJPEG connection unsuccessful: HTTP ${response.code}")
+                Timber.tag(tag).w("MJPEG connection unsuccessful: HTTP ${response.code}")
                 return@flow
             }
             requireMjpegContentType(response, device)
@@ -85,11 +85,11 @@ class MjpegStreamReader @Inject constructor(
                     // the frame rate, and the frame rate is what broke.
                     droppedFrames++
                     if (droppedFrames == 1) {
-                        Log.w(tag, "MJPEG frames from ${device.name} are not decodable")
+                        Timber.tag(tag).w("MJPEG frames from ${device.name} are not decodable")
                     }
                 } else {
                     if (droppedFrames > 0) {
-                        Log.i(tag, "${device.name} is decodable again after $droppedFrames dropped frames")
+                        Timber.tag(tag).i("${device.name} is decodable again after $droppedFrames dropped frames")
                         droppedFrames = 0
                     }
                     emit(bitmap)
@@ -98,7 +98,7 @@ class MjpegStreamReader @Inject constructor(
         } catch (_: CancellationException) {
             // Normal coroutine cancellation
         } catch (e: Exception) {
-            Log.e(tag, "Error reading MJPEG stream for ${device.name}", e)
+            Timber.tag(tag).e(e, "Error reading MJPEG stream for ${device.name}")
             // Rethrown so the collector can distinguish "the stream ended" from "the picture was fine":
             // callers fall back to snapshot polling or surface the error instead of showing nothing.
             throw e
@@ -134,7 +134,7 @@ class MjpegStreamReader @Inject constructor(
         } catch (_: CancellationException) {
             // Normal cancellation
         } catch (e: Exception) {
-            Log.e(tag, "Error reading raw MJPEG for ${device.name}", e)
+            Timber.tag(tag).e(e, "Error reading raw MJPEG for ${device.name}")
             // Rethrown: a stream that yields nothing has to look like a failure to the recorder, which
             // falls back to snapshot polling, instead of a silently empty recording.
             throw e
@@ -176,10 +176,10 @@ class MjpegStreamReader @Inject constructor(
                 if (bitmap == null) {
                     // Same once-per-streak rule as [streamBitmaps]: one line for a run of bad frames.
                     droppedFrames++
-                    if (droppedFrames == 1) Log.w(tag, "Server live frames for $label are not decodable")
+                    if (droppedFrames == 1) Timber.tag(tag).w("Server live frames for $label are not decodable")
                 } else {
                     if (droppedFrames > 0) {
-                        Log.i(tag, "$label is decodable again after $droppedFrames dropped frames")
+                        Timber.tag(tag).i("$label is decodable again after $droppedFrames dropped frames")
                         droppedFrames = 0
                     }
                     emit(bitmap)
@@ -188,7 +188,7 @@ class MjpegStreamReader @Inject constructor(
         } catch (_: CancellationException) {
             // Normal coroutine cancellation
         } catch (e: Exception) {
-            Log.e(tag, "Error reading server live MJPEG for $label", e)
+            Timber.tag(tag).e(e, "Error reading server live MJPEG for $label")
             throw e
         } finally {
             response?.let { closeQuietly(it, request) }

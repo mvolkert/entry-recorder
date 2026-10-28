@@ -181,6 +181,9 @@
     <string name="settings_motion_alert_title">Motion alert to another phone</string>
     <string name="settings_motion_alert_subtitle">Relay a detected motion event through the server to one other phone. Requires the server to be reachable.</string>
     <string name="settings_motion_alert_recipient_label">Recipient</string>
+    <string name="settings_logs_toggle_title">Save logs to file</string>
+    <string name="settings_logs_toggle_subtitle">Write the app\'s diagnostic log to a small, self-limiting file you can share for troubleshooting. Turn it off to stop writing new lines.</string>
+    <string name="settings_share_logs">Share logs</string>
     <string name="settings_section_retention">Video Retention &amp; Auto-Cleanup</string>
     <string name="settings_section_internal_storage">Phone Storage</string>
     <string name="settings_storage_usage">Current storage usage: %1$s</string>

@@ -1,7 +1,7 @@
 package io.github.mvolkert.entryrecorder.worker
 
 import android.content.Context
-import android.util.Log
+import timber.log.Timber
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -38,23 +38,22 @@ class RetentionCleanupWorker @AssistedInject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Could not read settings for cleanup", e)
+            Timber.tag(TAG).e(e, "Could not read settings for cleanup")
             return Result.retry()
         }
 
         val report = cleanupRunner.run(settings)
         if (report.failedBestEffort.isNotEmpty()) {
-            Log.w(TAG, "Cleanup reported ${report.failedBestEffort.size} best-effort failure(s): " +
+            Timber.tag(TAG).w("Cleanup reported ${report.failedBestEffort.size} best-effort failure(s): " +
                 report.failedBestEffort.joinToString())
         }
         return if (report.failedCritical.isEmpty()) {
-            Log.i(TAG, "Retention cleanup worker finished successfully")
+            Timber.tag(TAG).i("Retention cleanup worker finished successfully")
             Result.success()
         } else {
             // The archive is still over quota, so say when it will be tried again rather than silently
             // letting the daily schedule believe it succeeded.
-            Log.w(
-                TAG,
+            Timber.tag(TAG).w(
                 "Cleanup finished with ${report.failedCritical.size} failed pass(es) " +
                     "(${report.failedCritical.joinToString()}); retrying later"
             )

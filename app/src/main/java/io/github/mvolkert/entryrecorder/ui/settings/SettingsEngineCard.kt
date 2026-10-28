@@ -1,5 +1,7 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
+import android.content.Context
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -19,14 +22,17 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.domain.model.AppSettings
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.ui.components.LoadingSpinner
 import io.github.mvolkert.entryrecorder.ui.components.filterChipLeadingIcon
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
+import java.io.File
 
 /**
  * Where recordings are captured: on the phone or on the Python server, plus the server endpoint
@@ -140,5 +146,52 @@ internal fun SettingsEngineCard(
                 singleLine = true
             )
         }
+
+        Spacer(modifier = Modifier.height(Spacing.sm))
+        SettingsSwitchRow(
+            title = stringResource(R.string.settings_logs_toggle_title),
+            subtitle = stringResource(R.string.settings_logs_toggle_subtitle),
+            checked = settings.loggingToFileEnabled,
+            onCheckedChange = { onSettingsChange(settings.copy(loggingToFileEnabled = it)) },
+        )
+
+        val context = LocalContext.current
+        Spacer(modifier = Modifier.height(Spacing.sm))
+        OutlinedButton(
+            onClick = { shareLogs(context) },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Default.Share, contentDescription = null)
+            Spacer(modifier = Modifier.width(Spacing.sm))
+            Text(stringResource(R.string.settings_share_logs))
+        }
     }
+}
+
+/**
+ * Shares every non-empty log generation under `filesDir/logs` as readable text through the existing
+ * FileProvider. Launched from the Composable rather than the ViewModel because the ViewModel deliberately
+ * holds no [Context]; the share sheet starts from the Activity that [LocalContext] resolves to. When file
+ * logging has never run there is nothing to send, so the action is a silent no-op.
+ */
+private fun shareLogs(context: Context) {
+    val files = File(context.filesDir, "logs")
+        .listFiles { f -> f.isFile && f.length() > 0L }
+        ?.sortedBy { it.name }
+        ?: return
+    val uris = ArrayList(
+        files.map {
+            FileProvider.getUriForFile(context, context.getString(R.string.fileprovider_authority), it)
+        },
+    )
+    val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+        type = "text/plain"
+        putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(
+        Intent.createChooser(intent, context.getString(R.string.settings_share_logs)).apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        },
+    )
 }

@@ -1,7 +1,7 @@
 package io.github.mvolkert.entryrecorder.ui.components
 
 import android.graphics.Bitmap
-import android.util.Log
+import timber.log.Timber
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
@@ -138,7 +138,7 @@ fun LiveStreamPlayer(
             } catch (e: Exception) {
                 // A player that survives its composition leaks a decoder and keeps the RTSP socket open,
                 // which is exactly the sort of failure a second camera card cannot recover from.
-                Log.w("LiveStreamPlayer", "Failed to release the RTSP player for ${device.name}: ${e.message}")
+                Timber.tag("LiveStreamPlayer").w("Failed to release the RTSP player for ${device.name}: ${e.message}")
             }
         }
     }
@@ -175,7 +175,7 @@ fun LiveStreamPlayer(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Log.w("LiveStreamPlayer", "Server live feed failed, falling back to direct: ${e.message}")
+                    Timber.tag("LiveStreamPlayer").w("Server live feed failed, falling back to direct: ${e.message}")
                     serverFailed = true
                 }
             }
@@ -211,11 +211,11 @@ fun LiveStreamPlayer(
 
                         override fun onPlayerError(error: PlaybackException) {
                             isLoading = false
-                            Log.w("LiveStreamPlayer", "RTSP Playback error: ${error.errorCodeName}")
+                            Timber.tag("LiveStreamPlayer").w("RTSP Playback error: ${error.errorCodeName}")
 
                             // Fallback to MJPEG or Snapshot in AUTO mode
                             if (device.streamProtocol == StreamProtocol.AUTO) {
-                                Log.i("LiveStreamPlayer", "RTSP failed, auto-falling back to MJPEG/Snapshot")
+                                Timber.tag("LiveStreamPlayer").i("RTSP failed, auto-falling back to MJPEG/Snapshot")
                                 activeProtocol = StreamProtocol.MJPEG_STREAM
                             } else {
                                 val cause = error.cause
@@ -268,7 +268,7 @@ fun LiveStreamPlayer(
                             errorMessage = null
                         }
                     } catch (e: Exception) {
-                        Log.w("LiveStreamPlayer", "MJPEG stream error: ${e.message}")
+                        Timber.tag("LiveStreamPlayer").w("MJPEG stream error: ${e.message}")
                         // If MJPEG failed and was in AUTO mode, fall back to snapshot polling
                         if (device.streamProtocol == StreamProtocol.AUTO) {
                             activeProtocol = StreamProtocol.HTTP_SNAPSHOT

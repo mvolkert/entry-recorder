@@ -2,7 +2,7 @@ package io.github.mvolkert.entryrecorder.video
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.util.Log
+import timber.log.Timber
 import androidx.core.graphics.scale
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.domain.model.Device
@@ -88,7 +88,7 @@ class OnDeviceMotionAnalyzer(
         resetState()
         reportedQuality = snapshotClient.snapshotQuality(device.id)
         lastReportAtMs = System.currentTimeMillis()
-        Log.i(tag, "Analyzing ${device.name} at ${device.snapshotUrl}")
+        Timber.tag(tag).i("Analyzing ${device.name} at ${device.snapshotUrl}")
         job = scope.launch { runLoop() }
     }
 
@@ -122,7 +122,7 @@ class OnDeviceMotionAnalyzer(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(tag, "Frame grab/analysis failed for ${device.name}: ${e.message}")
+                Timber.tag(tag).w("Frame grab/analysis failed for ${device.name}: ${e.message}")
             }
             pollsSinceReport++
             reportHealthIfDue()
@@ -170,14 +170,12 @@ class OnDeviceMotionAnalyzer(
         val achievedFps = snapshotClient.achievedFps(device.id)
 
         if (pollsSinceReport > 0 && framesSinceReport == 0) {
-            Log.w(
-                tag,
+            Timber.tag(tag).w(
                 "No analysis frames from ${device.name}: $pollsSinceReport polls, 0 usable JPEGs " +
                     "in ${elapsedMs / 1000}s — endpoint not serving images (check the HttpSnapshotClient log lines)"
             )
         } else {
-            Log.i(
-                tag,
+            Timber.tag(tag).i(
                 "Motion analysis on ${device.name}: $framesSinceReport/$pollsSinceReport frames, " +
                     "peak change ${(peakChangedRatio * 100).toInt()}% of ${ANALYSIS_WIDTH}x$ANALYSIS_HEIGHT " +
                     "(needs ${(tuning.ratioThreshold * 100).toInt()}% on ${tuning.requiredMotionFrames} in a row, " +
@@ -219,11 +217,11 @@ class OnDeviceMotionAnalyzer(
 
         if (!isMotionActive && consecutiveMotionFrames >= tuning.requiredMotionFrames) {
             isMotionActive = true
-            Log.i(tag, "Motion start on ${device.name}: ${(changedRatio * 100).toInt()}% changed pixels")
+            Timber.tag(tag).i("Motion start on ${device.name}: ${(changedRatio * 100).toInt()}% changed pixels")
             listener.onEvent(IntercomEvent.MotionOnDeviceStarted(device))
         } else if (isMotionActive && consecutiveClearFrames >= tuning.requiredClearFrames) {
             isMotionActive = false
-            Log.i(tag, "Motion end on ${device.name}")
+            Timber.tag(tag).i("Motion end on ${device.name}")
             listener.onEvent(IntercomEvent.MotionOnDeviceEnded(device))
         }
     }

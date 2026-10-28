@@ -1,7 +1,7 @@
 package io.github.mvolkert.entryrecorder.video
 
 import android.graphics.BitmapFactory
-import android.util.Log
+import timber.log.Timber
 import io.github.mvolkert.entryrecorder.domain.model.Recording
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.util.AppStorageDirs
@@ -60,7 +60,7 @@ class ExportTranscoder @Inject constructor(
 
         val outFile = outputFor(source).also { it.parentFile?.mkdirs() }
 
-        Log.i(TAG, "Transcoding ${refs.size} frames ${w}x$h @ ${fps}fps -> ${outFile.name}")
+        Timber.tag(TAG).i("Transcoding ${refs.size} frames ${w}x$h @ ${fps}fps -> ${outFile.name}")
 
         H264Encoder(w, h, fps, bitrate).use { encoder ->
             encoder.start()

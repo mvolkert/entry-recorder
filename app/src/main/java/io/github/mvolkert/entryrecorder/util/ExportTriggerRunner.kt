@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.util
 
-import android.util.Log
+import timber.log.Timber
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.video.H264Transcoder
@@ -68,13 +68,13 @@ class ExportTriggerRunner @Inject constructor(
             val settings = repository.getSettings()
             val folder = settings.exportFolderUri
             if (folder.isBlank()) {
-                Log.w(TAG, "No SAF export folder configured; nothing to export. Set one in Settings.")
+                Timber.tag(TAG).w("No SAF export folder configured; nothing to export. Set one in Settings.")
                 return@withContext ExportTriggerOutcome.Failure("No export folder configured")
             }
 
             val all = repository.allRecordings.first()
             if (all.isEmpty()) {
-                Log.i(TAG, "No recordings to export.")
+                Timber.tag(TAG).i("No recordings to export.")
                 return@withContext ExportTriggerOutcome.Empty("No recordings")
             }
 
@@ -91,12 +91,12 @@ class ExportTriggerRunner @Inject constructor(
             for (recording in targets) {
                 val source = File(recording.filePath)
                 if (!source.exists()) {
-                    Log.w(TAG, "Recording ${recording.id} file missing, skipping")
+                    Timber.tag(TAG).w("Recording ${recording.id} file missing, skipping")
                     continue
                 }
                 val payload = if (settings.transcodeOnExport) {
                     runCatching { transcoder.transcodeToH264(recording) }
-                        .onFailure { Log.w(TAG, "Transcode failed for ${recording.id}, exporting raw", it) }
+                        .onFailure { Timber.tag(TAG).w(it, "Transcode failed for ${recording.id}, exporting raw") }
                         .getOrDefault(source)
                 } else {
                     source
@@ -106,19 +106,19 @@ class ExportTriggerRunner @Inject constructor(
                     exported++
                     exportFailureMonitor.recordSuccess()
                 } else {
-                    Log.w(TAG, "SAF write failed for ${payload.name}")
+                    Timber.tag(TAG).w("SAF write failed for ${payload.name}")
                     exportFailureMonitor.recordFailure("SAF write failed for ${payload.name}")
                 }
             }
 
-            Log.i(TAG, "Export trigger finished: $exported/${targets.size} recordings exported (all=$exportAll)")
+            Timber.tag(TAG).i("Export trigger finished: $exported/${targets.size} recordings exported (all=$exportAll)")
             ExportTriggerOutcome.Done(exported = exported, total = targets.size)
         } catch (e: CancellationException) {
             // A stop or a constraint that no longer holds is not a failed export: retrying would re-run the
             // encode WorkManager just cancelled.
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Export trigger failed", e)
+            Timber.tag(TAG).e(e, "Export trigger failed")
             ExportTriggerOutcome.Retry
         }
     }

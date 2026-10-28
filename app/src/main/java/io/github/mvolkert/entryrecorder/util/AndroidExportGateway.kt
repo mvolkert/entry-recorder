@@ -9,7 +9,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.MediaStore
-import android.util.Log
+import timber.log.Timber
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -71,7 +71,7 @@ class AndroidExportGateway @Inject constructor(
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             })
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to share files", e)
+            Timber.tag(TAG).e(e, "Failed to share files")
             onMessage(context.getString(R.string.export_share_failed))
         }
     }
@@ -111,7 +111,7 @@ class AndroidExportGateway @Inject constructor(
 
             context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.export_chooser_title)))
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to share video", e)
+            Timber.tag(TAG).e(e, "Failed to share video")
             onMessage(context.getString(R.string.recordings_toast_export_failed, e.localizedMessage ?: ""))
         }
     }
@@ -184,7 +184,7 @@ class AndroidExportGateway @Inject constructor(
             onMessage(context.getString(R.string.export_saved_gallery))
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to save to gallery", e)
+            Timber.tag(TAG).e(e, "Failed to save to gallery")
             onMessage(context.getString(R.string.export_save_failed, e.localizedMessage ?: ""))
             false
         }
@@ -229,7 +229,7 @@ class AndroidExportGateway @Inject constructor(
             } ?: return false
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to write to SAF export folder", e)
+            Timber.tag(TAG).e(e, "Failed to write to SAF export folder")
             false
         }
     }
@@ -305,7 +305,7 @@ class AndroidExportGateway @Inject constructor(
         return try {
             DocumentsContract.deleteDocument(context.contentResolver, documentUri)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to delete $displayName from the export folder", e)
+            Timber.tag(TAG).e(e, "Failed to delete $displayName from the export folder")
             false
         }
     }
@@ -315,7 +315,7 @@ class AndroidExportGateway @Inject constructor(
         true
     } catch (e: SecurityException) {
         // The picker result did not carry the persistable flag, or the framework refused the grant.
-        Log.w(TAG, "Export folder grant refused for $uri", e)
+        Timber.tag(TAG).w(e, "Export folder grant refused for $uri")
         false
     }
 
@@ -323,7 +323,7 @@ class AndroidExportGateway @Inject constructor(
         if (folderUri.isBlank()) return
         runCatching {
             context.contentResolver.releasePersistableUriPermission(folderUri.toUri(), EXPORT_FOLDER_FLAGS)
-        }.onFailure { Log.d(TAG, "No live grant left to release for $folderUri", it) }
+        }.onFailure { Timber.tag(TAG).d(it, "No live grant left to release for $folderUri") }
     }
 
     /** Returns the URI and byte size of a direct child document named [name] in [treeUri], or null if absent. */

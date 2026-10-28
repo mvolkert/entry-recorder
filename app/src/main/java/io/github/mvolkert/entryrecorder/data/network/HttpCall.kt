@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.data.network
 
-import android.util.Log
+import timber.log.Timber
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -103,6 +103,6 @@ private fun closeQuietly(response: Response, description: String) {
     try {
         response.close()
     } catch (e: IOException) {
-        Log.w(TAG, "Could not close $description: ${e.message}")
+        Timber.tag(TAG).w("Could not close $description: ${e.message}")
     }
 }

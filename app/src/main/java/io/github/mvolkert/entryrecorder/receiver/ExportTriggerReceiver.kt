@@ -3,7 +3,7 @@ package io.github.mvolkert.entryrecorder.receiver
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.util.Log
+import timber.log.Timber
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -32,7 +32,7 @@ class ExportTriggerReceiver : BroadcastReceiver() {
             ExportTriggerWorker.SCOPE_ALL -> ExportTriggerWorker.SCOPE_ALL
             else -> ExportTriggerWorker.SCOPE_LATEST
         }
-        Log.i(TAG, "Export trigger received (scope=$scope); enqueueing worker")
+        Timber.tag(TAG).i("Export trigger received (scope=$scope); enqueueing worker")
         val work = OneTimeWorkRequestBuilder<ExportTriggerWorker>()
             .setInputData(workDataOf(ExportTriggerWorker.KEY_SCOPE to scope))
             .build()

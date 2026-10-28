@@ -1,7 +1,7 @@
 package io.github.mvolkert.entryrecorder.service
 
 import android.content.Context
-import android.util.Log
+import timber.log.Timber
 import io.github.mvolkert.entryrecorder.data.model.ConnectionCapability
 import io.github.mvolkert.entryrecorder.data.model.ConnectionQuality
 import io.github.mvolkert.entryrecorder.data.model.EventType
@@ -50,13 +50,13 @@ class MonitorEventHandler(
         when (event) {
             is IntercomEvent.DoorbellRung -> {
                 val device = event.device
-                Log.i(tag, "Doorbell triggered for ${device.name}")
+                Timber.tag(tag).i("Doorbell triggered for ${device.name}")
 
                 // One press arrives from several sources at once (2N KeyPressed, 2N CallStateChanged and
                 // the SIP INVITE), so collapse rings per device. The first ring wins; a clip already running
                 // for another trigger folds this ring into itself instead of being replaced.
                 if (!triggerCoordinator.shouldHandleRing(device.id)) {
-                    Log.i(tag, "Duplicate ring on ${device.name} within the debounce window, ignoring")
+                    Timber.tag(tag).i("Duplicate ring on ${device.name} within the debounce window, ignoring")
                     return
                 }
 
@@ -95,7 +95,7 @@ class MonitorEventHandler(
             }
 
             is IntercomEvent.MotionStarted -> {
-                Log.i(tag, "Motion started on ${event.device.name}")
+                Timber.tag(tag).i("Motion started on ${event.device.name}")
                 episodeRunner.handleTriggerStarted(
                     device = event.device,
                     eventType = EventType.MOTION,
@@ -104,7 +104,7 @@ class MonitorEventHandler(
             }
 
             is IntercomEvent.MotionOnDeviceStarted -> {
-                Log.i(tag, "On-device motion analysis started on ${event.device.name}")
+                Timber.tag(tag).i("On-device motion analysis started on ${event.device.name}")
                 episodeRunner.handleTriggerStarted(
                     device = event.device,
                     eventType = EventType.MOTION,
@@ -116,7 +116,7 @@ class MonitorEventHandler(
             }
 
             is IntercomEvent.NoiseStarted -> {
-                Log.i(tag, "Noise started on ${event.device.name}")
+                Timber.tag(tag).i("Noise started on ${event.device.name}")
                 episodeRunner.handleTriggerStarted(
                     device = event.device,
                     eventType = EventType.NOISE,
@@ -152,9 +152,9 @@ class MonitorEventHandler(
                     nowMs = event.timestamp,
                 )) {
                     is ConnectionEdge.Lost ->
-                        Log.w(tag, ConnectionLog.lost(source, event.device.name, edge.reason))
+                        Timber.tag(tag).w(ConnectionLog.lost(source, event.device.name, edge.reason))
                     is ConnectionEdge.Recovered ->
-                        Log.i(tag, ConnectionLog.recovered(source, event.device.name, edge.downMs))
+                        Timber.tag(tag).i(ConnectionLog.recovered(source, event.device.name, edge.downMs))
                     ConnectionEdge.None -> Unit
                 }
                 // Keep the two delivery paths tracked separately so the live card and Settings can
@@ -174,7 +174,7 @@ class MonitorEventHandler(
             }
 
             is IntercomEvent.Error -> {
-                Log.e(tag, "Device ${event.device.name} error: ${event.error.message}")
+                Timber.tag(tag).e("Device ${event.device.name} error: ${event.error.message}")
             }
         }
     }

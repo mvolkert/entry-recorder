@@ -2,7 +2,7 @@ package io.github.mvolkert.entryrecorder.ui.incoming
 
 import android.content.Context
 import android.content.Intent
-import android.util.Log
+import timber.log.Timber
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.domain.call.CallScreenLauncher
@@ -36,7 +36,7 @@ class IncomingCallLauncher @Inject constructor(
         } catch (e: Exception) {
             // Background activity launch can be rejected by the platform; the notification path still stands,
             // but a silently dropped call screen must be visible in logcat.
-            Log.w(TAG, "Could not launch the call screen for ${device.name}", e)
+            Timber.tag(TAG).w(e, "Could not launch the call screen for ${device.name}")
         }
     }
 

@@ -1,6 +1,6 @@
 package io.github.mvolkert.entryrecorder.data.backup
 
-import android.util.Log
+import timber.log.Timber
 import com.google.gson.Gson
 import io.github.mvolkert.entryrecorder.data.local.crypto.CredentialCipher
 import io.github.mvolkert.entryrecorder.data.local.entity.normalizedForRestore
@@ -60,7 +60,7 @@ class BackupRestoreRunner @Inject constructor(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        Log.w(tag, "Backup export failed", e)
+        Timber.tag(tag).w(e, "Backup export failed")
         BackupRestoreOutcome.Failed(e)
     }
 
@@ -73,7 +73,7 @@ class BackupRestoreRunner @Inject constructor(
         val backup = gson.fromJson(json, AppBackup::class.java)
         if (backup == null) {
             // Gson answers null for a document that is empty or not JSON at all; the caller has the words for it.
-            Log.w(tag, "Backup restore parsed no document from $documentUri")
+            Timber.tag(tag).w("Backup restore parsed no document from $documentUri")
             BackupRestoreOutcome.Invalid
         } else {
             backup.appSettings?.let {
@@ -88,7 +88,7 @@ class BackupRestoreRunner @Inject constructor(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        Log.w(tag, "Backup restore failed", e)
+        Timber.tag(tag).w(e, "Backup restore failed")
         BackupRestoreOutcome.Failed(e)
     }
 }
