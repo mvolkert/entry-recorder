@@ -70,7 +70,7 @@ import kotlinx.coroutines.launch
 
 /**
  * A top-level destination reachable from the pager pages as well as the bottom bar (Compact) or the
- * rail (Medium+). The three are siblings inside a single [HorizontalPager] under [ROUTE_TABS], so
+ * rail (Medium+). The four are siblings inside a single [HorizontalPager] under [ROUTE_TABS], so
  * switching tabs is a swipe that keeps each screen's composition (scroll position, running feeds)
  * alive; only the settings detail routes get their own back stack slots.
  */
@@ -98,10 +98,10 @@ val DevicesTabIndex = TopLevelScreens.indexOf(Screen.Devices)
  */
 data class TabLanding(val pageIndex: Int = LiveTabIndex, val requestId: Int = 0)
 
-// Single NavHost destination hosting the three swipeable tab pages.
+// Single NavHost destination hosting the four swipeable tab pages.
 private const val ROUTE_TABS = "tabs"
 
-// Editing a device is a settings-detail fullscreen route, reached from the Devices submenu.
+// Editing a device is a settings-detail fullscreen route, reached from the Devices tab.
 private const val ROUTE_DEVICE_EDIT = "settings/device/{deviceId}"
 private const val ARG_DEVICE_ID = "deviceId"
 
@@ -112,7 +112,7 @@ private fun deviceEditRoute(deviceId: Long): String = "settings/device/$deviceId
  * Root composable. Owns the [androidx.navigation.NavHostController] and the hoisted pager state (kept
  * above the NavHost so a settings-detail push does not reset the selected tab), hoists the adaptive
  * [io.github.mvolkert.entryrecorder.ui.adaptive.WindowInfo] into a [LocalWindowInfo] provider, and
- * wraps the NavHost inside an [AdaptiveScaffold] so the same three destinations render either under a
+ * wraps the NavHost inside an [AdaptiveScaffold] so the same four destinations render either under a
  * bottom [androidx.compose.material3.NavigationBar] or a leading [androidx.compose.material3.NavigationRail]
  * depending on window width. It also owns the one [LocalAppSnackbar] host the whole graph reports through,
  * and the gallery player layer that is drawn over that scaffold rather than inside it.
@@ -158,7 +158,7 @@ fun AppRoot(
     // All pager pages stay composed, so a player left open while swiping to another tab would keep
     // covering a page nobody is looking at. Changing page ends it.
     LaunchedEffect(pagerState.currentPage) { playback = null }
-    // The bar/rail is chrome for the three tabs only; every settings submenu and the device form are
+    // The bar/rail is chrome for the four tabs only; every settings submenu and the device form are
     // fullscreen details that own their top bar, so chrome is hidden for anything non-top-level.
     val showChrome = onTabsRoute
     val selectedRoute = if (onTabsRoute) TopLevelScreens[pagerState.currentPage].route else null

@@ -6,7 +6,6 @@ propose with `/opsx:propose`, implement with `/opsx:apply`, archive with `/opsx:
 `docs/engineering-journal.md`. Behaviour truth is `openspec/specs/`.
 
 ## UI Design Changes
-- Move @SettingsDevicesScreen into the bottom bar at third place so bottom bar grows to four tabs, @SettingsScreen into fourth
 
 -
 
