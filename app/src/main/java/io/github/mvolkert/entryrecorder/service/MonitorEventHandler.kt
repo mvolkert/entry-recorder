@@ -34,7 +34,7 @@ class MonitorEventHandler(
     private val monitorStatusRegistry: MonitorStatusRegistry,
     private val callScreenLauncher: CallScreenLauncher,
 ) {
-    private val tag = "IntercomMonitorService"
+    private val tag = MONITOR_LOG_TAG
 
     /**
      * Collapses the [IntercomEvent.ConnectionState] stream into one loss line and one recovery line per link.

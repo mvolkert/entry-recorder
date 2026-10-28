@@ -44,7 +44,7 @@ class TriggerEpisodeRunner(
     private val lockKeeper: MonitorLockKeeper,
 ) {
 
-    private val tag = "IntercomMonitorService"
+    private val tag = MONITOR_LOG_TAG
 
     // At most one pending post-record stop per device, so a new episode of the same event supersedes
     // the timer of the previous one instead of truncating the running recording.

@@ -31,7 +31,7 @@ class MonitorLockKeeper(
     private val workOutstanding: () -> Boolean,
 ) {
 
-    private val tag = "IntercomMonitorService"
+    private val tag = MONITOR_LOG_TAG
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null

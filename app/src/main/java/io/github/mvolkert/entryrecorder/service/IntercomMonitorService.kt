@@ -264,7 +264,7 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
-        private const val TAG = "IntercomMonitorService"
+        private const val TAG = MONITOR_LOG_TAG
 
         /** Action used by the persistent foreground notification to stop monitoring in place. */
         const val ACTION_STOP = "io.github.mvolkert.entryrecorder.service.ACTION_STOP"
