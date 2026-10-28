@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import timber.log.Timber
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.data.server.PythonServerLink
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.di.ControlClient
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
@@ -30,6 +31,7 @@ import java.util.Locale
 class MjpegStreamReader @Inject constructor(
     @ControlClient private val httpClient: OkHttpClient,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+    private val serverLink: PythonServerLink,
 ) {
     private val tag = "MjpegStreamReader"
 
@@ -149,6 +151,12 @@ class MjpegStreamReader @Inject constructor(
      * rather than the device's Basic auth or a `?api_key=` query — OkHttp can set headers here, unlike the
      * Coil/ExoPlayer image paths, so the key never lands in a URL/log. [label] only names the device in
      * logs. Mirrors [streamBitmaps]' failure contract (rethrow, so the caller can fall back).
+     *
+     * This is also the app's window onto the server's live-relay link, so its transport outcomes go to
+     * [PythonServerLink] on the shared `python-server` wording: a stream that cannot be opened, or that the
+     * server closes mid-session, is a lost link, and the first decoded frame of a later attempt is the proof
+     * it came back. A wrong-status or wrong-content-type answer is not — the server is clearly alive, and its
+     * relay path is the problem, which the per-device lines in the catch below say more precisely.
      */
     fun streamBitmapsFromUrl(url: String, label: String, apiKey: String?): Flow<Bitmap> = flow {
         val requestBuilder = Request.Builder().url(url)
@@ -157,11 +165,17 @@ class MjpegStreamReader @Inject constructor(
         val request = requestBuilder.build()
         var response: Response? = null
         try {
-            response = httpClient.executeCancellable(request)
-            if (!response.isSuccessful) {
-                throw IOException("Server live feed for $label answered HTTP ${response.code}")
+            val opened = try {
+                httpClient.executeCancellable(request)
+            } catch (e: IOException) {
+                serverLink.reportFailure(url, e)
+                throw e
             }
-            val contentType = response.body.contentType()?.toString().orEmpty()
+            response = opened
+            if (!opened.isSuccessful) {
+                throw IOException("Server live feed for $label answered HTTP ${opened.code}")
+            }
+            val contentType = opened.body.contentType()?.toString().orEmpty()
             val mainType = contentType.substringBefore(';').trim().lowercase(Locale.US)
             if (!(mainType.startsWith("multipart") || mainType.startsWith("image"))) {
                 throw IOException(
@@ -169,22 +183,36 @@ class MjpegStreamReader @Inject constructor(
                 )
             }
 
-            val inputStream = BufferedInputStream(response.body.byteStream())
+            val inputStream = BufferedInputStream(opened.body.byteStream())
             var droppedFrames = 0
-            readMjpegStream(inputStream) { jpegBytes ->
-                val bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
-                if (bitmap == null) {
-                    // Same once-per-streak rule as [streamBitmaps]: one line for a run of bad frames.
-                    droppedFrames++
-                    if (droppedFrames == 1) Timber.tag(tag).w("Server live frames for $label are not decodable")
-                } else {
-                    if (droppedFrames > 0) {
-                        Timber.tag(tag).i("$label is decodable again after $droppedFrames dropped frames")
-                        droppedFrames = 0
+            var reportedReachable = false
+            try {
+                readMjpegStream(inputStream) { jpegBytes ->
+                    val bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
+                    if (bitmap == null) {
+                        // Same once-per-streak rule as [streamBitmaps]: one line for a run of bad frames.
+                        droppedFrames++
+                        if (droppedFrames == 1) Timber.tag(tag).w("Server live frames for $label are not decodable")
+                    } else {
+                        if (droppedFrames > 0) {
+                            Timber.tag(tag).i("$label is decodable again after $droppedFrames dropped frames")
+                            droppedFrames = 0
+                        }
+                        if (!reportedReachable) {
+                            reportedReachable = true
+                            serverLink.reportReachable(url)
+                        }
+                        emit(bitmap)
                     }
-                    emit(bitmap)
                 }
+            } catch (e: IOException) {
+                // A socket that dies mid-session is the live-relay drop, not a bad answer.
+                serverLink.reportFailure(url, e)
+                throw e
             }
+            // Nothing else reconnects a relay the server closed while the app was still watching, so the
+            // caller drops to the direct path; the link counts as lost for the same reason.
+            serverLink.reportFailure(url, "live relay closed by the server")
         } catch (_: CancellationException) {
             // Normal coroutine cancellation
         } catch (e: Exception) {

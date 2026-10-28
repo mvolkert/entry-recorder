@@ -10,13 +10,8 @@ import io.github.mvolkert.entryrecorder.di.ControlClient
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.di.StreamClient
 import io.github.mvolkert.entryrecorder.data.network.withCancellableResponse
-import io.github.mvolkert.entryrecorder.util.ConnectionEdge
-import io.github.mvolkert.entryrecorder.util.ConnectionEdgeTracker
-import io.github.mvolkert.entryrecorder.util.ConnectionLog
-import io.github.mvolkert.entryrecorder.util.ConnectionSource
 import javax.inject.Inject
 import javax.inject.Singleton
-import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ensureActive
@@ -37,38 +32,10 @@ class ServerRecordingClient @Inject constructor(
     @StreamClient private val downloadClient: OkHttpClient,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     private val gson: Gson,
+    /** Shares the server's loss/recovery clock with the live-view relay so one outage prints one line. */
+    private val serverLink: PythonServerLink,
 ) : ServerClient {
     private val tag = "ServerRecordingClient"
-
-    /**
-     * Collapses the many background calls that talk to one Python server into a single loss line and one
-     * recovery line per URL. Only the transport layer matters here: a server that answers — even with a 4xx/5xx
-     * — is reachable, so it counts as healthy; only a connect/timeout/unknown-host [IOException] is a lost link.
-     * Keyed on the normalized base URL, which never carries the API key, so it is safe to log. Not thread-safe
-     * on its own, hence the [serverEdgeLock] that serialises every read across the singleton's concurrent calls.
-     */
-    private val serverEdges = ConnectionEdgeTracker()
-    private val serverEdgeLock = Any()
-
-    /** Records one background call's transport outcome for [serverUrl] and announces the edge, if any, once. */
-    private fun reportServerHealth(serverUrl: String, reachable: Boolean, reason: String) {
-        val key = normalizeUrl(serverUrl)
-        val edge = synchronized(serverEdgeLock) {
-            serverEdges.observe(key, reachable, reason, System.currentTimeMillis())
-        }
-        when (edge) {
-            is ConnectionEdge.Lost ->
-                Timber.tag(tag).w(ConnectionLog.lost(ConnectionSource.PythonServer, key, edge.reason))
-            is ConnectionEdge.Recovered ->
-                Timber.tag(tag).i(ConnectionLog.recovered(ConnectionSource.PythonServer, key, edge.downMs))
-            ConnectionEdge.None -> Unit
-        }
-    }
-
-    /** Reports a transport exception as a lost link only when it is a connect/timeout/unknown-host failure. */
-    private fun reportServerFailure(serverUrl: String, e: Exception) {
-        if (e is IOException) reportServerHealth(serverUrl, reachable = false, reason = e.message ?: e.javaClass.simpleName)
-    }
 
     private fun normalizeUrl(url: String): String {
         return url.trimEnd('/')
@@ -142,7 +109,7 @@ class ServerRecordingClient @Inject constructor(
                 .build()
 
             client.withCancellableResponse(request) { response ->
-                reportServerHealth(serverUrl, reachable = true, reason = "")
+                serverLink.reportReachable(serverUrl)
                 if (response.isSuccessful) {
                     val answer = runCatching { gson.fromJson(response.body.string(), ServerStartResponse::class.java) }
                         .getOrNull()
@@ -167,7 +134,7 @@ class ServerRecordingClient @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            reportServerFailure(serverUrl, e)
+            serverLink.reportFailure(serverUrl, e)
             Timber.tag(tag).e(e, "Server recording request failed for $deviceName")
             Result.failure(e)
         }
@@ -206,7 +173,7 @@ class ServerRecordingClient @Inject constructor(
                 .withApiKey(apiKey)
                 .build()
             client.withCancellableResponse(request) { response ->
-                reportServerHealth(serverUrl, reachable = true, reason = "")
+                serverLink.reportReachable(serverUrl)
                 val answer = runCatching { gson.fromJson(response.body.string(), ServerDeviceDto::class.java) }.getOrNull()
                 if (response.isSuccessful && answer != null && answer.id > 0) {
                     Timber.tag(tag).i("Registered device ${device.name} on server as id ${answer.id}")
@@ -218,7 +185,7 @@ class ServerRecordingClient @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            reportServerFailure(serverUrl, e)
+            serverLink.reportFailure(serverUrl, e)
             Timber.tag(tag).e(e, "Registering device ${device.name} on server failed")
             Result.failure(e)
         }
@@ -240,7 +207,7 @@ class ServerRecordingClient @Inject constructor(
                 .withApiKey(apiKey)
                 .build()
             client.withCancellableResponse(request) { response ->
-                reportServerHealth(serverUrl, reachable = true, reason = "")
+                serverLink.reportReachable(serverUrl)
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
@@ -250,7 +217,7 @@ class ServerRecordingClient @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            reportServerFailure(serverUrl, e)
+            serverLink.reportFailure(serverUrl, e)
             Timber.tag(tag).e(e, "Updating server device $serverDeviceId failed")
             Result.failure(e)
         }
@@ -304,7 +271,7 @@ class ServerRecordingClient @Inject constructor(
                 .build()
 
             client.withCancellableResponse(request) { response ->
-                reportServerHealth(serverUrl, reachable = true, reason = "")
+                serverLink.reportReachable(serverUrl)
                 if (!response.isSuccessful) {
                     Result.failure(Exception("HTTP ${response.code}"))
                 } else {
@@ -315,7 +282,7 @@ class ServerRecordingClient @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            reportServerFailure(serverUrl, e)
+            serverLink.reportFailure(serverUrl, e)
             Timber.tag(tag).e(e, "Server status probe failed for device $deviceId")
             Result.failure(e)
         }
@@ -337,7 +304,7 @@ class ServerRecordingClient @Inject constructor(
                 .build()
 
             client.withCancellableResponse(request) { response ->
-                reportServerHealth(serverUrl, reachable = true, reason = "")
+                serverLink.reportReachable(serverUrl)
                 if (!response.isSuccessful) {
                     Result.failure(Exception("HTTP ${response.code}: ${response.body.string()}"))
                 } else {
@@ -350,7 +317,7 @@ class ServerRecordingClient @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            reportServerFailure(serverUrl, e)
+            serverLink.reportFailure(serverUrl, e)
             Timber.tag(tag).e(e, "Server stop recording failed for device $deviceId")
             Result.failure(e)
         }

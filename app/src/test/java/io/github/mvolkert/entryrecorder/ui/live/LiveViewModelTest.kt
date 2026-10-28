@@ -7,6 +7,7 @@ import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
+import io.github.mvolkert.entryrecorder.data.server.PythonServerLink
 import io.github.mvolkert.entryrecorder.service.MonitorStatusRegistry
 import io.github.mvolkert.entryrecorder.testing.FakeActiveServerRecordingDao
 import io.github.mvolkert.entryrecorder.testing.FakeAppSettingsDao
@@ -57,7 +58,7 @@ class LiveViewModelTest {
             repository = repository,
             recorder = recorder,
             monitorStatusRegistry = registry,
-            mjpegReader = MjpegStreamReader(OkHttpClient(), testDispatcher),
+            mjpegReader = MjpegStreamReader(OkHttpClient(), testDispatcher, PythonServerLink()),
             snapshotClient = HttpSnapshotClient(OkHttpClient(), testDispatcher),
         )
     }
