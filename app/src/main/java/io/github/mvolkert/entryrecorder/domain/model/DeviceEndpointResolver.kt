@@ -14,6 +14,9 @@ data class DeviceEndpoints(
     val effectiveSnapshotFps: Int,
     val maxSnapshotFps: Int,
     val effectiveMotionPreRollFrames: Int,
+    val effectiveMotionMaxFrames: Int,
+    val effectiveNoiseMaxFrames: Int,
+    val effectiveRingMaxMinutes: Int,
 )
 
 /**
@@ -38,6 +41,19 @@ object DeviceEndpointResolver {
     const val MOTION_PRE_ROLL_FRAMES_MIN = 1
     const val MOTION_PRE_ROLL_FRAMES_MAX = 30
 
+    // Hard per-trigger recording ceilings. The minimum and the default are both 0 because 0 is the
+    // literal "no limit" answer: devices saved before the setting existed must keep recording exactly as
+    // long as they do today. The maxima only bound what the form will accept — a clip that long is
+    // already far past anything a phone writes for one trigger (3000 frames at 5 fps is 10 minutes,
+    // 60 minutes is the ring ceiling).
+    const val DEFAULT_MAX_RECORD_LIMIT = 0
+    const val MOTION_MAX_FRAMES_MIN = 0
+    const val MOTION_MAX_FRAMES_MAX = 3000
+    const val NOISE_MAX_FRAMES_MIN = 0
+    const val NOISE_MAX_FRAMES_MAX = 3000
+    const val RING_MAX_MINUTES_MIN = 0
+    const val RING_MAX_MINUTES_MAX = 60
+
     // The 2N MJPEG server push accepts an fps param in 1–10 (2N Streaming manual); the configured
     // snapshot rate is clamped into it when the stream URL is derived.
     private const val MJPEG_FPS_MIN = 1
@@ -57,6 +73,14 @@ object DeviceEndpointResolver {
             maxSnapshotFps = SNAPSHOT_FPS_HARD_MAX,
             effectiveMotionPreRollFrames = device.motionPreRollFrames
                 .coerceIn(MOTION_PRE_ROLL_FRAMES_MIN, MOTION_PRE_ROLL_FRAMES_MAX),
+            // 0 is a meaningful value ("no limit"), so these clamp into range without ever pushing a
+            // zero up to a non-zero minimum.
+            effectiveMotionMaxFrames = device.motionMaxFrames
+                .coerceIn(MOTION_MAX_FRAMES_MIN, MOTION_MAX_FRAMES_MAX),
+            effectiveNoiseMaxFrames = device.noiseMaxFrames
+                .coerceIn(NOISE_MAX_FRAMES_MIN, NOISE_MAX_FRAMES_MAX),
+            effectiveRingMaxMinutes = device.ringMaxMinutes
+                .coerceIn(RING_MAX_MINUTES_MIN, RING_MAX_MINUTES_MAX),
         )
     }
 

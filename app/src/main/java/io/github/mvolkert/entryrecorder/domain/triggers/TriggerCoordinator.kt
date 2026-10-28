@@ -5,6 +5,7 @@ import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.domain.model.SystemTimeProvider
 import io.github.mvolkert.entryrecorder.domain.model.TimeProvider
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.ceil
 
 /**
  * The trigger-routing policy the monitor service owes its callers, as pure Kotlin so it can be unit-tested
@@ -57,14 +58,19 @@ class TriggerCoordinator(
 
     /**
      * The recording length armed for a motion/noise trigger: the post-record buffer plus
-     * [TRIGGER_RECORD_HEADROOM_SECONDS]. The *Ended event is what normally stops the clip, so the timer only
-     * has to outlive a missing end event rather than define the clip.
+     * [TRIGGER_RECORD_HEADROOM_SECONDS], brought under [recordCeilingSeconds] where the device sets one.
+     * The *Ended event is what normally stops the clip, so the timer only has to outlive a missing end
+     * event rather than define the clip — unless a ceiling exists, which is a hard bound.
      */
     fun triggerRecordDurationSeconds(device: Device, eventType: EventType): Int =
-        postRecordSeconds(device, eventType) + TRIGGER_RECORD_HEADROOM_SECONDS
+        capToCeiling(
+            postRecordSeconds(device, eventType) + TRIGGER_RECORD_HEADROOM_SECONDS,
+            recordCeilingSeconds(device, eventType),
+        )
 
-    /** The recording length an active ring asks for. */
-    fun ringRecordDurationSeconds(device: Device): Int = device.ringRecordSeconds
+    /** The recording length an active ring asks for, under the device's ring ceiling when it sets one. */
+    fun ringRecordDurationSeconds(device: Device): Int =
+        capToCeiling(device.ringRecordSeconds, recordCeilingSeconds(device, EventType.RING))
 
     /**
      * How long an active trigger holds the CPU and radio awake: the full [recordSeconds] clip deadline plus
@@ -72,6 +78,9 @@ class TriggerCoordinator(
      */
     fun lockHoldDurationMs(recordSeconds: Int): Long =
         recordSeconds * 1000L + TRIGGER_LOCK_MARGIN_MS
+
+    private fun capToCeiling(armedSeconds: Int, ceilingSeconds: Int?): Int =
+        ceilingSeconds?.let { minOf(armedSeconds, it) } ?: armedSeconds
 
     companion object {
         /** Rings inside this window after a handled one collapse into the same press. */
@@ -82,5 +91,24 @@ class TriggerCoordinator(
 
         /** Extra milliseconds a trigger's locks are held past its recording deadline. */
         const val TRIGGER_LOCK_MARGIN_MS = 15_000L
+
+        /**
+         * The hard ceiling a trigger's clip may not pass, in seconds, or null when the device asks for no
+         * limit. Motion/noise are configured in frames (what the capture loop writes), so the count converts
+         * through the device's snapshot rate and rounds up — a partial second still gets its frames instead of
+         * losing the last one to truncation. Ring is configured in minutes. A manual clip is the user pressing
+         * Record rather than a trigger the device produced, so it keeps its own length.
+         *
+         * On the companion because the phone-side capture loop enforces the same ceiling and is not built with
+         * a coordinator instance.
+         */
+        fun recordCeilingSeconds(device: Device, eventType: EventType): Int? {
+            val maxFrames = device.maxFramesFor(eventType)
+            if (maxFrames > 0) return ceil(maxFrames.toDouble() / device.effectiveSnapshotFps).toInt()
+            return when (eventType) {
+                EventType.RING -> device.effectiveRingMaxMinutes.takeIf { it > 0 }?.let { it * 60 }
+                else -> null
+            }
+        }
     }
 }

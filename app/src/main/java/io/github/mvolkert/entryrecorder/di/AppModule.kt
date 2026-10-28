@@ -495,6 +495,25 @@ private val APP_DATABASE_MIGRATIONS: Array<Migration> = arrayOf(
             )
         }
     },
+
+    // v23 -> v24: the per-trigger recording ceilings (change `add-per-trigger-record-limits`). 0 is the
+    // literal "no limit", so every existing device keeps the clip lengths it recorded with before.
+    object : Migration(23, 24) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE devices ADD COLUMN motionMaxFrames INTEGER NOT NULL DEFAULT " +
+                    DeviceEntity.DEFAULT_MAX_RECORD_LIMIT
+            )
+            db.execSQL(
+                "ALTER TABLE devices ADD COLUMN noiseMaxFrames INTEGER NOT NULL DEFAULT " +
+                    DeviceEntity.DEFAULT_MAX_RECORD_LIMIT
+            )
+            db.execSQL(
+                "ALTER TABLE devices ADD COLUMN ringMaxMinutes INTEGER NOT NULL DEFAULT " +
+                    DeviceEntity.DEFAULT_MAX_RECORD_LIMIT
+            )
+        }
+    },
 )
 
 /**

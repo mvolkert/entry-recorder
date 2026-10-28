@@ -1,6 +1,7 @@
 package io.github.mvolkert.entryrecorder.domain.model
 
 import io.github.mvolkert.entryrecorder.data.model.DeviceType
+import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.MotionSensitivity
 import io.github.mvolkert.entryrecorder.data.model.SipMode
 import io.github.mvolkert.entryrecorder.data.model.StreamProtocol
@@ -43,6 +44,10 @@ data class Device(
     val motionPostRecordSeconds: Int = 20,
     val noisePostRecordSeconds: Int = 20,
     val ringRecordSeconds: Int = 60,
+    // Hard per-trigger recording ceilings; 0 means "no limit", which is also what an upgraded device reads.
+    val motionMaxFrames: Int = DeviceEndpointResolver.DEFAULT_MAX_RECORD_LIMIT,
+    val noiseMaxFrames: Int = DeviceEndpointResolver.DEFAULT_MAX_RECORD_LIMIT,
+    val ringMaxMinutes: Int = DeviceEndpointResolver.DEFAULT_MAX_RECORD_LIMIT,
     val wakeOnRing: Boolean = true,
     val soundOnRing: Boolean = true,
     val vibrateOnRing: Boolean = true,
@@ -66,6 +71,21 @@ data class Device(
     val effectiveSnapshotFps: Int get() = endpoints.effectiveSnapshotFps
     val maxSnapshotFps: Int get() = endpoints.maxSnapshotFps
     val effectiveMotionPreRollFrames: Int get() = endpoints.effectiveMotionPreRollFrames
+    val effectiveMotionMaxFrames: Int get() = endpoints.effectiveMotionMaxFrames
+    val effectiveNoiseMaxFrames: Int get() = endpoints.effectiveNoiseMaxFrames
+    val effectiveRingMaxMinutes: Int get() = endpoints.effectiveRingMaxMinutes
+
+    /**
+     * The frame count [eventType] is allowed to write into one clip, clamped; 0 means the trigger has no
+     * frame ceiling. Motion and noise are capped in frames because that is what the capture loop counts,
+     * while ring is a time-bound trigger and is capped in minutes instead.
+     */
+    fun maxFramesFor(eventType: EventType): Int = when (eventType) {
+        EventType.MOTION -> effectiveMotionMaxFrames
+        EventType.NOISE -> effectiveNoiseMaxFrames
+        // Ring is a time-bound trigger capped in minutes; manual and unrecognised events have no frame cap.
+        EventType.RING, EventType.MANUAL, EventType.UNKNOWN -> 0
+    }
 
     /**
      * Diagnostic form, mirroring the entity's: replaces the data-class `toString()`, which would print
@@ -84,6 +104,8 @@ data class Device(
         append(", motionPreRollFrames=$motionPreRollFrames")
         append(", motionPostRecordSeconds=$motionPostRecordSeconds, noisePostRecordSeconds=$noisePostRecordSeconds")
         append(", ringRecordSeconds=$ringRecordSeconds")
+        append(", motionMaxFrames=$motionMaxFrames, noiseMaxFrames=$noiseMaxFrames")
+        append(", ringMaxMinutes=$ringMaxMinutes")
         append(", wakeOnRing=$wakeOnRing, soundOnRing=$soundOnRing, vibrateOnRing=$vibrateOnRing")
         append(", wakeOnMotion=$wakeOnMotion, wakeOnNoise=$wakeOnNoise, keepLocksHeld=$keepLocksHeld")
         append(", serverDeviceId=$serverDeviceId)")

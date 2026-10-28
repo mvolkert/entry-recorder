@@ -375,6 +375,11 @@
     <string name="device_duration_ring">Ring</string>
     <string name="device_duration_motion_post">Motion post</string>
     <string name="device_duration_noise_post">Noise post</string>
+    <string name="device_limits_subheader">Hard limits (0 = no limit)</string>
+    <string name="device_max_frames_motion_label">Motion max frames</string>
+    <string name="device_max_frames_noise_label">Noise max frames</string>
+    <string name="device_max_minutes_ring_label">Ring max minutes</string>
+    <string name="device_record_limit_unlimited_hint">Caps one trigger\'s clip: the recording stops there even while the event keeps going, and a second trigger folding in cannot push it past. 0 records without a limit, as every device did before this setting existed.</string>
     <string name="device_enabled_toggle">Device Enabled (monitored)</string>
     <string name="device_test_connection">Test Connection to 2N IP Verso</string>
     <string name="device_test_success">Connection Successful!</string>

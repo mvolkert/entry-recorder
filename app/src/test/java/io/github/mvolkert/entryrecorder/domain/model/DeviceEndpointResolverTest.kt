@@ -25,6 +25,9 @@ class DeviceEndpointResolverTest {
         snapshotPath: String = "/api/camera/snapshot",
         snapshotFps: Int = 5,
         motionPreRollFrames: Int = DeviceEndpointResolver.DEFAULT_MOTION_PRE_ROLL_FRAMES,
+        motionMaxFrames: Int = DeviceEndpointResolver.DEFAULT_MAX_RECORD_LIMIT,
+        noiseMaxFrames: Int = DeviceEndpointResolver.DEFAULT_MAX_RECORD_LIMIT,
+        ringMaxMinutes: Int = DeviceEndpointResolver.DEFAULT_MAX_RECORD_LIMIT,
         deviceType: DeviceType = DeviceType.TWO_N_VERSO,
     ) = Device(
         name = "Front Door",
@@ -40,6 +43,9 @@ class DeviceEndpointResolverTest {
         snapshotPath = snapshotPath,
         snapshotFps = snapshotFps,
         motionPreRollFrames = motionPreRollFrames,
+        motionMaxFrames = motionMaxFrames,
+        noiseMaxFrames = noiseMaxFrames,
+        ringMaxMinutes = ringMaxMinutes,
         deviceType = deviceType,
     )
 
@@ -178,6 +184,28 @@ class DeviceEndpointResolverTest {
         assertEquals(
             DeviceEndpointResolver.DEFAULT_MOTION_PRE_ROLL_FRAMES,
             device().endpoints.effectiveMotionPreRollFrames,
+        )
+    }
+
+    @Test
+    fun `recording ceilings clamp to their window and keep zero as no limit`() {
+        // 0 is the literal "no limit" answer, so unlike the pre-roll it is never pushed up to a minimum.
+        assertEquals(0, device().endpoints.effectiveMotionMaxFrames)
+        assertEquals(0, device().endpoints.effectiveNoiseMaxFrames)
+        assertEquals(0, device().endpoints.effectiveRingMaxMinutes)
+        assertEquals(0, device(motionMaxFrames = -5).endpoints.effectiveMotionMaxFrames)
+        assertEquals(120, device(motionMaxFrames = 120).endpoints.effectiveMotionMaxFrames)
+        assertEquals(
+            DeviceEndpointResolver.MOTION_MAX_FRAMES_MAX,
+            device(motionMaxFrames = 999_999).endpoints.effectiveMotionMaxFrames,
+        )
+        assertEquals(
+            DeviceEndpointResolver.NOISE_MAX_FRAMES_MAX,
+            device(noiseMaxFrames = 999_999).endpoints.effectiveNoiseMaxFrames,
+        )
+        assertEquals(
+            DeviceEndpointResolver.RING_MAX_MINUTES_MAX,
+            device(ringMaxMinutes = 600).endpoints.effectiveRingMaxMinutes,
         )
     }
 }

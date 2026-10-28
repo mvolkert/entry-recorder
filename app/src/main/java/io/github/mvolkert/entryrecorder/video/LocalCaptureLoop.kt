@@ -13,6 +13,7 @@ import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.domain.model.Recording
+import io.github.mvolkert.entryrecorder.domain.triggers.TriggerCoordinator
 import io.github.mvolkert.entryrecorder.util.ExportGateway
 import io.github.mvolkert.entryrecorder.util.ExportFailureMonitor
 import io.github.mvolkert.entryrecorder.util.recordingsDirOf
@@ -21,6 +22,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration.Companion.milliseconds
@@ -49,6 +51,21 @@ internal val EventType.significance: Int
         EventType.MANUAL -> 0
         EventType.UNKNOWN -> 0
     }
+
+/** Sentinel deadline for a trigger with no configured recording ceiling. */
+internal const val NO_RECORDING_CEILING_MS = Long.MAX_VALUE
+
+/**
+ * The deadline after folding a new trigger in: never sooner than the clip already runs to, and never past
+ * the trigger's hard [ceilingMs]. A clip that has somehow outlived its ceiling is left alone rather than
+ * shortened under the running muxer.
+ */
+internal fun cappedDeadlineMs(currentMs: Long, wantedMs: Long, ceilingMs: Long): Long =
+    maxOf(currentMs, minOf(wantedMs, ceilingMs))
+
+/** True once a clip has written its frame ceiling; [maxFrames] 0 means the trigger has no frame limit. */
+internal fun frameCapReached(maxFrames: Int, framesWritten: Int): Boolean =
+    maxFrames > 0 && framesWritten >= maxFrames
 
 /**
  * The phone-side capture loop: it polls the device's snapshot / MJPEG endpoint, muxes frames into a
@@ -126,7 +143,9 @@ internal class LocalCaptureLoop(
     /**
      * A clip the phone is still writing. [triggers] and [deadlineMs] are mutable because a second trigger
      * folds into the running clip rather than replacing it, and the capture loop reads how long it has left
-     * straight from [deadlineMs] so that fold can push the end out.
+     * straight from [deadlineMs] so that fold can push the end out. [ceilingDeadlineMs] is where the
+     * trigger's hard recording limit falls, measured from the clip start, so a fold can never push the end
+     * past it.
      */
     private class ActiveRecordingJob(
         val deviceId: Long,
@@ -135,6 +154,7 @@ internal class LocalCaptureLoop(
         val job: Job,
         val triggers: MutableTriggers,
         val deadlineMs: AtomicLong,
+        val ceilingDeadlineMs: Long,
     )
 
     /**
@@ -178,7 +198,8 @@ internal class LocalCaptureLoop(
      * muxer is mid-file: stopping it to restart would drop the frame in flight plus the reconnect gap, which
      * is exactly what a doorbell pressed during a motion recording used to cost. The clip takes the extra tag
      * and is held open at least [maxDurationSeconds] longer, so the fold covers the event rather than only
-     * noting it.
+     * noting it. The extension stops at the clip's recording ceiling: repeated triggers may not grow one
+     * clip past the limit the device configured for the trigger.
      */
     private fun foldIntoRunningClip(
         running: ActiveRecordingJob,
@@ -191,7 +212,9 @@ internal class LocalCaptureLoop(
             return
         }
         val wantedDeadlineMs = System.currentTimeMillis() + maxDurationSeconds * 1000L
-        running.deadlineMs.updateAndGet { current -> maxOf(current, wantedDeadlineMs) }
+        running.deadlineMs.updateAndGet { current ->
+            cappedDeadlineMs(current, wantedDeadlineMs, running.ceilingDeadlineMs)
+        }
         val secondsLeft = ((running.deadlineMs.get() - System.currentTimeMillis()) / 1000L).coerceAtLeast(0L)
         Timber.tag(tag).i(
             "Folded $eventType into the running ${running.triggers.primary.name} clip on ${device.name}; " +
@@ -216,11 +239,19 @@ internal class LocalCaptureLoop(
 
         val firstFrameRef = AtomicReference<ByteArray?>(null)
         val triggers = MutableTriggers(eventType)
-        val deadlineMs = AtomicLong(System.currentTimeMillis() + maxDurationSeconds * 1000L)
+        // The hard recording ceiling, measured from the clip start: it bounds the initial deadline and every
+        // later fold, so repeated triggers cannot grow this clip past what the device allows one trigger.
+        val ceilingDeadlineMs = TriggerCoordinator.recordCeilingSeconds(device, eventType)
+            ?.let { startTime + it * 1000L }
+            ?: NO_RECORDING_CEILING_MS
+        val maxFrames = device.maxFramesFor(eventType)
+        val deadlineMs = AtomicLong(
+            minOf(System.currentTimeMillis() + maxDurationSeconds * 1000L, ceilingDeadlineMs)
+        )
         val job = scope.launch {
             try {
                 // Recording capture loop: captures snapshot frames / MJPEG stream chunks into crash-safe MKV
-                recordStreamToMkv(device, outputFile, deadlineMs, firstFrameRef, startTime, preRoll)
+                recordStreamToMkv(device, outputFile, deadlineMs, firstFrameRef, startTime, preRoll, maxFrames)
             } catch (_: CancellationException) {
                 Timber.tag(tag).d("Recording cancelled/stopped normally for ${device.name}")
             } catch (e: Exception) {
@@ -243,6 +274,7 @@ internal class LocalCaptureLoop(
             job = job,
             triggers = triggers,
             deadlineMs = deadlineMs,
+            ceilingDeadlineMs = ceilingDeadlineMs,
         )
         onActiveChanged()
     }
@@ -256,7 +288,10 @@ internal class LocalCaptureLoop(
      * transcode is produced lazily only when the user exports/shares (see [ExportTranscoder]).
      *
      * [deadlineMs] is read every frame rather than resolved once, so a trigger folded into this clip while
-     * it runs can extend it and actually get recorded.
+     * it runs can extend it and actually get recorded. [maxFrames] is the trigger's frame ceiling (0 = no
+     * ceiling): the frame-capped paths stop at that exact count rather than at the equivalent duration the
+     * deadline encodes, and the H.264 passthrough — which has no frame counter of its own — is bounded by
+     * the deadline alone.
      */
     private suspend fun recordStreamToMkv(
         device: Device,
@@ -265,8 +300,13 @@ internal class LocalCaptureLoop(
         firstFrameRef: AtomicReference<ByteArray?>,
         baselineMs: Long,
         preRoll: List<PreRollFrame>,
+        maxFrames: Int,
     ) = withContext(ioDispatcher) {
         val fps = device.effectiveSnapshotFps
+        // One counter across the MJPEG push and the snapshot polling that can follow it in the same clip, so
+        // the frame ceiling is a total for the clip rather than a budget per source.
+        val framesWritten = AtomicInteger(0)
+        fun atFrameCap(): Boolean = frameCapReached(maxFrames, framesWritten.get())
 
         MkvStreamMuxer(outputFile).use { muxer ->
             // RTSP H.264 passthrough: the stream is already H.264, so re-mux its access units straight into an
@@ -304,12 +344,13 @@ internal class LocalCaptureLoop(
             fun handleLiveFrame(jpeg: ByteArray, atMs: Long) {
                 if (firstFrameRef.get() == null) firstFrameRef.set(jpeg)
                 handleJpeg(jpeg, atMs)
+                framesWritten.incrementAndGet()
             }
 
             if (device.streamProtocol == StreamProtocol.MJPEG_STREAM) {
                 try {
                     mjpegReader.streamRawJpeg(device).collect { jpegBytes ->
-                        if (!isActive || System.currentTimeMillis() >= deadlineMs.get()) return@collect
+                        if (!isActive || atFrameCap() || System.currentTimeMillis() >= deadlineMs.get()) return@collect
                         handleLiveFrame(jpegBytes, System.currentTimeMillis())
                     }
                 } catch (e: Exception) {
@@ -328,13 +369,11 @@ internal class LocalCaptureLoop(
             // Edge-triggered health: one announcement per state change instead of one per dropped frame,
             // so a recording that never gets a frame is not confused with a short quiet one.
             var reportedQuality = snapshotClient.snapshotQuality(device.id)
-            var framesWritten = 0
-            while (isActive && System.currentTimeMillis() < deadlineMs.get()) {
+            while (isActive && !atFrameCap() && System.currentTimeMillis() < deadlineMs.get()) {
                 nextFrameAt += frameIntervalMs
                 val frameBytes = snapshotClient.fetchSnapshotBytes(device)
                 if (frameBytes != null && frameBytes.isNotEmpty()) {
                     handleLiveFrame(frameBytes, System.currentTimeMillis())
-                    framesWritten++
                 }
                 val quality = snapshotClient.snapshotQuality(device.id)
                 if (quality != reportedQuality) {
@@ -360,12 +399,18 @@ internal class LocalCaptureLoop(
             }
             // The rate the loop actually got frames at, versus what was configured: the gap is what the
             // endpoint's serial ceiling costs, and it has to be visible without a LAN measurement.
+            val frames = framesWritten.get()
             val elapsedSec = ((System.currentTimeMillis() - baselineMs) / 1000f).coerceAtLeast(1f)
             Timber.tag(tag).i(
                 "Recorded ${device.name} at %.1f fps (configured %d fps, endpoint ceiling %d fps) "
-                    .format(framesWritten / elapsedSec, fps, device.maxSnapshotFps) +
-                    "${framesWritten} frames"
+                    .format(frames / elapsedSec, fps, device.maxSnapshotFps) +
+                    "${frames} frames"
             )
+            // Worth a line of its own: a clip that stops while the event is still ongoing otherwise looks
+            // like the endpoint went quiet.
+            if (atFrameCap()) {
+                Timber.tag(tag).i("${device.name} clip stopped at its ${maxFrames}-frame recording limit")
+            }
         }
     }
 

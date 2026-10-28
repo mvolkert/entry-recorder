@@ -94,6 +94,11 @@ class DeviceFormState(
     var motionPostRecordSeconds by mutableStateOf((initial?.motionPostRecordSeconds ?: 20).toString())
     var noisePostRecordSeconds by mutableStateOf((initial?.noisePostRecordSeconds ?: 20).toString())
 
+    // Hard per-trigger recording ceilings. Empty means "no limit", which is also the 0 it parses to.
+    var motionMaxFrames by mutableStateOf((initial?.motionMaxFrames ?: 0).toString())
+    var noiseMaxFrames by mutableStateOf((initial?.noiseMaxFrames ?: 0).toString())
+    var ringMaxMinutes by mutableStateOf((initial?.ringMaxMinutes ?: 0).toString())
+
     var isEnabled by mutableStateOf(initial?.isEnabled ?: true)
 
     /** Save is refused while either of the two identifying fields is empty. */
@@ -193,6 +198,14 @@ class DeviceFormState(
             ringRecordSeconds = ringRecordSeconds.toIntOrNull() ?: 60,
             motionPostRecordSeconds = motionPostRecordSeconds.toIntOrNull() ?: 20,
             noisePostRecordSeconds = noisePostRecordSeconds.toIntOrNull() ?: 20,
+            // A blank or unparseable limit is "no limit" rather than a guessed cap, and 0 is a real value
+            // here, so the clamp bottoms out at 0 instead of a non-zero minimum.
+            motionMaxFrames = (motionMaxFrames.toIntOrNull() ?: DeviceEndpointResolver.DEFAULT_MAX_RECORD_LIMIT)
+                .coerceIn(DeviceEndpointResolver.MOTION_MAX_FRAMES_MIN, DeviceEndpointResolver.MOTION_MAX_FRAMES_MAX),
+            noiseMaxFrames = (noiseMaxFrames.toIntOrNull() ?: DeviceEndpointResolver.DEFAULT_MAX_RECORD_LIMIT)
+                .coerceIn(DeviceEndpointResolver.NOISE_MAX_FRAMES_MIN, DeviceEndpointResolver.NOISE_MAX_FRAMES_MAX),
+            ringMaxMinutes = (ringMaxMinutes.toIntOrNull() ?: DeviceEndpointResolver.DEFAULT_MAX_RECORD_LIMIT)
+                .coerceIn(DeviceEndpointResolver.RING_MAX_MINUTES_MIN, DeviceEndpointResolver.RING_MAX_MINUTES_MAX),
             isEnabled = isEnabled
         )
     }

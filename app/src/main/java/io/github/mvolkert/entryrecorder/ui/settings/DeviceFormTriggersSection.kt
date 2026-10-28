@@ -219,6 +219,45 @@ internal fun DeviceFormDurationsSection(form: DeviceFormState) {
         )
     }
 
+    // The hard ceilings a trigger may not pass. Saved as 0 = no limit, so an untouched device records
+    // exactly as long as it did before the fields existed.
+    FormSectionLabel(R.string.device_limits_subheader)
+    FormTwoFieldRow(
+        first = {
+            OutlinedTextField(
+                value = form.motionMaxFrames,
+                onValueChange = { form.motionMaxFrames = it },
+                label = { Text(stringResource(R.string.device_max_frames_motion_label)) },
+                modifier = it,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            )
+        },
+        second = {
+            OutlinedTextField(
+                value = form.noiseMaxFrames,
+                onValueChange = { form.noiseMaxFrames = it },
+                label = { Text(stringResource(R.string.device_max_frames_noise_label)) },
+                modifier = it,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            )
+        },
+    )
+    OutlinedTextField(
+        value = form.ringMaxMinutes,
+        onValueChange = { form.ringMaxMinutes = it },
+        label = { Text(stringResource(R.string.device_max_minutes_ring_label)) },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+    )
+    Text(
+        stringResource(R.string.device_record_limit_unlimited_hint),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
     FormEmphasizedSwitchRow(
         title = stringResource(R.string.device_enabled_toggle),
         checked = form.isEnabled,

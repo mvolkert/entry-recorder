@@ -52,6 +52,11 @@ data class DeviceEntity(
     val motionPostRecordSeconds: Int = 20,
     val noisePostRecordSeconds: Int = 20,
     val ringRecordSeconds: Int = 60,
+    // Hard per-trigger recording ceilings. 0 is "no limit", which is also the migration default, so an
+    // upgraded device keeps the clip lengths it had before the settings existed.
+    val motionMaxFrames: Int = DEFAULT_MAX_RECORD_LIMIT,
+    val noiseMaxFrames: Int = DEFAULT_MAX_RECORD_LIMIT,
+    val ringMaxMinutes: Int = DEFAULT_MAX_RECORD_LIMIT,
 
     // Per-device alert & lockscreen behavior (was global app settings). Defaults true to match the
     // previous global behavior; the Room migration seeds them from the old app_settings row.
@@ -90,5 +95,13 @@ data class DeviceEntity(
         const val DEFAULT_MOTION_PRE_ROLL_FRAMES = 6
         const val MOTION_PRE_ROLL_FRAMES_MIN = 1
         const val MOTION_PRE_ROLL_FRAMES_MAX = 30
+
+        const val DEFAULT_MAX_RECORD_LIMIT = 0
+        const val MOTION_MAX_FRAMES_MIN = 0
+        const val MOTION_MAX_FRAMES_MAX = 3000
+        const val NOISE_MAX_FRAMES_MIN = 0
+        const val NOISE_MAX_FRAMES_MAX = 3000
+        const val RING_MAX_MINUTES_MIN = 0
+        const val RING_MAX_MINUTES_MAX = 60
     }
 }
