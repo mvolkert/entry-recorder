@@ -32,6 +32,7 @@ import io.github.mvolkert.entryrecorder.data.model.RecordingMode
 import io.github.mvolkert.entryrecorder.ui.components.LoadingSpinner
 import io.github.mvolkert.entryrecorder.ui.components.filterChipLeadingIcon
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
+import io.github.mvolkert.entryrecorder.util.FileLoggingPlanter
 import java.io.File
 
 /**
@@ -175,7 +176,7 @@ internal fun SettingsEngineCard(
  * logging has never run there is nothing to send, so the action is a silent no-op.
  */
 private fun shareLogs(context: Context) {
-    val files = File(context.filesDir, "logs")
+    val files = File(context.filesDir, FileLoggingPlanter.LOG_DIR_NAME)
         .listFiles { f -> f.isFile && f.length() > 0L }
         ?.sortedBy { it.name }
         ?: return

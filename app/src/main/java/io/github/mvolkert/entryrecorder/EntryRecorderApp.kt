@@ -14,11 +14,10 @@ import io.github.mvolkert.entryrecorder.di.ApplicationScope
 import io.github.mvolkert.entryrecorder.notification.NotificationHelper
 import io.github.mvolkert.entryrecorder.service.IntercomMonitorService
 import io.github.mvolkert.entryrecorder.util.ExportFailureMonitor
-import io.github.mvolkert.entryrecorder.util.FileTree
+import io.github.mvolkert.entryrecorder.util.FileLoggingPlanter
 import io.github.mvolkert.entryrecorder.worker.RetentionCleanupWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import java.io.File
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
@@ -47,10 +46,6 @@ class EntryRecorderApp : Application(), Configuration.Provider {
     @Inject
     @ApplicationScope
     lateinit var appScope: CoroutineScope
-
-    // The opt-in file tree, planted while Settings has file logging on and uprooted the moment it turns off.
-    // Kept as one nullable field so re-emissions of the settings stream never plant a second writer.
-    private var plantedFileTree: Timber.Tree? = null
 
     /**
      * WorkManager is initialised on demand (its own startup initializer is removed in the manifest), so
@@ -93,21 +88,11 @@ class EntryRecorderApp : Application(), Configuration.Provider {
     }
 
     private fun observeFileLogging() {
+        // The plant/uproot decision itself is a tested unit; this only feeds it the persisted toggle.
+        val planter = FileLoggingPlanter.forFilesDir(filesDir)
         appScope.launch {
             repository.settingsFlow.collect { settings ->
-                val enabled = settings?.loggingToFileEnabled == true
-                if (enabled && plantedFileTree == null) {
-                    val tree = FileTree(
-                        dir = File(filesDir, LOG_DIR_NAME),
-                        maxBytes = MAX_LOG_BYTES,
-                        maxGenerations = MAX_LOG_GENERATIONS,
-                    )
-                    Timber.plant(tree)
-                    plantedFileTree = tree
-                } else if (!enabled && plantedFileTree != null) {
-                    plantedFileTree?.let(Timber::uproot)
-                    plantedFileTree = null
-                }
+                planter.setFileLoggingEnabled(settings?.loggingToFileEnabled == true)
             }
         }
     }
@@ -174,16 +159,5 @@ class EntryRecorderApp : Application(), Configuration.Provider {
                 defaultHandler?.uncaughtException(thread, throwable)
             }
         }
-    }
-
-    private companion object {
-        /** Subdirectory of the app's private files dir that holds the rolling log files. */
-        const val LOG_DIR_NAME = "logs"
-
-        /** Per-file byte cap; once passed the writer rolls to a new generation. */
-        const val MAX_LOG_BYTES = 2L * 1024 * 1024
-
-        /** How many rolled files are kept before the oldest is dropped. */
-        const val MAX_LOG_GENERATIONS = 5
     }
 }
