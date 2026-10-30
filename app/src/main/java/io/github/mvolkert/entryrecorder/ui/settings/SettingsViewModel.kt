@@ -11,6 +11,7 @@ import io.github.mvolkert.entryrecorder.data.backup.BackupRestoreOutcome
 import io.github.mvolkert.entryrecorder.data.backup.BackupRestoreRunner
 import io.github.mvolkert.entryrecorder.domain.model.AppSettings
 import io.github.mvolkert.entryrecorder.domain.model.Device
+import io.github.mvolkert.entryrecorder.domain.model.normalizedAutoExportPair
 import io.github.mvolkert.entryrecorder.domain.server.ServerDeleteResult
 import io.github.mvolkert.entryrecorder.domain.server.ServerSyncResult
 import io.github.mvolkert.entryrecorder.domain.server.SyncDeviceUseCase
@@ -207,8 +208,14 @@ class SettingsViewModel @Inject constructor(
         // Likewise the boot gate: BootReceiver reads the synchronous mirror on the boot broadcast, before
         // Room is warm, so the flag has to live there too for autostart to honour the user's choice.
         autoBootStore.setAutoBootEnabled(settings.autoBootEnabled)
+        // The two archive mirrors exclude each other, and the row is the only place that says which one the
+        // user wants, so the pair is normalized on its way in rather than stored contradictory.
+        val stored = settings.normalizedAutoExportPair()
+        if (stored != settings) {
+            Timber.tag(tag).w("Both auto-export mirrors were requested; keeping the H.264 transcode mirror")
+        }
         viewModelScope.launch {
-            repository.updateSettings(settings)
+            repository.updateSettings(stored)
         }
     }
 

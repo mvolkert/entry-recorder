@@ -41,7 +41,9 @@ import io.github.mvolkert.entryrecorder.util.TRANSCODE_DIR_NAME
 import io.github.mvolkert.entryrecorder.util.UiStrings
 import io.github.mvolkert.entryrecorder.util.recordingsDirOf
 import io.github.mvolkert.entryrecorder.util.thumbnailsDirOf
+import io.github.mvolkert.entryrecorder.worker.AndroidAutoExportScheduler
 import io.github.mvolkert.entryrecorder.worker.AndroidRetentionCleanupScheduler
+import io.github.mvolkert.entryrecorder.worker.AutoExportScheduler
 import io.github.mvolkert.entryrecorder.worker.RetentionCleanupScheduler
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -136,6 +138,15 @@ object AppModule {
     @Singleton
     fun provideRetentionCleanupScheduler(@ApplicationContext context: Context): RetentionCleanupScheduler =
         AndroidRetentionCleanupScheduler(context)
+
+    /**
+     * The auto-transcode export queue, behind the one method the capture loop calls when a clip finalizes, so
+     * the capture path never learns that WorkManager is what keeps the exports serialized.
+     */
+    @Provides
+    @Singleton
+    fun provideAutoExportScheduler(@ApplicationContext context: Context): AutoExportScheduler =
+        AndroidAutoExportScheduler(context)
 
     /** SAF document streams for backup export/restore, behind the two methods the settings ViewModel uses. */
     @Provides
@@ -513,6 +524,17 @@ private val APP_DATABASE_MIGRATIONS: Array<Migration> = arrayOf(
             db.execSQL(
                 "ALTER TABLE devices ADD COLUMN ringMaxMinutes INTEGER NOT NULL DEFAULT " +
                     DeviceEntity.DEFAULT_MAX_RECORD_LIMIT
+            )
+        }
+    },
+
+    // v24 -> v25: the auto-transcode export mirror (change `add-auto-transcode-export`). Default 0 leaves an
+    // upgraded install mirroring the raw MJPEG MKV exactly as it did; the playable H.264 mirror starts only
+    // when the user turns the new switch on, which then switches the raw mirror off.
+    object : Migration(24, 25) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE app_settings ADD COLUMN autoTranscodeOnFinalize INTEGER NOT NULL DEFAULT 0"
             )
         }
     },

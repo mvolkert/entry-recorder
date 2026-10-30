@@ -24,7 +24,9 @@ import org.junit.Test
  * Covers the trigger-export decisions [ExportTriggerRunner] owns now that they no longer sit inside a
  * [io.github.mvolkert.entryrecorder.worker.ExportTriggerWorker]: the folder gate, the latest-vs-all scope,
  * the missing-file skip, the lazy transcode with its raw fallback, the SAF save counting, and the
- * transient-error retry. Runs the real repository over the in-memory fake DAOs and the hand-written export
+ * transient-error retry — plus the single-recording entry the auto-transcode mirror queues
+ * (`add-auto-transcode-export`), whose explicit transcode override must not read `transcodeOnExport`.
+ * Runs the real repository over the in-memory fake DAOs and the hand-written export
  * fakes, so no WorkManager, `Context` or ContentProvider is involved.
  */
 class ExportTriggerRunnerTest {
@@ -180,5 +182,70 @@ class ExportTriggerRunnerTest {
         val outcome = runner.run(exportAll = false)
 
         assertEquals(ExportTriggerOutcome.Retry, outcome)
+    }
+
+    @Test
+    fun `runOne transcodes the target even with the manual transcode switch off`() = runTest(dispatcher) {
+        // The auto-transcode mirror carries its own mode: what in-app export does is none of its business.
+        configure(folder = "content://export", transcode = false)
+        val target = existingFile("target")
+        insert(1L, target.absolutePath)
+        insert(2L, existingFile("other").absolutePath)
+
+        val outcome = runner.runOne(recordingId = 1L, transcode = true)
+
+        assertEquals(ExportTriggerOutcome.Done(exported = 1, total = 1), outcome)
+        assertEquals(listOf(1L), transcoder.transcodeCalls.map { it.id })
+        assertTrue(
+            "the delivered payload must be the transcoded file, not the source",
+            gateway.safSaveCalls.single().second.name.startsWith("fake_h264_"),
+        )
+    }
+
+    @Test
+    fun `runOne delivers the raw MKV when the encode fails`() = runTest(dispatcher) {
+        configure(folder = "content://export")
+        val source = existingFile("clip")
+        insert(1L, source.absolutePath)
+        transcoder.transcodeFailure = IllegalStateException("encoder died")
+
+        val outcome = runner.runOne(recordingId = 1L, transcode = true)
+
+        assertEquals("a failed encode still archives the clip, so the mirror has no holes",
+            ExportTriggerOutcome.Done(exported = 1, total = 1), outcome)
+        assertEquals(source.absolutePath, gateway.safSaveCalls.single().second.absolutePath)
+    }
+
+    @Test
+    fun `runOne skips a recording whose file is already gone`() = runTest(dispatcher) {
+        configure(folder = "content://export")
+        insert(1L, "/no/such/gone.mkv")
+
+        val outcome = runner.runOne(recordingId = 1L, transcode = true)
+
+        assertEquals(ExportTriggerOutcome.Done(exported = 0, total = 1), outcome)
+        assertTrue(gateway.safSaveCalls.isEmpty())
+    }
+
+    @Test
+    fun `runOne of a deleted recording row is an empty success`() = runTest(dispatcher) {
+        configure(folder = "content://export")
+
+        val outcome = runner.runOne(recordingId = 42L, transcode = true)
+
+        assertEquals(ExportTriggerOutcome.Empty("Recording 42 no longer exists"), outcome)
+        assertTrue(gateway.safSaveCalls.isEmpty())
+    }
+
+    @Test
+    fun `runOne with a blank folder fails before reading the recording`() = runTest(dispatcher) {
+        configure(folder = "")
+        insert(1L, existingFile("clip").absolutePath)
+
+        val outcome = runner.runOne(recordingId = 1L, transcode = true)
+
+        assertEquals(ExportTriggerOutcome.Failure("No export folder configured"), outcome)
+        assertTrue(gateway.safSaveCalls.isEmpty())
+        assertTrue(transcoder.transcodeCalls.isEmpty())
     }
 }

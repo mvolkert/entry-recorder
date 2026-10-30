@@ -221,10 +221,12 @@
     <string name="settings_internal_cleanup_hint">Daily: drop clips past the retention period, then the oldest unprotected ones once usage is 100 MB over quota.</string>
     <string name="settings_transcode_export">Transcode to H.264 on Export</string>
     <string name="settings_transcode_export_hint">Converts recordings for universal playback when sharing/saving. Uses CPU &amp; battery only during export.</string>
-    <string name="settings_auto_export">Auto-Export Finished Recordings</string>
-    <string name="settings_auto_export_hint">Copies each recording\'s original MJPEG MKV into the export folder as soon as it finishes — a complete, sync-friendly archive (plays in VLC, not every gallery app). Best-effort; the app always keeps its own copy.</string>
+    <string name="settings_auto_export">Auto-Export Recordings as Raw MKV</string>
+    <string name="settings_auto_export_hint">Mirrors each recording\'s original lossless MJPEG MKV into the export folder as soon as it finishes — a complete, sync-friendly archive that plays in VLC, not every gallery app. Switches off the H.264 auto-export below; only one mirror can run. Best-effort; the app always keeps its own copy.</string>
+    <string name="settings_auto_transcode_export">Auto-Export Recordings as H.264</string>
+    <string name="settings_auto_transcode_export_hint">Converts each finished recording to a playable H.264 MP4 and writes that into the export folder, one clip at a time in the background — clips queue, capture keeps running. Switches off the raw MKV mirror above; only one mirror can run. Costs CPU &amp; battery; the app keeps its own MKV copy either way.</string>
     <string name="settings_export_folder">Export Folder</string>
-    <string name="settings_export_folder_hint">Choose a folder where \"Export to folder\" saves a single file per recording (H.264 when transcoding is on) and where \"Auto-Export\" mirrors the original MKVs. The Share button only shares and never writes here.</string>
+    <string name="settings_export_folder_hint">Choose a folder where \"Export to folder\" saves a single file per recording (H.264 when transcoding is on) and where the auto-export switches below mirror each finished recording. The Share button only shares and never writes here.</string>
     <string name="settings_export_folder_selected">Selected: %1$s</string>
     <string name="settings_export_folder_revoked">Access to this folder was revoked — grant it again to keep exporting</string>
     <string name="settings_export_folder_missing">This folder no longer exists on the device — choose a new one</string>

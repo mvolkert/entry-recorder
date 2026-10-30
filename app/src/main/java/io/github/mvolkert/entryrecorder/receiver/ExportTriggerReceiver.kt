@@ -37,12 +37,11 @@ class ExportTriggerReceiver : BroadcastReceiver() {
             .setInputData(workDataOf(ExportTriggerWorker.KEY_SCOPE to scope))
             .build()
         WorkManager.getInstance(context.applicationContext)
-            .enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, work)
+            .enqueueUniqueWork(ExportTriggerWorker.UNIQUE_WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, work)
     }
 
     companion object {
         private const val TAG = "ExportTriggerReceiver"
-        private const val UNIQUE_WORK_NAME = "ExportTriggerWork"
         const val ACTION_EXPORT = "io.github.mvolkert.entryrecorder.action.EXPORT_RECORDINGS"
         const val EXTRA_SCOPE = "scope"
     }

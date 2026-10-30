@@ -33,6 +33,7 @@ import io.github.mvolkert.entryrecorder.video.H264Transcoder
 import io.github.mvolkert.entryrecorder.video.PreRollFrame
 import io.github.mvolkert.entryrecorder.video.RecorderEvent
 import io.github.mvolkert.entryrecorder.video.RecordingController
+import io.github.mvolkert.entryrecorder.worker.AutoExportScheduler
 import io.github.mvolkert.entryrecorder.worker.RetentionCleanupScheduler
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
@@ -222,6 +223,19 @@ class FakeRetentionCleanupScheduler : RetentionCleanupScheduler {
 
     override fun runNow() {
         runCount++
+    }
+}
+
+/**
+ * The auto-transcode export queue: [transcodeQueues] records the recording ids in the order the finalize
+ * branch handed them over, so a test can show that consecutive finishes queue one export each — in order,
+ * none dropped or replaced — without WorkManager or a `Context`.
+ */
+class FakeAutoExportScheduler : AutoExportScheduler {
+    val transcodeQueues = mutableListOf<Long>()
+
+    override fun enqueueTranscodeExport(recordingId: Long) {
+        transcodeQueues += recordingId
     }
 }
 

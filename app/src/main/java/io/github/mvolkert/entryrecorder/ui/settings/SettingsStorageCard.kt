@@ -37,6 +37,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.domain.model.AppSettings
+import io.github.mvolkert.entryrecorder.domain.model.withAutoTranscodeExport
+import io.github.mvolkert.entryrecorder.domain.model.withRawAutoExport
 import io.github.mvolkert.entryrecorder.ui.adaptive.LocalWindowInfo
 import io.github.mvolkert.entryrecorder.ui.adaptive.WindowInfo
 import io.github.mvolkert.entryrecorder.util.CleanupPolicy
@@ -200,11 +202,20 @@ internal fun SettingsStorageCard(
             onCheckedChange = { onSettingsChange(settings.copy(transcodeOnExport = it)) }
         )
 
+        // The two mirrors exclude each other, so each row writes the pair through its intent function:
+        // turning one on clears the other in the same update instead of storing a contradictory row.
         SettingsSwitchRow(
             title = stringResource(R.string.settings_auto_export),
             subtitle = stringResource(R.string.settings_auto_export_hint),
             checked = settings.autoExportOnFinalize,
-            onCheckedChange = { onSettingsChange(settings.copy(autoExportOnFinalize = it)) }
+            onCheckedChange = { onSettingsChange(settings.withRawAutoExport(it)) }
+        )
+
+        SettingsSwitchRow(
+            title = stringResource(R.string.settings_auto_transcode_export),
+            subtitle = stringResource(R.string.settings_auto_transcode_export_hint),
+            checked = settings.autoTranscodeOnFinalize,
+            onCheckedChange = { onSettingsChange(settings.withAutoTranscodeExport(it)) }
         )
     }
 

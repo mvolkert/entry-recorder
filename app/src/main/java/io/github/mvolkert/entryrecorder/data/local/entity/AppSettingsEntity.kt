@@ -39,6 +39,11 @@ data class AppSettingsEntity(
     // Opt-in archive mirror: copies the original (lossless) MJPEG MKV into exportFolderUri right
     // after a local recording is finalized, so sync tools always see complete, up-to-date files.
     val autoExportOnFinalize: Boolean = false,
+    // The other archive mirror: transcodes each finalized recording to H.264 and writes the playable
+    // _h264.mp4 into exportFolderUri instead. Mutually exclusive with autoExportOnFinalize (the settings
+    // save path clears the other flag); MIGRATION_24_25 adds it off, so an upgraded install mirrors
+    // exactly what it mirrored before.
+    val autoTranscodeOnFinalize: Boolean = false,
     // Cap on the app's private storage (recordings plus thumbnails), stepped in 100 MB units. The daily
     // purge deletes oldest-unprotected recordings down to one step below this, so it is a working set
     // limit rather than a hard wall.

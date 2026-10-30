@@ -192,6 +192,28 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `saving both auto-export mirrors persists only the transcode mirror`() = runViewModelTest {
+        // The exclusion the storage screen keeps by clearing the other switch is re-applied on the way in,
+        // so a row that arrives both-on (an older or hand-edited backup) can never mirror twice per clip.
+        vm.updateSettings(AppSettings(autoExportOnFinalize = true, autoTranscodeOnFinalize = true))
+        advanceUntilIdle()
+
+        val stored = settingsDao.current
+        assertEquals(true, stored?.autoTranscodeOnFinalize, "the H.264 mirror wins")
+        assertEquals(false, stored?.autoExportOnFinalize, "and the raw mirror is cleared in the same write")
+    }
+
+    @Test
+    fun `a single auto-export mirror is stored exactly as the switch set it`() = runViewModelTest {
+        vm.updateSettings(AppSettings(autoExportOnFinalize = true, autoTranscodeOnFinalize = false))
+        advanceUntilIdle()
+
+        val stored = settingsDao.current
+        assertEquals(true, stored?.autoExportOnFinalize)
+        assertEquals(false, stored?.autoTranscodeOnFinalize)
+    }
+
+    @Test
     fun `deleting a registered device drops the server row and the local one`() = runViewModelTest {
         enterServerMode()
         val device = testDevice(id = 1L, serverDeviceId = 55L)

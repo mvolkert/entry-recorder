@@ -11,12 +11,14 @@ import io.github.mvolkert.entryrecorder.data.network.MjpegStreamReader
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
+import io.github.mvolkert.entryrecorder.domain.model.AppSettings
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.domain.model.Recording
 import io.github.mvolkert.entryrecorder.domain.triggers.TriggerCoordinator
 import io.github.mvolkert.entryrecorder.util.ExportGateway
 import io.github.mvolkert.entryrecorder.util.ExportFailureMonitor
 import io.github.mvolkert.entryrecorder.util.recordingsDirOf
+import io.github.mvolkert.entryrecorder.worker.AutoExportScheduler
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -67,12 +69,38 @@ internal fun cappedDeadlineMs(currentMs: Long, wantedMs: Long, ceilingMs: Long):
 internal fun frameCapReached(maxFrames: Int, framesWritten: Int): Boolean =
     maxFrames > 0 && framesWritten >= maxFrames
 
+/** Which archive artifact — if any — a finalized recording is handed to. */
+internal sealed interface FinalizeExport {
+    /** No mirror: auto-export is off, or no folder has been chosen yet. */
+    data object None : FinalizeExport
+
+    /** Copy the raw MJPEG MKV into the folder straight away — a file copy, cheap enough for this thread. */
+    data object RawMirror : FinalizeExport
+
+    /** Queue the background H.264 transcode + export for [recordingId]. */
+    data class Transcode(val recordingId: Long, val rawAlsoRequested: Boolean) : FinalizeExport
+}
+
+/**
+ * The finalize-time branch as pure data: which of the two mutually exclusive archive mirrors a finished clip
+ * gets, given the stored settings. Auto-transcode outranks the raw mirror so a row that somehow carries both
+ * (a restored pre-normalization backup) still produces exactly one artifact; neither mirror runs without a
+ * folder, and [FinalizeExport.Transcode.rawAlsoRequested] reports the contradiction for the caller to log.
+ */
+internal fun finalizeExportFor(settings: AppSettings, recordingId: Long): FinalizeExport = when {
+    settings.exportFolderUri.isBlank() -> FinalizeExport.None
+    settings.autoTranscodeOnFinalize ->
+        FinalizeExport.Transcode(recordingId, rawAlsoRequested = settings.autoExportOnFinalize)
+    settings.autoExportOnFinalize -> FinalizeExport.RawMirror
+    else -> FinalizeExport.None
+}
+
 /**
  * The phone-side capture loop: it polls the device's snapshot / MJPEG endpoint, muxes frames into a
- * crash-safe MKV, writes the thumbnail and the recording row on finalize, and mirrors to the export folder
- * when auto-export is on. One clip per device — a second trigger folds into the running clip instead of
- * stopping it. [RtspStreamRecorder] decides whether a recording is local at all; everything about actually
- * capturing it lives here.
+ * crash-safe MKV, writes the thumbnail and the recording row on finalize, and takes the opted-in archive
+ * mirror — the raw MKV copy or the queued H.264 transcode, see [finalizeExportFor]. One clip per device — a
+ * second trigger folds into the running clip instead of stopping it. [RtspStreamRecorder] decides whether a
+ * recording is local at all; everything about actually capturing it lives here.
  *
  * @param onActiveChanged invoked after every add/remove from [activeRecordings] so the controller can
  * republish the merged local + server device-id StateFlow it exposes.
@@ -85,6 +113,8 @@ internal class LocalCaptureLoop(
     private val mjpegReader: MjpegStreamReader,
     private val exportGateway: ExportGateway,
     private val exportFailureMonitor: ExportFailureMonitor,
+    /** Queues the auto-transcode mirror of a just-finalized clip; see [finalizeExportFor]. */
+    private val autoExportScheduler: AutoExportScheduler,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     private val events: Channel<RecorderEvent>,
     private val onActiveChanged: () -> Unit,
@@ -446,31 +476,48 @@ internal class LocalCaptureLoop(
             val id = repository.insertRecording(recording)
             Timber.tag(tag).i("Recording saved: id=$id, duration=${durationSec}s, size=$fileSize bytes")
 
-            // Opt-in archive mirror: copy the finalized (lossless) MJPEG MKV into the user's SAF
-            // export folder so sync tools always see complete, up-to-date recordings. Deliberately
-            // done only after finalization — a live-appended file in a synced folder would churn
-            // constantly and expose half-written recordings. Best-effort: failures are logged, never
-            // fatal (the authoritative copy always stays in the app's private storage).
+            // Opt-in archive mirror, one artifact per recording: either a copy of the raw MKV or the
+            // playable H.264 transcode, never both. Deliberately started only after finalization — a
+            // live-appended file in a synced folder would churn constantly and expose half-written
+            // recordings. Both are best-effort: failures are logged, never fatal (the authoritative copy
+            // always stays in the app's private storage).
             val settings = repository.getSettings()
-            if (settings.autoExportOnFinalize && settings.exportFolderUri.isNotBlank()) {
-                val mirrored = try {
-                    exportGateway.saveFileToSafFolder(settings.exportFolderUri, outputFile, outputFile.name)
-                } catch (e: Exception) {
-                    Timber.tag(tag).e(e, "Auto-export mirror failed for ${outputFile.name}")
-                    false
+            when (val export = finalizeExportFor(settings, id)) {
+                is FinalizeExport.Transcode -> {
+                    if (export.rawAlsoRequested) {
+                        Timber.tag(tag).w(
+                            "Both auto-export mirrors are stored for recording $id; the H.264 mirror wins",
+                        )
+                    }
+                    // Off this thread: the encode takes minutes and the queue runs it behind whichever
+                    // export is already going, so monitoring and the next clip never wait on it.
+                    autoExportScheduler.enqueueTranscodeExport(export.recordingId)
                 }
-                if (mirrored) {
-                    // A mirror that lands clears any earlier backgrounded failure the user was warned about.
-                    exportFailureMonitor.recordSuccess()
-                } else {
-                    Timber.tag(tag).w("Auto-export to folder did not complete for ${outputFile.name} " +
-                            "(folder grant broken or storage full?)")
-                    exportFailureMonitor.recordFailure("Auto-export mirror failed for ${outputFile.name}")
-                }
+
+                is FinalizeExport.RawMirror -> mirrorRawToExportFolder(settings.exportFolderUri, outputFile)
+                FinalizeExport.None -> Unit
             }
         } else {
             Timber.tag(tag).w("Recording produced empty file, discarding ${outputFile.name}")
             if (outputFile.exists()) outputFile.delete()
+        }
+    }
+
+    /** Copies the finalized raw MKV into the SAF export folder and reports the result to the failure monitor. */
+    private fun mirrorRawToExportFolder(folderUri: String, outputFile: File) {
+        val mirrored = try {
+            exportGateway.saveFileToSafFolder(folderUri, outputFile, outputFile.name)
+        } catch (e: Exception) {
+            Timber.tag(tag).e(e, "Auto-export mirror failed for ${outputFile.name}")
+            false
+        }
+        if (mirrored) {
+            // A mirror that lands clears any earlier backgrounded failure the user was warned about.
+            exportFailureMonitor.recordSuccess()
+        } else {
+            Timber.tag(tag).w("Auto-export to folder did not complete for ${outputFile.name} " +
+                    "(folder grant broken or storage full?)")
+            exportFailureMonitor.recordFailure("Auto-export mirror failed for ${outputFile.name}")
         }
     }
 }

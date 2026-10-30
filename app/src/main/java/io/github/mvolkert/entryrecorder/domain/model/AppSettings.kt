@@ -16,6 +16,9 @@ data class AppSettings(
     val transcodeOnExport: Boolean = true,
     val exportFolderUri: String = "",
     val autoExportOnFinalize: Boolean = false,
+    // The alternative archive mirror: transcode each finished recording and export the playable H.264 file
+    // instead of the raw MKV. Only one of the two mirrors can be on — see [withoutConflictingAutoExport].
+    val autoTranscodeOnFinalize: Boolean = false,
     val internalQuotaMb: Long = DEFAULT_INTERNAL_QUOTA_MB,
     val internalCleanupEnabled: Boolean = true,
     val externalQuotaMb: Long = DEFAULT_EXTERNAL_QUOTA_MB,
@@ -47,7 +50,8 @@ data class AppSettings(
         append("AppSettings(recordingMode=$recordingMode, serverBaseUrl=$serverBaseUrl")
         append(", serverApiKey=$REDACTED, retentionDays=$retentionDays")
         append(", transcodeOnExport=$transcodeOnExport, exportFolderUri=$exportFolderUri")
-        append(", autoExportOnFinalize=$autoExportOnFinalize, internalQuotaMb=$internalQuotaMb")
+        append(", autoExportOnFinalize=$autoExportOnFinalize, autoTranscodeOnFinalize=$autoTranscodeOnFinalize")
+        append(", internalQuotaMb=$internalQuotaMb")
         append(", internalCleanupEnabled=$internalCleanupEnabled, externalQuotaMb=$externalQuotaMb")
         append(", externalCleanupEnabled=$externalCleanupEnabled, themePrimaryIndex=$themePrimaryIndex")
         append(", themeSecondaryIndex=$themeSecondaryIndex, themeTertiaryIndex=$themeTertiaryIndex")
@@ -69,3 +73,24 @@ data class AppSettings(
         private const val REDACTED = "<redacted>"
     }
 }
+
+/**
+ * The raw-mirror switch as a settings update: turning it on clears the auto-transcode mirror, because two
+ * mirrors enabled at once would put both an MKV and an H.264 file in the export folder for every clip.
+ */
+fun AppSettings.withRawAutoExport(enabled: Boolean): AppSettings =
+    if (enabled) copy(autoExportOnFinalize = true, autoTranscodeOnFinalize = false)
+    else copy(autoExportOnFinalize = false)
+
+/** The auto-transcode switch as a settings update, clearing the raw mirror the same way. */
+fun AppSettings.withAutoTranscodeExport(enabled: Boolean): AppSettings =
+    if (enabled) copy(autoExportOnFinalize = false, autoTranscodeOnFinalize = true)
+    else copy(autoTranscodeOnFinalize = false)
+
+/**
+ * A stored row that carries both mirrors — only reachable from an older or hand-edited backup, since each
+ * switch clears the other — resolved to the auto-transcode mirror, so exactly one artifact per recording is
+ * produced either way.
+ */
+fun AppSettings.normalizedAutoExportPair(): AppSettings =
+    if (autoExportOnFinalize && autoTranscodeOnFinalize) copy(autoExportOnFinalize = false) else this

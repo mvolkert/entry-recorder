@@ -78,4 +78,14 @@ class AppSettingsRestoreTest {
         val restored = Gson().fromJson("{}", AppSettingsEntity::class.java)
         assertFalse(restored.themeUseDynamicColor)
     }
+
+    @Test
+    fun `a backup file that predates the auto-transcode mirror restores it off`() {
+        // Pins the opt-in default for add-auto-transcode-export: Gson leaves an unmentioned Boolean false,
+        // so a file written before the column existed must not start encoding on its own — an automatic
+        // transcode is CPU/battery work the user has to ask for, and the raw mirror stays the default.
+        val restored = Gson().fromJson("{}", AppSettingsEntity::class.java)
+        assertFalse(restored.autoTranscodeOnFinalize)
+        assertFalse(restored.autoExportOnFinalize)
+    }
 }
