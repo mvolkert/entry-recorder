@@ -46,20 +46,28 @@ re-opens the exact "lock held past the service's death" problem the class was ex
 *Why not OR the flag into `setHoldThroughIdle` at the call site:* that keeps two sources of truth for one
 decision and leaves the renew loop (D2) consulting different evidence than the release path.
 
-### D2 — Non-ref-counted locks with a timed acquire and one renewal job
+### D2 — Non-ref-counted locks with a timed acquire, one renewal job, and one deadline
 
-Both locks switch to `setReferenceCounted(false)` and `acquire(timeoutMs)` instead of the
-`if (!isHeld) acquire()` dance. A single `renewalJob` on the service scope re-acquires every
-`LOCK_RENEW_INTERVAL_MS` while the reason supplier still says "hold", and calls `releaseIfIdle()` when it no
-longer does. Chosen cadence: **10-minute timeout, 5-minute renew**.
+Both locks switch to `setReferenceCounted(false)` and are taken as one pair by
+`LockController.acquire(timeoutMs)` instead of the `if (!isHeld) acquire()` dance. **Only the wake lock can carry
+a platform timeout:** `WifiManager.WifiLock` exposes an untimed `acquire()` and nothing else, so the radio half is
+bounded by its holder rather than by the framework - the renewal tick that re-acquires also releases both as soon
+as no reason is left, which caps an abandoned Wi-Fi hold at one renew interval instead of until process death.
+Chosen cadence: **10-minute timeout, 5-minute renew**.
 
 *Why half the timeout:* a Doze- or handler-deferred tick can miss one renewal without leaving an unprotected
 window; two missed ticks is still a 10-minute margin, and the worst case is self-healing.
 *Alternatives:* one long timeout renewed only on device-list reconcile — rejected, the device list rarely
 changes while monitoring, so a lapse would go unnoticed for hours; no timeout for the analyzer hold — rejected,
 it is the leak risk this change exists to close.
-`holdFor(durationMs)` keeps its per-trigger behaviour and becomes an extension of the same timed acquire rather
-than a separate mechanism.
+
+*The tick keeps more than the reason set says.* It re-acquires while a reason applies **or** an armed `holdFor`
+deadline has not passed. A trigger whose work this phone never observes - a server-side clip, with no local
+recording and no pending post-record stop - would otherwise lose the pair at the first tick, which is a
+regression against the unbounded acquire this replaces rather than a tightening of it. `holdFor(durationMs)`
+stays one mechanism with the standing hold instead of a separate one: it raises the window to cover the clip and
+arms its own release at the deadline, so the CPU outlives neither the reason that took it nor the recording it
+was taken for.
 
 ### D3 — Battery-exemption diagnostic behind an injected probe, edge-triggered
 
@@ -76,9 +84,11 @@ The probe is read-only; no `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, matching the 
 
 ### D4 — One `Channel` and one collecting coroutine for all device events
 
-`IntercomMonitorService` owns `Channel<IntercomEvent>(Channel.UNLIMITED)`; `onEvent` does a non-blocking
-`trySend`, and a single `serviceScope.launch { for (event in channel) eventHandler.handle(event) }` is the only
-caller of `MonitorEventHandler.handle`. Everything that already funnels through `onEvent` — device
+`service/MonitorEventQueue.kt` owns `Channel<IntercomEvent>(Channel.UNLIMITED)` together with the single
+collecting coroutine launched on `serviceScope`; `onEvent` does a non-blocking `trySend`, and that collector is
+the only caller of `MonitorEventHandler.handle`. Channel and consumer in one class is what makes the ordering a
+property of the queue rather than of the dispatcher, and what lets the contract be tested without a `Context`.
+Everything that already funnels through `onEvent` — device
 poll loops, the analyzer, `RecorderEvent.Connection`, the SIP ring path — inherits ordering with no further
 change. The scope cancellation in `onDestroy` already bounds the collector's lifetime.
 
@@ -119,6 +129,10 @@ queued — an episode can never be closed out of order relative to its own start
   gate measures idle drain and the README documents the cost after ship.
 - **[A timed acquire lapses between renewals under aggressive Doze]** → renew interval at half the timeout (D2),
   and the analyzer's existing per-minute health line (`poll …ms`, achieved fps) is the evidence to check at the gate.
+- **[The radio half cannot self-expire]** → `WifiManager.WifiLock` has no timed acquire, so an abandoned hold would
+  outlive the wake lock it is paired with. The renewal tick releases the pair at the same point it would let the
+  wake lock lapse, so the worst case is one renew interval of extra radio, and gate 5.3 is the evidence that an
+  idle monitor drops both.
 - **[Unlimited queue grows if a handler blocks on a dead endpoint]** → every handler path is bounded by the
   existing OkHttp timeouts and retry budget, so a stall costs seconds; if the soak ever shows queue growth, cap
   the channel and log a drop rather than dropping silently.
@@ -129,7 +143,10 @@ queued — an episode can never be closed out of order relative to its own start
   schedules the normal post-record buffer, and the rebuilt analyzer re-fires while motion continues, folding into
   the clip that is still running instead of replacing it.
 - **[Reversing `bound-wake-wifi-locks` without its open soak (task 2.2) passing]** → both gates are recorded as
-  tasks in this change; neither change archives until the screen-off soak is green.
+  tasks in this change; neither change archives until the screen-off soak is green. The reconciliation is named in
+  this change's `tasks.md` follow-up: once gates 5.2/5.3 pass, `bound-wake-wifi-locks` gets archived or superseded
+  so the two opposite lock postures never both sit active in `openspec/changes/`, and `README.md` gains the
+  human-facing paragraph on the new power posture for analyzing deployments.
 
 ## Migration Plan
 

@@ -35,8 +35,10 @@ running analyzer and its state intact for any other edit to the device.
 
 ### Requirement: Tearing down an active analyzer closes its episode
 The system SHALL emit an on-device motion-ended event when an analyzer whose motion episode is active is stopped or
-rebuilt, so the running recording follows the normal post-record path and the device status leaves the active-event
-state.
+rebuilt by a device-list reconcile, so the running recording follows the normal post-record path and the device
+status leaves the active-event state. When the monitor service itself shuts down, the system SHALL NOT emit the
+event, because a recording that outlives the service is already bounded by its armed maximum duration and the
+handler that would consume the event is gone.
 
 #### Scenario: Rebuild during an active episode
 - **WHEN** an analyzer is rebuilt while its motion episode is active
@@ -50,3 +52,7 @@ state.
 #### Scenario: No false end
 - **WHEN** an analyzer stops or is rebuilt while no episode is active
 - **THEN** the system emits no ended event and schedules no post-record stop
+
+#### Scenario: Service shutdown
+- **WHEN** the monitor service is destroyed and tears down every analyzer, one of which has an active episode
+- **THEN** no ended event is emitted and the running recording stays bounded by its armed maximum duration

@@ -20,8 +20,10 @@ them once none is, so detection does not depend on a trigger having already been
 - **THEN** idle monitoring holds no lock, as before this change
 
 ### Requirement: Wake-lock acquires are bounded and renewed
-The system SHALL acquire the wake lock with a timeout rather than indefinitely, and renew that acquire only while
-a reason to hold the lock remains true, so a path that fails to release cannot pin the CPU until process death.
+The system SHALL acquire the wake lock with a timeout rather than indefinitely, and renew that acquire while a
+reason to hold the lock remains true or an armed per-trigger hold has not elapsed, so a path that fails to release
+cannot pin the CPU until process death. The paired Wi-Fi lock has no timed acquire in the framework, so the system
+SHALL bound it with the same renewal path rather than a platform deadline, releasing it once no reason remains.
 
 #### Scenario: Renew while still needed
 - **WHEN** an acquire deadline approaches while an analyzer is still running
@@ -30,6 +32,11 @@ a reason to hold the lock remains true, so a path that fails to release cannot p
 #### Scenario: Abandoned hold expires on its own
 - **WHEN** the holder stops renewing an acquire, for example because the service is wedged
 - **THEN** the lock lapses at its timeout instead of being held until the process dies
+
+#### Scenario: Trigger hold outlives its observable work
+- **WHEN** a per-trigger hold is armed for a device whose recording this phone does not observe and the reason set
+  empties before that hold elapses
+- **THEN** the renewal keeps the acquire in force until the armed deadline passes, then releases both locks
 
 ### Requirement: Monitor reports battery-optimization exemption
 The system SHALL log, while monitoring runs, whether the app is exempt from battery optimizations, at WARN when it

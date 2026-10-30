@@ -17,8 +17,8 @@ truncated or discarded as an empty file with nothing wrong in the detector.
 - While at least one `OnDeviceMotionAnalyzer` is running, the monitor holds the CPU and Wi-Fi locks; it
   releases them when the last analyzer stops. This is system behaviour driven by what is actually running, not
   a new user setting.
-- Every wake-lock acquire becomes **acquire-with-timeout**, renewed from the same holder only while the reason
-  to hold it is still true, so no path can pin the CPU indefinitely.
+- Every wake-lock acquire becomes **acquire-with-timeout**, renewed from the same holder while a reason to hold it
+  or an armed per-trigger hold is still outstanding, so no path can pin the CPU indefinitely.
 - `keepLocksHeld` keeps its stored column, its default and its current meaning — hold through idle for
   deployments that get no analyzer-driven reason (camera-event-only). It stops being the *only* way to keep the
   phone awake. **BREAKING** for the power posture of an analyzing deployment: a dedicated detection phone now
@@ -66,10 +66,14 @@ None.
 ## Impact
 
 - Code: `service/MonitorLockKeeper.kt` (timed acquire, renew, analyzer-hold reason), `service/IntercomMonitorService.kt`
-  (event channel + single collector, lock-policy reconcile, battery diagnostic), `service/DeviceMonitorPool.kt`
+  (event queue wiring, lock-policy reconcile, battery diagnostic), `service/DeviceMonitorPool.kt`
   (analyzer identity scope, synthetic `MotionOnDeviceEnded`, exposes whether an analyzer runs),
-  `video/OnDeviceMotionAnalyzer.kt` (exposes whether an episode is active), one new small seam for the battery
-  probe, and new JVM tests for each extracted decision.
+  `video/OnDeviceMotionAnalyzer.kt` (key derivation, exposes whether an episode is active). New files:
+  `service/MonitorEventQueue.kt` (channel plus its single collector), `service/LockController.kt` (the wake/Wi-Fi
+  seam, since `WifiManager.WifiLock` has no timed acquire), `service/LockHoldPolicy.kt` (the pure reason set),
+  `util/BatteryOptimizationProbe.kt` (which also holds the pure `BatteryExemptionReport` decision), bound in
+  `di/AppModule.kt` / `di/BindsModule.kt` with `ui/onboarding/PermissionChecker.kt` delegating to the probe. JVM
+  tests for each extracted decision.
 - Unchanged: `MonitorEventHandler.kt`, `TriggerCoordinator.kt`, `TriggerEpisodeRunner.kt`, `HttpSnapshotClient.kt`,
   `TwoNIPVersoDevice.kt`, `LocalCaptureLoop.kt`, all UI, all Room/schema, all dependencies, the manifest.
 - Verification: `compileDebugKotlin`, `testDebugUnitTest`, `lintDebug` plus on-device gates — screen-off

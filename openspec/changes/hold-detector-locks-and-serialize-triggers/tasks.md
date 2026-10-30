@@ -24,7 +24,8 @@
   no longer calls any Android lock type directly
 - [x] 2.3 Give `MonitorLockKeeper` one combined reason supplier (pending post-record stop, local recording,
   `keepLocksHeld`, analyzer running) replacing `continuousHold` plus `workOutstanding`, and add the renewal job that
-  re-acquires every 5 minutes while a reason holds and calls `releaseIfIdle()` when none does; verify with a new
+  re-acquires every 5 minutes while a reason holds or an armed `holdFor` deadline has not passed, calling
+  `releaseIfIdle()` when neither is true; verify with a new
   `MonitorLockKeeperTest` using a fake `LockController` and a fake reason supplier that asserts: an analyzer running
   alone acquires both locks with the timeout value, the last reason releasing releases both, renewal re-acquires
   without a release in between, and renewal stops when the reason goes away
