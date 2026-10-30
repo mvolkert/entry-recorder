@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -144,6 +145,58 @@ class MonitorLockKeeperTest {
         assertEquals("release", controller.calls.last())
     }
 
+    /**
+     * The guard the specs call "a trigger hold outlives its observable work": a server-side clip leaves this
+     * phone with an empty reason set from the first tick, so only the armed [MonitorLockKeeper.holdFor] deadline
+     * says the pair is still wanted. The clock moves with the scheduler here, otherwise the deadline check would
+     * be inert and the assertion would pass for a keeper that simply never let go.
+     */
+    @Test
+    fun `a tick keeps the pair for a trigger whose work this phone never observes`() = runTest(dispatcher) {
+        val clipMs = 20L * 60L * 1000L
+        val renewMs = MonitorLockKeeper.LOCK_RENEW_INTERVAL_MS
+        reasons = emptySet()
+
+        keeper.holdFor(clipMs)
+
+        // The clip outlasts one window, so the first acquire is asked for the whole remaining hold.
+        assertEquals(listOf("acquire($clipMs)"), controller.calls)
+
+        advanceBoth(renewMs)
+        // Half the hold is gone; the window shrinks to what is left of it rather than the standing timeout.
+        assertEquals(
+            listOf("acquire($clipMs)", "acquire(${clipMs - renewMs})"),
+            controller.calls,
+        )
+
+        // Two more ticks still inside the hold, now floored at the standing window.
+        advanceBoth(renewMs)
+        advanceBoth(renewMs)
+        assertEquals(
+            listOf(
+                "acquire($clipMs)",
+                "acquire(${clipMs - renewMs})",
+                "acquire(${MonitorLockKeeper.LOCK_HOLD_TIMEOUT_MS})",
+                "acquire(${MonitorLockKeeper.LOCK_HOLD_TIMEOUT_MS})",
+            ),
+            controller.calls,
+        )
+        assertTrue(controller.held)
+
+        // The armed deadline has passed and no reason ever appeared: the pair goes and nothing re-acquires.
+        advanceBoth(renewMs)
+
+        assertEquals("release", controller.calls.last())
+        assertFalse(controller.held)
+    }
+
+    /** Moves the scheduler and the fake clock by the same step, so a tick reads the instant it really happens. */
+    private fun TestScope.advanceBoth(stepMs: Long) {
+        advanceTimeBy(stepMs)
+        clock.nowMs += stepMs
+        runCurrent()
+    }
+
     /** The pair as the keeper sees it: every call recorded in order, with the held state it left behind. */
     private class FakeLockController : LockController {
         val calls = mutableListOf<String>()
@@ -163,7 +216,10 @@ class MonitorLockKeeperTest {
         override fun isHeld(): Boolean = held
     }
 
-    /** A clock that stays put: these tests assert the acquire windows the keeper asks for, not elapsed time. */
+    /**
+     * A clock the tests drive by hand: the keeper computes its acquire windows from it, so time only moves here
+     * when a test deliberately steps it alongside the scheduler.
+     */
     private class FakeClock {
         var nowMs: Long = 0L
     }

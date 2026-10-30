@@ -28,7 +28,8 @@
   `releaseIfIdle()` when neither is true; verify with a new
   `MonitorLockKeeperTest` using a fake `LockController` and a fake reason supplier that asserts: an analyzer running
   alone acquires both locks with the timeout value, the last reason releasing releases both, renewal re-acquires
-  without a release in between, and renewal stops when the reason goes away
+  without a release in between, renewal stops when the reason goes away, and a tick keeps (then at its deadline
+  releases) a hold the phone observes no reason for
 - [x] 2.4 Wire `IntercomMonitorService.updateMonitoredDevices` to pass the supplier including
   `pool.anyAnalyzerRunning()`, keeping the per-trigger `holdFor(durationMs)` path on the same timed acquire; verify
   `./gradlew compileDebugKotlin :app:testDebugUnitTest` green and confirm the camera-event-only case (no analyzer, no
