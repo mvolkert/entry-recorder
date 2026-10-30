@@ -2,6 +2,7 @@ package io.github.mvolkert.entryrecorder.worker
 
 import androidx.work.ExistingWorkPolicy
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -23,5 +24,13 @@ class AutoExportQueueTest {
         // The broadcast trigger enqueues on this same constant, so the two writers of the SAF folder can never
         // run at the same time.
         assertEquals(ExportTriggerWorker.UNIQUE_WORK_NAME, AUTO_EXPORT_QUEUE.uniqueWorkName)
+    }
+
+    @Test
+    fun `the absent-recording sentinel stays negative so a refused insert id cannot be read as one`() {
+        // Room answers -1 for an insert that did not take a row. The finalize site refuses to mirror such a
+        // clip; this constant staying negative is what keeps an absent scope distinguishable from that answer
+        // if the guard were ever loosened to a null check.
+        assertTrue(ExportTriggerWorker.NO_RECORDING_ID < 0L)
     }
 }
