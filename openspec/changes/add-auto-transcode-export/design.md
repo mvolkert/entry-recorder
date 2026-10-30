@@ -64,7 +64,9 @@ the pair: turning one on forces the other off in the same update. Rejected: a si
 (cleaner model, but breaks the established copy-field settings idiom, backup/restore surface, and
 mapper symmetry for no user-visible gain).
 Robustness: if a restored/legacy row ever carries both flags on, finalize treats auto-transcode as
-taking precedence (never both artifacts for one recording) and logs a warning.
+taking precedence (never both artifacts for one recording) and logs a warning, and
+`normalizedForRestore` clamps the pair so a backup file cannot leave the screen showing two lit
+mirrors.
 
 ### D3: Finalize-time branch
 `finalizeRecording` reads settings once: if `autoTranscodeOnFinalize` and folder set → enqueue the
@@ -76,8 +78,9 @@ existing raw mirror. One artifact per recording, no ordering change for the DB i
 `ALTER TABLE app_settings ADD COLUMN autoTranscodeOnFinalize INTEGER NOT NULL DEFAULT 0` (off by
 default, preserving upgraded users' current raw auto-export behavior). KSP exports
 `app/schemas/…/25.json`; backup/restore relies on the entity default plus Gson-missing-field
-handling as with prior boolean settings — no extra clamping needed for booleans beyond verifying the
-absent-field default path, matching the project's existing convention.
+handling as with prior boolean settings, with the absent-field default path pinned by test. The
+mirror pair is the one restore-time clamp (D2), because their exclusion is a data invariant rather
+than a preference the user might legitimately hold in an old file.
 
 ### D5: Naming and cleanup compatibility
 The exported file keeps the transcoder's `_h264.mp4` name via `H264Transcoder.outputFor`, matching
@@ -101,15 +104,22 @@ persistence, and duplicates work WorkManager already does); `PARALLEL` policies 
 names (would run encodes concurrently and contend for the single SAF folder and the codec); a
 hand-maintained pending-export table with a poller (new state to keep consistent, no benefit over the
 chain). One shared chain also serializes against broadcast-triggered `all` exports, which is intended:
-the archive folder is only ever written by one run at a time.
+the archive folder is written by one WorkManager run at a time. The in-app gallery export is outside
+that chain and can still overlap a queued automatic encode (unchanged behavior; only the automatic
+backlog makes the overlap likely rather than rare).
 Queue depth is unbounded by design (each finished clip gets its own entry); the backlog drains in
 order and a long queue only delays later artifacts, which the best-effort posture already accepts.
 
 ## Risks / Trade-offs
 
 - [Transcode of a long clip runs while the phone is otherwise idle-charging or not] → WorkManager
-  default constraints; the export is best-effort like today's mirror, failures land in
-  `ExportFailureMonitor` and logs, the authoritative copy stays private.
+  default constraints; the export is best-effort like today's mirror. A run that lands nothing is
+  recorded through `ExportFailureMonitor` and logged; a clip that reached the folder degraded to the
+  raw MKV is logged and reported degraded in the outcome only — no stall notice, since the archive has
+  no hole. The authoritative copy always stays private.
+- [The enqueue itself throws on the finalize path] → the call is guarded like the raw mirror beside
+  it: cancellation rethrows, anything else is logged and recorded through `ExportFailureMonitor`, so
+  the 24/7 monitor process survives and the user is told the mirror did not start.
 - [Process death between finalize and worker run] → WorkManager persists the enqueue; worst case the
   clip exports late, never lost. If work input targets a recording id, a missing file is skipped as
   the runner already does.
@@ -124,8 +134,12 @@ order and a long queue only delays later artifacts, which the best-effort postur
   runs serialized against the trigger pipeline, and each enqueue happens right after its DB insert,
   so submission order matches recording order in practice.
 - [MediaCodec transcode still only verifiable on device] → accepted; the JVM-testable parts (runner
-  scope/override logic, finalize branch decision, settings normalization) get device-free unit tests
-  per project convention.
+  scope/override logic, finalize branch decision, settings normalization, failure surfacing) get
+  device-free unit tests per project convention.
+- [A poisoned chain head retries on WorkManager's default backoff and delays every later export] →
+  accepted for now: the entry is never dropped and the private copy is authoritative, so the cost is
+  latency. Unbounded by the same decision that leaves queue depth unbounded; the on-device gate
+  checks that a retrying item eventually fails and the chain continues.
 
 ## Migration Plan
 
@@ -142,8 +156,9 @@ newer DB is not a scenario (Room rejects and the app keeps v25 column inert for 
   exports run one at a time in finalize order, every clip produces exactly one artifact, and a forced
   process restart mid-queue still drains the remaining exports.
 - On-device: with both toggles exercised in settings, confirm turning one on switches the other off,
-  including after app restart (persisted exclusion).
+  including after app restart (persisted exclusion) and after restoring a backup file that names both.
 - Over-real-data upgrade: install over an existing v24 database with auto-export on; confirm
   `autoTranscodeOnFinalize` comes up off and raw auto-export still works.
-- Failure path: point the folder grant at a broken SAF target with auto-transcode on; confirm raw
-  MKV fallback or logged failure via `ExportFailureMonitor`, no crash.
+- Failure path: with auto-transcode on, exercise both halves separately — a broken encoder must land
+  the raw MKV and warn without raising the stalled-export notice, and a broken SAF grant (or anything
+  else that delivers nothing) must raise it, drain the rest of the queue, and never crash.

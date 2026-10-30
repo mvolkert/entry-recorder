@@ -105,6 +105,10 @@ data class AppSettingsEntity(
  * where a quota belongs — and a quota of 0 reads to the cleanup arithmetic as "the archive may hold
  * nothing". A value above the selectable cap is deliberately left alone: it is inert in the arithmetic, and
  * the settings row says it is unusable instead of rewriting a limit the user had set.
+ *
+ * It also settles the two archive mirrors, which exclude each other (`add-auto-transcode-export`): a file
+ * that carries both enabled comes back with the H.264 mirror only, the same one finalize itself prefers, so
+ * no restore can leave the settings screen showing two lit mirrors.
  */
 fun AppSettingsEntity.normalizedForRestore(): AppSettingsEntity {
     val defaults = AppSettingsEntity()
@@ -113,5 +117,6 @@ fun AppSettingsEntity.normalizedForRestore(): AppSettingsEntity {
         else defaults.internalQuotaMb,
         externalQuotaMb = if (externalQuotaMb >= CleanupPolicy.MIN_QUOTA_MB) externalQuotaMb
         else defaults.externalQuotaMb,
+        autoExportOnFinalize = autoExportOnFinalize && !autoTranscodeOnFinalize,
     )
 }

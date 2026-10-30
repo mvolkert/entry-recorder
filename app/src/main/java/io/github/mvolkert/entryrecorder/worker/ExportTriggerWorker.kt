@@ -20,7 +20,8 @@ import io.github.mvolkert.entryrecorder.util.ExportTriggerRunner
  * [ExportTriggerRunner], and translate the resulting [ExportTriggerOutcome] into a single `Result` plus the
  * output data. Nothing about *what gets exported* is decided here — that policy lives in the runner and its
  * tests. Scope is passed as input data: "latest" exports the single most recent recording, "all" exports
- * every finalized recording. Honors the transcodeOnExport setting exactly like in-app export.
+ * every finalized recording. The trigger scope honors the transcodeOnExport setting exactly like in-app
+ * export.
  *
  * A recording-scoped input ([KEY_RECORDING_ID], set by [AutoExportScheduler]) narrows the run to one clip that
  * just finalized, with [KEY_TRANSCODE] as its mode. Both kinds of request go onto one [UNIQUE_WORK_NAME]
@@ -45,7 +46,13 @@ class ExportTriggerWorker @AssistedInject constructor(
             is ExportTriggerOutcome.Failure -> Result.failure(buildOutput(false, outcome.message))
             is ExportTriggerOutcome.Empty -> Result.success(buildOutput(true, outcome.message))
             is ExportTriggerOutcome.Done ->
-                Result.success(buildOutput(outcome.exported > 0, "Exported ${outcome.exported} of ${outcome.total}"))
+                Result.success(
+                    buildOutput(
+                        outcome.exported > 0,
+                        "Exported ${outcome.exported} of ${outcome.total}" +
+                            if (outcome.degraded > 0) " (${outcome.degraded} delivered raw, encode failed)" else "",
+                    ),
+                )
             ExportTriggerOutcome.Retry -> Result.retry()
         }
     }

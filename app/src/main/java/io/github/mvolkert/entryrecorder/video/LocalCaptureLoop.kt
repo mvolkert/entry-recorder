@@ -490,8 +490,19 @@ internal class LocalCaptureLoop(
                         )
                     }
                     // Off this thread: the encode takes minutes and the queue runs it behind whichever
-                    // export is already going, so monitoring and the next clip never wait on it.
-                    autoExportScheduler.enqueueTranscodeExport(export.recordingId)
+                    // export is already going, so monitoring and the next clip never wait on it. The enqueue
+                    // itself is guarded like the raw mirror beside it, because a throw here would take the 24/7
+                    // monitor down with it and lose this clip's only copy in the folder.
+                    try {
+                        autoExportScheduler.enqueueTranscodeExport(export.recordingId)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Timber.tag(tag).e(e, "Auto-export could not be queued for ${outputFile.name}")
+                        exportFailureMonitor.recordFailure(
+                            "Auto-export could not be queued for ${outputFile.name}",
+                        )
+                    }
                 }
 
                 is FinalizeExport.RawMirror -> mirrorRawToExportFolder(settings.exportFolderUri, outputFile)

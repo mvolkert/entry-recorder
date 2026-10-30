@@ -4,13 +4,16 @@ import com.google.gson.Gson
 import io.github.mvolkert.entryrecorder.util.CleanupPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
  * What a restore may and may not trust in a backup file. Gson writes only the fields the file mentions, so
  * a quota can arrive as an explicit `0` from an older or hand-edited file — and `0` in the cleanup
  * arithmetic reads as "the archive may hold nothing". [normalizedForRestore] is the one place that decides
- * which values get repaired, so the decisions are pinned here rather than inferred from a comment.
+ * which values get repaired, so the decisions are pinned here rather than inferred from a comment. Beyond
+ * quotas it also settles the two archive mirrors, whose exclusion the settings screen alone would not have
+ * enforced on the restore path.
  */
 class AppSettingsRestoreTest {
 
@@ -87,5 +90,36 @@ class AppSettingsRestoreTest {
         val restored = Gson().fromJson("{}", AppSettingsEntity::class.java)
         assertFalse(restored.autoTranscodeOnFinalize)
         assertFalse(restored.autoExportOnFinalize)
+    }
+
+    @Test
+    fun `a backup file that carries both archive mirrors restores the h264 mirror only`() {
+        // The mirrors exclude each other, and only the settings screen enforced that on write: a hand-edited
+        // or older file naming both used to land in the row, lighting both switches until the user touched one.
+        val restored = Gson()
+            .fromJson(
+                """{"autoExportOnFinalize":true,"autoTranscodeOnFinalize":true}""",
+                AppSettingsEntity::class.java,
+            )
+            .normalizedForRestore()
+        assertTrue(restored.autoTranscodeOnFinalize)
+        assertFalse(restored.autoExportOnFinalize)
+    }
+
+    @Test
+    fun `a backup file naming one archive mirror restores it untouched`() {
+        // The clamp is one-directional: it removes the mirror the user did not ask to keep, never the single
+        // choice the file carries.
+        val rawOnly = Gson()
+            .fromJson("""{"autoExportOnFinalize":true}""", AppSettingsEntity::class.java)
+            .normalizedForRestore()
+        assertTrue(rawOnly.autoExportOnFinalize)
+        assertFalse(rawOnly.autoTranscodeOnFinalize)
+
+        val h264Only = Gson()
+            .fromJson("""{"autoTranscodeOnFinalize":true}""", AppSettingsEntity::class.java)
+            .normalizedForRestore()
+        assertTrue(h264Only.autoTranscodeOnFinalize)
+        assertFalse(h264Only.autoExportOnFinalize)
     }
 }

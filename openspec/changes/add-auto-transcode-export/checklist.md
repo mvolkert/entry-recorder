@@ -107,10 +107,15 @@ too quick to overlap.
       `..._h264.mp4`; raw mirror → next finished clip yields only `REC_....mkv`, with **no**
       `ExportTranscoder` / `ExportTriggerRunner` line for it (the raw copy is done by the capture loop).
       Never both for one recording.
-- [ ] Robustness probe (proves the save-path normalization, optional but cheap): restore a backup file whose
-      JSON carries **both** `autoExportOnFinalize` and `autoTranscodeOnFinalize` true, then finish a clip.
-      Expect `RtspStreamRecorder: Both auto-export mirrors are stored for recording <N>; the H.264 mirror wins`
-      and exactly one `..._h264.mp4`. On the next settings save the row must stop carrying both.
+- [ ] **Restore clamp** (the save path normalizes the pair since the review follow-up): restore a backup file
+      whose JSON carries **both** `autoExportOnFinalize` and `autoTranscodeOnFinalize` true. Expect exactly one
+      lit switch — *Auto-Export Recordings as H.264* ON, raw mirror OFF — and `sqlite3` reading `0|1`. Then
+      restore a raw-only file and confirm it comes back `1|0`: the clamp removes the mirror the file did not
+      choose to keep, never the single choice it carries.
+- [ ] **Finalize precedence** (needs the row forced, now that restore clamps): set both columns to `1` with
+      `sqlite3`, finish a clip, and expect
+      `RtspStreamRecorder: Both auto-export mirrors are stored for recording <N>; the H.264 mirror wins`
+      plus exactly one `..._h264.mp4`. Tapping either switch afterwards must write the pair back normalized.
 
 ## 4. Gate 5.5 — v24 → v25 upgrade over a real database
 
@@ -132,8 +137,10 @@ and a populated archive. Do **not** uninstall or clear data.
 ## 5. Gate 5.6 — failure path: broken SAF grant with auto-transcode on
 
 Read this first: **a failed encode falls back to the raw MKV; a failed folder write has nothing to fall back
-to** — it is logged, surfaced through `ExportFailureMonitor`, and the private copy stays authoritative. Both
-halves need checking here.
+to.** The two are surfaced differently, on purpose: a degraded delivery is logged and reported in the run
+result but raises **no** notice (the clip is in the folder, so the archive has no hole), while anything that
+lands nothing — a refused write, a vanished source file, a thrown run, no folder — goes through
+`ExportFailureMonitor` and the private copy stays authoritative. Both halves need checking here.
 
 - [ ] H.264 mirror ON, folder set. Break the grant: delete or rename the export folder on the phone, or revoke
       the app's storage access in system settings. Settings → Export Folder must show
@@ -150,17 +157,29 @@ halves need checking here.
 - [ ] The failure becomes visible without opening Settings: notification **"Auto-export stalled"** /
       *"Recordings are not reaching your export folder — re-check the folder grant in Settings"*, and the
       Settings hub's storage row says **"export stalled"**.
+- [ ] **Nothing delivered is surfaced even when nothing threw**: delete the private MKV of a queued clip
+      (`adb shell run-as io.github.mvolkert.entryrecorder rm databases/.../REC_<id>_..._<ts>.mkv`) before its
+      export runs. Expect `ExportTriggerRunner: Recording <N> file missing, skipping`, then
+      `Export pass finished (recording=N): 0/1 recordings exported` and
+      `Auto-export delivered nothing (recording=N)` in the monitor — the stalled notification must appear.
 - [ ] **No crash and no stall of monitoring**: `adb logcat -b crash` stays empty for the package; a ring right
       after the failure still records.
 - [ ] **The queue keeps draining**: finish a second clip while the folder is still broken → it must get its own
       export attempt (its own `SAF write failed` / retry line) instead of the chain wedging on the first
       failure, and both clips' private MKVs must be intact.
+- [ ] **A retrying head does not wedge the chain forever**: the transient path returns `Result.retry()` with
+      WorkManager's default backoff (no `setBackoffCriteria` on the auto request, by decision). Watch the
+      first failing item through to `FAILED`/`CANCELLED` in App Inspection → WorkManager and confirm the next
+      clip's export then runs. If the chain sits on one poisoned item, that is a finding, not a flake.
 - [ ] Recover: *Grant folder again* (or point at a new folder), finish a third clip → the file lands, the
       stalled notification is withdrawn by itself, and the hub subtitle stops saying "export stalled".
 - [ ] Raw-fallback half: break the **encoder** rather than the folder — the easiest lever is a clip with no
       decodable frames (an empty/half-written MKV) or a device whose MediaCodec refuses the size. Expect
-      `ExportTriggerRunner: Transcode failed for <N>, exporting raw` and the **raw `REC_....mkv`** landing in
-      the folder instead of an MP4, with the run still reporting `1/1 recordings exported`.
+      `ExportTriggerRunner: Transcode failed for <N>, exporting raw`, then
+      `Recording <N> reached the folder degraded to raw MKV, no H.264` and
+      `Export pass finished (recording=N): 1/1 recordings exported (1 degraded to raw MKV)`. The raw
+      `REC_....mkv` must land in the folder instead of an MP4, and **no** "Auto-export stalled" notification
+      may appear — if one was showing from an earlier failure, this delivery must withdraw it.
 
 ## 6. Sign-off
 
