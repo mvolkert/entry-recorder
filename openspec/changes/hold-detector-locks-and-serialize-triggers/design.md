@@ -49,11 +49,13 @@ decision and leaves the renew loop (D2) consulting different evidence than the r
 ### D2 — Non-ref-counted locks with a timed acquire, one renewal job, and one deadline
 
 Both locks switch to `setReferenceCounted(false)` and are taken as one pair by
-`LockController.acquire(timeoutMs)` instead of the `if (!isHeld) acquire()` dance. **Only the wake lock can carry
-a platform timeout:** `WifiManager.WifiLock` exposes an untimed `acquire()` and nothing else, so the radio half is
-bounded by its holder rather than by the framework - the renewal tick that re-acquires also releases both as soon
-as no reason is left, which caps an abandoned Wi-Fi hold at one renew interval instead of until process death.
-Chosen cadence: **10-minute timeout, 5-minute renew**.
+`LockController.acquire(timeoutMs)` instead of the `if (!isHeld) acquire()` dance. **Both halves have to be told
+explicitly:** a `WifiLock` is constructed reference counted, so once the `if (!isHeld)` guard is gone, acquiring on
+every renewal tick stacks a count that one release cannot zero and the radio never sleeps again. **Only the wake
+lock can carry a platform timeout:** `WifiManager.WifiLock` exposes an untimed `acquire()` and nothing else, so the
+radio half is bounded by its holder rather than by the framework - the renewal tick that re-acquires also releases
+both as soon as no reason is left, which caps an abandoned Wi-Fi hold at one renew interval instead of until
+process death. Chosen cadence: **10-minute timeout, 5-minute renew**.
 
 *Why half the timeout:* a Doze- or handler-deferred tick can miss one renewal without leaving an unprotected
 window; two missed ticks is still a 10-minute margin, and the worst case is self-healing.
@@ -61,13 +63,19 @@ window; two missed ticks is still a 10-minute margin, and the worst case is self
 changes while monitoring, so a lapse would go unnoticed for hours; no timeout for the analyzer hold — rejected,
 it is the leak risk this change exists to close.
 
-*The tick keeps more than the reason set says.* It re-acquires while a reason applies **or** an armed `holdFor`
-deadline has not passed. A trigger whose work this phone never observes - a server-side clip, with no local
-recording and no pending post-record stop - would otherwise lose the pair at the first tick, which is a
-regression against the unbounded acquire this replaces rather than a tightening of it. `holdFor(durationMs)`
+*One hold decision, read by every entry point.* `holdStillWanted()` is the only place that asks "still needed?":
+a reason applies **or** an armed `holdFor` deadline has not passed, and the reconcile, the release path and the
+renewal tick all read it. A trigger whose work this phone never observes - a server-side clip, or a doorbell ring
+with ring recording off - would otherwise lose the pair at the first tick or the first device-list re-emit, which
+is a regression against the unbounded acquire this replaces rather than a tightening of it. `holdFor(durationMs)`
 stays one mechanism with the standing hold instead of a separate one: it raises the window to cover the clip and
-arms its own release at the deadline, so the CPU outlives neither the reason that took it nor the recording it
-was taken for.
+re-arms its own release from the **surviving** deadline, so a short hold landing inside a long one cannot pull the
+release forward.
+
+Every entry point is `@Synchronized`. The callers are the device-list collector, the event queue's collector and
+the post-record timer - separate threads of one multi-threaded dispatcher - and both jobs are decided by a
+check-then-act on their own fields, so an unsynchronised keeper can leave a second renewal loop running that
+nothing can stop. No call inside the monitor suspends.
 
 ### D3 — Battery-exemption diagnostic behind an injected probe, edge-triggered
 
@@ -133,6 +141,10 @@ queued — an episode can never be closed out of order relative to its own start
   outlive the wake lock it is paired with. The renewal tick releases the pair at the same point it would let the
   wake lock lapse, so the worst case is one renew interval of extra radio, and gate 5.3 is the evidence that an
   idle monitor drops both.
+- **[A renewal acquire silently stacks the Wi-Fi reference count]** → the framework defaults a `WifiLock` to
+  reference counted, so the acquire-on-every-tick pattern needs `setReferenceCounted(false)` on that half too or
+  no single release can drop the radio. Set explicitly in the controller, and gate 5.3 reads `dumpsys wifi` rather
+  than trusting `dumpsys power`, which only proves the timed half lapsed.
 - **[Unlimited queue grows if a handler blocks on a dead endpoint]** → every handler path is bounded by the
   existing OkHttp timeouts and retry budget, so a stall costs seconds; if the soak ever shows queue growth, cap
   the channel and log a drop rather than dropping silently.

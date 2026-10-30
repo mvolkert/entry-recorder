@@ -29,7 +29,9 @@
   `MonitorLockKeeperTest` using a fake `LockController` and a fake reason supplier that asserts: an analyzer running
   alone acquires both locks with the timeout value, the last reason releasing releases both, renewal re-acquires
   without a release in between, renewal stops when the reason goes away, and a tick keeps (then at its deadline
-  releases) a hold the phone observes no reason for
+  releases) a hold the phone observes no reason for; the reconcile and the release path read the same decision, so
+  an armed deadline survives a device-list re-emit and a short hold cannot pull a longer armed one's release
+  forward, and every keeper entry point is `@Synchronized`
 - [x] 2.4 Wire `IntercomMonitorService.updateMonitoredDevices` to pass the supplier including
   `pool.anyAnalyzerRunning()`, keeping the per-trigger `holdFor(durationMs)` path on the same timed acquire; verify
   `./gradlew compileDebugKotlin :app:testDebugUnitTest` green and confirm the camera-event-only case (no analyzer, no
@@ -70,11 +72,15 @@
   project root and fix every warning introduced; record the test totals in the commit body
 - [ ] 5.2 On-device gate (blocks archive, Verso + screen off): with one device set to in-app motion analysis, leave
   the phone idle with the screen off for 30+ minutes, confirm the analyzer's per-minute health line keeps reporting
-  the configured poll interval and achieved fps rather than multi-minute gaps, and confirm a fast subject crossing
-  the view produces a recording
+  the configured poll interval and achieved fps rather than multi-minute gaps, confirm a fast subject crossing
+  the view produces a recording, and confirm `dumpsys power` shows `EntryRecorder::MonitorWakeLock` with its
+  timeout moving forward across a renewal tick rather than lapsing (this is the assumption the whole renewal
+  cadence rests on: re-acquiring a held, non-reference-counted wake lock replaces its deadline)
 - [ ] 5.3 On-device gate: disable in-app analysis on the last analyzing device with no `keepLocksHeld` device and
-  confirm the locks are dropped at the next idle check (`dumpsys power` shows no `EntryRecorder::MonitorWakeLock`),
-  then re-enable it and confirm the hold returns without restarting the service
+  confirm the locks are dropped at the next idle check (`dumpsys power` shows no `EntryRecorder::MonitorWakeLock`
+  **and** `dumpsys wifi` shows no `EntryRecorder::MonitorWifiLock` - the radio half is the one a stacked reference
+  count keeps, and the wake lock's timeout alone would not reveal it), then re-enable it and confirm the hold
+  returns without restarting the service
 - [ ] 5.4 On-device gate: edit an unrelated device setting (ring duration) while a subject stands in view and confirm
   detection continues without a rebuild gap; then edit the snapshot path and confirm the analyzer rebuilds and takes
   effect without a service restart

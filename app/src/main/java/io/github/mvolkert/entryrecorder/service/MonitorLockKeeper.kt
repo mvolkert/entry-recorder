@@ -22,8 +22,12 @@ import kotlinx.coroutines.launch
  * [DeviceMonitorPool]. One supplier is read by both the renewal loop and the release path on purpose: two
  * sources of truth for "still needed?" is how a lock gets abandoned or held forever.
  *
- * Acquires are bounded and renewed while a reason holds, so a path that forgets to release lapses at its
- * timeout instead of pinning the CPU until the process dies.
+ * Acquires are bounded and renewed while a reason holds them or an armed trigger deadline is unpaid, so a path
+ * that forgets to release lapses at its timeout instead of pinning the CPU until the process dies.
+ *
+ * Every entry point is [Synchronized]: the service calls in from the device-list collector, the event queue's
+ * collector and the post-record timer, which are separate threads of one multi-threaded dispatcher, and the
+ * fields below decide whether a renewal or safety job already exists.
  *
  * The log tag stays the service's own: a screen-off investigation reads one continuous stream, exactly as it
  * did before the split.
@@ -35,7 +39,7 @@ class MonitorLockKeeper(
     private val reasons: () -> Set<LockReason>,
 ) {
 
-    // The renewal tick, while a reason holds the pair.
+    // The renewal tick, while the hold decision says the pair is still wanted.
     private var renewal: Job? = null
 
     // Safety-net release for clips the recorder ends on its own duration deadline: the service never sees
@@ -46,40 +50,48 @@ class MonitorLockKeeper(
     private var holdUntilMs = 0L
 
     /**
-     * Re-reads the reason set: takes or renews the locks while any reason applies, and drops them once none
-     * does. The service calls this on every device-list reconcile, which is also when analyzers start and stop.
+     * Re-reads the hold decision: takes or renews the locks while a reason applies or an armed [holdFor] deadline
+     * is still unpaid, and drops them once neither is true. The service calls this on every device-list
+     * reconcile, which is also when analyzers start and stop.
      */
+    @Synchronized
     fun reconcile() {
-        if (LockHoldPolicy.shouldHold(reasons())) takeHold() else releaseIfIdle()
+        if (holdStillWanted()) takeHold() else releaseIfIdle()
     }
 
     /**
      * Holds the locks for at least [durationMs], then releases them if nothing else needs them. A trigger's
      * clip can outlast one acquire window, so its deadline is remembered and each renewal extends to it.
      */
+    @Synchronized
     fun holdFor(durationMs: Long) {
         holdUntilMs = maxOf(holdUntilMs, timeProvider.currentTimeMillis() + durationMs)
         takeHold()
         safetyRelease?.cancel()
+        // Armed from the surviving deadline rather than from this request: a short hold landing while a longer
+        // one is already armed must not pull the release forward.
+        val remainingMs = holdUntilMs - timeProvider.currentTimeMillis()
         safetyRelease = scope.launch {
-            delay(durationMs)
+            delay(remainingMs.coerceAtLeast(0L))
             safetyRelease = null
             releaseIfIdle()
         }
     }
 
     /**
-     * Drops a trigger's locks once no reason applies: nothing recording, no post-record timer pending, nobody
-     * opted into holding them through idle and no motion analyzer polling.
+     * Drops the locks once no reason applies and no armed hold is still running: nothing recording, no
+     * post-record timer pending, nobody opted into holding them through idle and no motion analyzer polling.
      */
+    @Synchronized
     fun releaseIfIdle() {
-        if (LockHoldPolicy.shouldHold(reasons())) return
+        if (holdStillWanted()) return
         stopRenewal()
         holdUntilMs = 0L
         if (controller.isHeld()) controller.release()
     }
 
     /** Unconditional release for service teardown, where no reason survives the service anyway. */
+    @Synchronized
     fun releaseAll() {
         stopRenewal()
         holdUntilMs = 0L
@@ -87,6 +99,7 @@ class MonitorLockKeeper(
     }
 
     /** Stops the safety-net timer on the way out, so a dying service leaves no release scheduled behind it. */
+    @Synchronized
     fun cancelSafetyRelease() {
         safetyRelease?.cancel()
     }
@@ -105,15 +118,21 @@ class MonitorLockKeeper(
         renewal = scope.launch {
             while (currentCoroutineContext().isActive) {
                 delay(LOCK_RENEW_INTERVAL_MS)
-                if (holdStillWanted()) controller.acquire(holdTimeoutMs()) else releaseIfIdle()
+                renewOrRelease()
             }
         }
     }
 
+    @Synchronized
+    private fun renewOrRelease() {
+        if (holdStillWanted()) controller.acquire(holdTimeoutMs()) else releaseIfIdle()
+    }
+
     /**
-     * Whether the tick should keep the pair: a reason still applies, or an armed [holdFor] deadline it was told
-     * to cover has not passed. Without the second half, a trigger whose work the phone does not see (a
-     * server-side clip) would lose its lock at the first tick.
+     * The one hold decision, read by the reconcile, the release path and the renewal tick alike: a reason still
+     * applies, or an armed [holdFor] deadline it was told to cover has not passed. Without the second half, a
+     * trigger whose work the phone does not see (a server-side clip, or a ring that records nothing) would lose
+     * its lock at the first tick or the first device-list re-emit.
      */
     private fun holdStillWanted(): Boolean =
         LockHoldPolicy.shouldHold(reasons()) || holdUntilMs > timeProvider.currentTimeMillis()

@@ -124,23 +124,36 @@ class MonitorLockKeeperTest {
     }
 
     @Test
-    fun `a trigger hold longer than one window keeps its own deadline and is not cut short`() = runTest(dispatcher) {
+    fun `a device-list reconcile does not cut an armed trigger hold short`() {
         val clipMs = 20L * 60L * 1000L
         reasons = emptySet()
-
         keeper.holdFor(clipMs)
 
-        // The armed clip outlasts the standing window, so the first acquire covers it entirely.
-        assertEquals(listOf("acquire($clipMs)"), controller.calls)
+        // The device rows re-emit while the clip runs and nothing in them says "hold": deciding this from the
+        // reason set alone would drop the pair mid-clip for a trigger this phone cannot observe.
+        keeper.reconcile()
 
-        advanceTimeBy(MonitorLockKeeper.LOCK_RENEW_INTERVAL_MS)
-        runCurrent()
+        assertEquals(listOf("acquire($clipMs)", "acquire($clipMs)"), controller.calls)
+        assertTrue(controller.held)
+    }
+
+    @Test
+    fun `a short hold landing inside an armed long one does not pull the release forward`() = runTest(dispatcher) {
+        val longMs = 20L * 60L * 1000L
+        val shortMs = 6L * 60L * 1000L
+        reasons = emptySet()
+
+        keeper.holdFor(longMs)
+        keeper.holdFor(shortMs)
+
+        // The second clip is shorter, but the first deadline still stands: arming the safety net from the request
+        // rather than from the surviving deadline would release the pair 14 minutes early.
+        assertEquals(listOf("acquire($longMs)", "acquire($longMs)"), controller.calls)
+
+        advanceBoth(shortMs)
         assertTrue(controller.held)
 
-        // The recorder ends the clip on its own deadline; the service never sees that stop.
-        advanceTimeBy(clipMs)
-        runCurrent()
-
+        advanceBoth(longMs - shortMs)
         assertFalse(controller.held)
         assertEquals("release", controller.calls.last())
     }

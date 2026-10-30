@@ -28,7 +28,7 @@ interface LockController {
 }
 
 /**
- * [LockController] over one partial wake lock and one high-performance Wi-Fi lock.
+ * [LockController] over one partial wake lock and one high-performance Wi-Fi lock, both non-reference-counted.
  *
  * [WifiManager.WifiLock] only has an untimed `acquire()`, so the radio half cannot carry its own deadline the way
  * the wake lock does. It stays bounded by the holder instead: [MonitorLockKeeper] re-acquires on its renewal tick
@@ -70,7 +70,8 @@ class AndroidLockController(context: Context) : LockController {
 
     /**
      * Deliberately not reference counted: the monitor owns one pair, so renewing has to refresh that single
-     * acquire rather than stack a count that would need the same number of releases to let go.
+     * acquire rather than stack a count that would need the same number of releases to let go. Both halves of
+     * the pair need this, and the Wi-Fi lock has to be told explicitly (see [wifi]).
      */
     private fun wake(): PowerManager.WakeLock = wakeLock ?: run {
         val powerManager = appContext.getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -87,7 +88,11 @@ class AndroidLockController(context: Context) : LockController {
         } else {
             @Suppress("DEPRECATION") // Owner-approved legacy branch: pre-Q has no tag-only WifiLock API.
             wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, WIFI_LOCK_TAG)
-        }).also { wifiLock = it }
+        }).apply {
+            // The framework constructs a WifiLock reference counted, so each renewal acquire would raise a count
+            // that one release cannot zero and the radio would never sleep again. Same reasoning as [wake].
+            setReferenceCounted(false)
+        }.also { wifiLock = it }
     }
 
     private companion object {

@@ -15,6 +15,11 @@ them once none is, so detection does not depend on a trigger having already been
 - **THEN** the locks are released if no other hold reason (active recording, pending post-record stop, or a
   device that keeps locks held through idle) still applies
 
+#### Scenario: Renewing a hold does not accumulate
+- **WHEN** the monitor renews its acquires several times while one reason keeps holding the pair, and that reason
+  then goes away
+- **THEN** a single release drops both the CPU and the radio, rather than unwinding one acquire per renewal
+
 #### Scenario: Camera-event-only deployment is unchanged
 - **WHEN** a monitored device has no analyzer and does not keep locks held through idle
 - **THEN** idle monitoring holds no lock, as before this change
@@ -36,7 +41,8 @@ SHALL bound it with the same renewal path rather than a platform deadline, relea
 #### Scenario: Trigger hold outlives its observable work
 - **WHEN** a per-trigger hold is armed for a device whose recording this phone does not observe and the reason set
   empties before that hold elapses
-- **THEN** the renewal keeps the acquire in force until the armed deadline passes, then releases both locks
+- **THEN** every hold decision - the device-list reconcile, the release path and the renewal tick - keeps the
+  acquire in force until the armed deadline passes, then releases both locks
 
 ### Requirement: Monitor reports battery-optimization exemption
 The system SHALL log, while monitoring runs, whether the app is exempt from battery optimizations, at WARN when it
