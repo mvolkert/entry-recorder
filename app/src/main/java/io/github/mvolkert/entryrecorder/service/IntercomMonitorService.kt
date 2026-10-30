@@ -100,6 +100,16 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         )
     }
 
+    /**
+     * The single consumer of [eventHandler]: every device event waits its turn here, so a started event and
+     * the ended event that follows it cannot be handled concurrently on the service's multi-threaded IO
+     * dispatcher. Everything that funnels through [onEvent] (the device poll loops, the motion analyzers, the
+     * recorder's connection observations, a SIP ring) inherits that ordering.
+     */
+    private val eventQueue: MonitorEventQueue by lazy {
+        MonitorEventQueue(serviceScope) { event -> eventHandler.handle(event) }
+    }
+
     @Inject lateinit var repository: IntercomRepository
     @Inject lateinit var recorder: RecordingController
     @Inject lateinit var sipManager: SipCallManager
@@ -206,10 +216,10 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         manager.notify(NotificationHelper.NOTIFICATION_ID_SERVICE, notification)
     }
 
-    /** Every device callback lands here; the fan-out itself lives in [MonitorEventHandler]. */
+    /** Every device callback lands here; the queue orders them and [MonitorEventHandler] routes each one. */
     override fun onEvent(event: IntercomEvent) {
         Timber.tag(tag).i("Received ${event.logIdentity()}")
-        serviceScope.launch { eventHandler.handle(event) }
+        eventQueue.submit(event)
     }
 
     /**

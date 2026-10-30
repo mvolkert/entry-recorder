@@ -2,13 +2,13 @@
 
 ## 1. Serialized trigger event handling
 
-- [ ] 1.1 Add `service/MonitorEventQueue.kt` owning a `Channel<IntercomEvent>(Channel.UNLIMITED)` and one
+- [x] 1.1 Add `service/MonitorEventQueue.kt` owning a `Channel<IntercomEvent>(Channel.UNLIMITED)` and one
   collecting coroutine that awaits a suspend handler, so ordering is a property of the queue rather than of the
   dispatcher (design D4); verify with a new `MonitorEventQueueTest` in `app/src/test/.../service/` that drives it
   on `StandardTestDispatcher` with a suspending fake handler and asserts arrival order across a
   `MotionOnDeviceStarted`/`MotionOnDeviceEnded` pair, delivery across two interleaved devices, and exactly-once
   delivery (`./gradlew :app:testDebugUnitTest --tests "*MonitorEventQueueTest"`)
-- [ ] 1.2 Route `IntercomMonitorService.onEvent` through the queue (`trySend`, never blocking) and make the queue's
+- [x] 1.2 Route `IntercomMonitorService.onEvent` through the queue (`trySend`, never blocking) and make the queue's
   collector the only caller of `MonitorEventHandler.handle`, keeping the existing
   `Received <logIdentity()>` line exactly once per event; delete the per-event
   `serviceScope.launch { eventHandler.handle(event) }`; verify `./gradlew compileDebugKotlin` and that
@@ -48,18 +48,18 @@
 
 ## 4. Analyzer rebuild scope and episode closure
 
-- [ ] 4.1 Add `MotionAnalysisKey` plus `OnDeviceMotionAnalyzer.Companion.keyFor(device)` over device id, snapshot
+- [x] 4.1 Add `MotionAnalysisKey` plus `OnDeviceMotionAnalyzer.Companion.keyFor(device)` over device id, snapshot
   URL, username, password, `motionSensitivity` and `effectiveMotionPreRollFrames`, and expose
   `@Volatile val isEpisodeActive: Boolean`; verify with a unit test asserting an unrelated edit (ring duration, name,
   alert flags) yields an equal key while each analyzed field yields a different one
-- [ ] 4.2 Replace `existingAnalyzer.device != entity` in `DeviceMonitorPool.sync` with the key comparison; verify
+- [x] 4.2 Replace `existingAnalyzer.device != entity` in `DeviceMonitorPool.sync` with the key comparison; verify
   `./gradlew compileDebugKotlin` and the 4.1 test
-- [ ] 4.3 Route every reconcile-path analyzer stop (analysis disabled, rebuild, device removed) through one private
+- [x] 4.3 Route every reconcile-path analyzer stop (analysis disabled, rebuild, device removed) through one private
   helper that stops and, when `isEpisodeActive`, emits `IntercomEvent.MotionOnDeviceEnded(analyzer.device)` to the
   listener, while `stopAnalyzers()` on teardown stops without emitting; verify with a unit test over the pure
   should-announce predicate (active + reconcile → emit, active + teardown → no emit, inactive → no emit) and confirm
   the emitted event reaches `TriggerEpisodeRunner.handleTriggerEnded` through the 1.x queue
-- [ ] 4.4 Update the KDoc on `DeviceMonitorPool` and `MonitorLockKeeper` to describe the reason-based hold and the
+- [x] 4.4 Update the KDoc on `DeviceMonitorPool` and `MonitorLockKeeper` to describe the reason-based hold and the
   key-scoped rebuild; verify by reading both files against the shipped behaviour (no changelog comments)
 
 ## 5. Integration verification

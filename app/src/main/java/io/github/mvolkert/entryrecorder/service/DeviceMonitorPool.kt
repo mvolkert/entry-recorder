@@ -4,6 +4,7 @@ import io.github.mvolkert.entryrecorder.data.device.IntercomDeviceFactory
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.domain.device.IntercomDevice
+import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.domain.triggers.TriggerCoordinator
@@ -13,11 +14,32 @@ import io.github.mvolkert.entryrecorder.video.RecordingController
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineDispatcher
 
+/** Why an analyzer is being stopped, which decides whether its caller still owns the episode it started. */
+internal enum class AnalyzerShutdown {
+    /** The device list changed: the row is still monitored, or the device is gone but the service is not. */
+    Reconcile,
+
+    /** The service is being destroyed, so nothing is left to handle an event. */
+    ServiceTeardown,
+}
+
+/**
+ * Whether stopping an analyzer has to close the motion episode it started. A reconcile does, otherwise the clip
+ * it armed keeps recording with no post-record stop scheduled. A service teardown does not: the scope that would
+ * handle the event is already cancelled, and the clip is bounded by the max duration it armed.
+ */
+internal fun shouldAnnounceEpisodeEnd(episodeActive: Boolean, shutdown: AnalyzerShutdown): Boolean =
+    episodeActive && shutdown == AnalyzerShutdown.Reconcile
+
 /**
  * The pool of live device handles and their on-device motion analyzers, plus the diff that keeps both in step
  * with the monitored rows. Absorbs the device-map half of `IntercomMonitorService.updateMonitoredDevices`
  * verbatim — including the order-sensitive removal cleanup — so the service is left with the lifecycle work
  * only: SIP reconciliation, the lock policy, the resumed server jobs and the foreground notification.
+ *
+ * An analyzer is rebuilt only when the configuration it reads changes ([OnDeviceMotionAnalyzer.analysisKey]),
+ * and every stop of one goes through [stopAnalyzer], so a device edit the analysis does not consume keeps its
+ * frame reference and pre-roll ring, and a stop that lands mid-episode still closes it.
  *
  * Built by the service rather than injected, because it needs the event listener the service *is* and the
  * scope/dispatcher pair that only exists after Hilt field injection.
@@ -71,12 +93,15 @@ class DeviceMonitorPool(
             }
 
             // Manage the on-device (app-side) motion analyzer independently of the device implementation.
-            // It has to be rebuilt when the device row changes, otherwise it keeps polling the URL and
-            // credentials captured at creation time and a settings edit only takes effect after a restart.
+            // It has to be rebuilt when the configuration the analysis reads changes, otherwise it keeps polling
+            // the URL and credentials captured at creation time and a settings edit only takes effect after a
+            // restart. Every other field of the row is left alone, so an edit unrelated to detection neither
+            // resets the frame reference nor drops an episode it was mid-way through.
             val existingAnalyzer = activeMotionAnalyzers[entity.id]
             if (entity.recordOnMotionOnDevice) {
-                if (existingAnalyzer == null || existingAnalyzer.device != entity) {
-                    existingAnalyzer?.stop()
+                val key = OnDeviceMotionAnalyzer.keyFor(entity)
+                if (existingAnalyzer == null || existingAnalyzer.analysisKey != key) {
+                    stopAnalyzer(existingAnalyzer, AnalyzerShutdown.Reconcile)
                     val analyzer = OnDeviceMotionAnalyzer(
                         entity,
                         listener,
@@ -91,14 +116,14 @@ class DeviceMonitorPool(
                     analyzer.start()
                 }
             } else {
-                existingAnalyzer?.stop()
+                stopAnalyzer(existingAnalyzer, AnalyzerShutdown.Reconcile)
                 activeMotionAnalyzers.remove(entity.id)
             }
         }
 
         // Stop analyzers for devices that were removed/disabled entirely
         for (id in activeMotionAnalyzers.keys.toSet() - newIds) {
-            activeMotionAnalyzers.remove(id)?.stop()
+            stopAnalyzer(activeMotionAnalyzers.remove(id), AnalyzerShutdown.Reconcile)
         }
     }
 
@@ -115,15 +140,37 @@ class DeviceMonitorPool(
     /** True while any monitored device has a clip the phone itself is recording — the evidence a lock release needs. */
     fun anyRecordingLocally(): Boolean = activeDevices.keys.any { recorder.isLocallyRecording(it) }
 
+    /**
+     * True while an in-app motion analyzer is polling. Detection happens before any trigger exists, so this is
+     * the evidence the lock hold needs to keep the CPU and radio awake while the screen is off.
+     */
+    fun anyAnalyzerRunning(): Boolean = activeMotionAnalyzers.isNotEmpty()
+
+    /** True when a monitored device row opted into holding the locks through idle periods. */
+    fun keepLocksHeldRequested(): Boolean = activeDevices.values.any { it.device.keepLocksHeld }
+
     /** The live device handles, so the service's bounded teardown pass can stop every one of them at once. */
     fun liveDevices(): List<IntercomDevice> = activeDevices.values.toList()
 
-    /** Stops and drops every analyzer; the device handles are the caller's to stop. */
+    /** Stops and drops every analyzer without closing the episodes they started; the service is going away. */
     fun stopAnalyzers() {
         for (analyzer in activeMotionAnalyzers.values) {
-            analyzer.stop()
+            stopAnalyzer(analyzer, AnalyzerShutdown.ServiceTeardown)
         }
         activeMotionAnalyzers.clear()
+    }
+
+    /**
+     * The one path every analyzer stop takes: stop it, then hand back the episode it left open. The episode flag
+     * is read before [OnDeviceMotionAnalyzer.stop] resets it.
+     */
+    private fun stopAnalyzer(analyzer: OnDeviceMotionAnalyzer?, shutdown: AnalyzerShutdown) {
+        if (analyzer == null) return
+        val episodeActive = analyzer.isEpisodeActive
+        analyzer.stop()
+        if (shouldAnnounceEpisodeEnd(episodeActive, shutdown)) {
+            listener.onEvent(IntercomEvent.MotionOnDeviceEnded(analyzer.device))
+        }
     }
 
     fun clearDevices() {

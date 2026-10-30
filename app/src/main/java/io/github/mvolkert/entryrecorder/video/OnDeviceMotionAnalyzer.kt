@@ -48,7 +48,16 @@ class OnDeviceMotionAnalyzer(
     private var job: Job? = null
 
     private var previousFrame: IntArray? = null
-    private var isMotionActive = false
+
+    /**
+     * Whether a motion episode is open: started and not yet ended. Public because whoever owns this analyzer has
+     * to close the episode it started when the analyzer is torn down; a stopped mid-episode analyzer would
+     * otherwise leave its recording with nobody scheduled to stop it.
+     */
+    @Volatile
+    var isEpisodeActive = false
+        private set
+
     private var consecutiveMotionFrames = 0
     private var consecutiveClearFrames = 0
 
@@ -62,6 +71,13 @@ class OnDeviceMotionAnalyzer(
      * never touched the setting behaves as before.
      */
     private val tuning = motionTuningFor(device.motionSensitivity)
+
+    /**
+     * The slice of the device row this analyzer reads. [io.github.mvolkert.entryrecorder.service.DeviceMonitorPool]
+     * rebuilds when it changes and keeps a running analyzer through any other edit, so a settings change the
+     * analysis does not consume no longer throws away the frame reference and the pre-roll ring mid-episode.
+     */
+    val analysisKey: MotionAnalysisKey = keyFor(device)
 
     /** Ring size for [bufferPreRoll]: the device's configured pre-roll count, clamped to the sane range. */
     private val preRollCapacity = device.effectiveMotionPreRollFrames
@@ -100,7 +116,7 @@ class OnDeviceMotionAnalyzer(
 
     private fun resetState() {
         previousFrame = null
-        isMotionActive = false
+        isEpisodeActive = false
         consecutiveMotionFrames = 0
         consecutiveClearFrames = 0
         currentPollMs = tuning.pollIntervalMs
@@ -215,12 +231,12 @@ class OnDeviceMotionAnalyzer(
             consecutiveMotionFrames = 0
         }
 
-        if (!isMotionActive && consecutiveMotionFrames >= tuning.requiredMotionFrames) {
-            isMotionActive = true
+        if (!isEpisodeActive && consecutiveMotionFrames >= tuning.requiredMotionFrames) {
+            isEpisodeActive = true
             Timber.tag(tag).i("Motion start on ${device.name}: ${(changedRatio * 100).toInt()}% changed pixels")
             listener.onEvent(IntercomEvent.MotionOnDeviceStarted(device))
-        } else if (isMotionActive && consecutiveClearFrames >= tuning.requiredClearFrames) {
-            isMotionActive = false
+        } else if (isEpisodeActive && consecutiveClearFrames >= tuning.requiredClearFrames) {
+            isEpisodeActive = false
             Timber.tag(tag).i("Motion end on ${device.name}")
             listener.onEvent(IntercomEvent.MotionOnDeviceEnded(device))
         }
@@ -287,6 +303,16 @@ class OnDeviceMotionAnalyzer(
     }
 
     companion object {
+        /** The device fields the analyzer consumes; anything else may change without rebuilding it. */
+        fun keyFor(device: Device): MotionAnalysisKey = MotionAnalysisKey(
+            deviceId = device.id,
+            snapshotUrl = device.snapshotUrl,
+            username = device.username,
+            password = device.password,
+            motionSensitivity = device.motionSensitivity,
+            preRollFrames = device.effectiveMotionPreRollFrames,
+        )
+
         private const val POLL_STEP_MS = 250L
         private const val RECORDING_POLL_MS = 1500L
         private const val HEALTH_REPORT_MS = 60_000L
@@ -297,6 +323,25 @@ class OnDeviceMotionAnalyzer(
         // preset's base interval, it never triggers a recording on its own.
         private const val ACTIVITY_HINT_RATIO = 0.01f
     }
+}
+
+/**
+ * The configuration an [OnDeviceMotionAnalyzer] consumes, declared next to the analyzer that reads it so adding
+ * a field there means adding it here. Equality is what the monitor pool compares to decide whether a running
+ * analyzer has to be rebuilt.
+ */
+data class MotionAnalysisKey(
+    val deviceId: Long,
+    val snapshotUrl: String,
+    val username: String,
+    val password: String,
+    val motionSensitivity: MotionSensitivity,
+    val preRollFrames: Int,
+) {
+    /** Mirrors [Device.toString]: the generated form would put the snapshot password into any log line. */
+    override fun toString(): String =
+        "MotionAnalysisKey(deviceId=$deviceId, snapshotUrl=$snapshotUrl, username=$username, " +
+            "password=<redacted>, motionSensitivity=$motionSensitivity, preRollFrames=$preRollFrames)"
 }
 
 /**
