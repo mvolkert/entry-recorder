@@ -109,6 +109,10 @@ dependencies {
     // Coil for image/snapshot loading
     implementation(libs.coil.compose)
 
+    // UnifiedPush connector: the vendor-free receiver for motion alerts the server relays from another
+    // phone (change `add-motion-notification-to-other-phone`). Ships on Maven Central, no new repository.
+    implementation(libs.unifiedpush.connector)
+
     // Coroutines
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)

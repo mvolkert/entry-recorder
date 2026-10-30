@@ -80,6 +80,18 @@
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
 
+        <!-- Motion-alert receiver for UnifiedPush (change `add-motion-notification-to-other-phone`).
+             Non-exported on purpose: the connector's PushService is reached by the distributor binding to it
+             through this action, and an exported service would let any app on the phone inject a fake alert. -->
+        <service
+            android:name=".push.MotionAlertPushService"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- Boot Receiver to start monitoring automatically -->
         <receiver
             android:name=".receiver.BootReceiver"

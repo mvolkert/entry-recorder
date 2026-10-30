@@ -7,8 +7,14 @@ import dagger.hilt.components.SingletonComponent
 import io.github.mvolkert.entryrecorder.data.server.ServerClient
 import io.github.mvolkert.entryrecorder.data.server.ServerRecordingClient
 import io.github.mvolkert.entryrecorder.data.alert.ServerRelayMotionAlertTransport
+import io.github.mvolkert.entryrecorder.data.local.prefs.AndroidMotionAlertPushStore
+import io.github.mvolkert.entryrecorder.data.local.prefs.MotionAlertPushStore
 import io.github.mvolkert.entryrecorder.domain.alert.MotionAlertTransport
+import io.github.mvolkert.entryrecorder.domain.alert.RemoteMotionAlertPresenter
 import io.github.mvolkert.entryrecorder.domain.call.CallScreenLauncher
+import io.github.mvolkert.entryrecorder.push.MotionAlertRegistrar
+import io.github.mvolkert.entryrecorder.push.RemoteMotionAlertNotifier
+import io.github.mvolkert.entryrecorder.push.UnifiedPushMotionAlertRegistrar
 import io.github.mvolkert.entryrecorder.sip.SipCallManager
 import io.github.mvolkert.entryrecorder.sip.SipRegistrar
 import io.github.mvolkert.entryrecorder.ui.incoming.IncomingCallLauncher
@@ -53,4 +59,19 @@ abstract class BindsModule {
     @Binds
     @Singleton
     abstract fun bindMotionAlertTransport(impl: ServerRelayMotionAlertTransport): MotionAlertTransport
+
+    // The receiving half of the motion alert (change `add-motion-notification-to-other-phone`): the push
+    // service, the settings ViewModel and the boot receiver all reach the device through these three seams,
+    // so none of them holds a Context of its own.
+    @Binds
+    @Singleton
+    abstract fun bindMotionAlertPushStore(impl: AndroidMotionAlertPushStore): MotionAlertPushStore
+
+    @Binds
+    @Singleton
+    abstract fun bindMotionAlertRegistrar(impl: UnifiedPushMotionAlertRegistrar): MotionAlertRegistrar
+
+    @Binds
+    @Singleton
+    abstract fun bindRemoteMotionAlertPresenter(impl: RemoteMotionAlertNotifier): RemoteMotionAlertPresenter
 }

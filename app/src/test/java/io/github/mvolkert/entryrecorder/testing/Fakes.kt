@@ -1,6 +1,11 @@
 package io.github.mvolkert.entryrecorder.testing
 
+import android.app.Activity
 import io.github.mvolkert.entryrecorder.data.backup.BackupDocumentStore
+import io.github.mvolkert.entryrecorder.data.local.prefs.MotionAlertPushStore
+import io.github.mvolkert.entryrecorder.domain.alert.RemoteMotionAlert
+import io.github.mvolkert.entryrecorder.domain.alert.RemoteMotionAlertPresenter
+import io.github.mvolkert.entryrecorder.push.MotionAlertRegistrar
 import io.github.mvolkert.entryrecorder.data.local.crypto.CredentialCipher
 import io.github.mvolkert.entryrecorder.data.local.crypto.SymmetricKeyProvider
 import io.github.mvolkert.entryrecorder.domain.model.Device
@@ -82,6 +87,78 @@ class FakeAutoBootStore : AutoBootStore {
     override fun setAutoBootEnabled(enabled: Boolean) {
         lastEnabled = enabled
         setCount++
+    }
+}
+
+/**
+ * The motion-alert receiver prefs (change `add-motion-notification-to-other-phone`) in memory: the flag, the
+ * address the push service would have stored, and a count of each write, so a settings test can show the
+ * receiver section works without Room or a Context.
+ */
+class FakeMotionAlertPushStore : MotionAlertPushStore {
+    // Named apart from the interface's setter, which occupies the `setReceiveEnabled` JVM signature.
+    var enabled = false
+    var storedEndpoint: String? = null
+    var storedNeedsEncryption = false
+    val enabledWrites = mutableListOf<Boolean>()
+    val endpointWrites = mutableListOf<Pair<String, Boolean>>()
+    var clearCount = 0
+
+    override fun isReceiveEnabled(): Boolean = enabled
+
+    override fun endpoint(): String? = storedEndpoint
+
+    override fun endpointNeedsEncryption(): Boolean = storedNeedsEncryption
+
+    override fun setReceiveEnabled(enabled: Boolean) {
+        this.enabled = enabled
+        enabledWrites += enabled
+    }
+
+    override fun saveEndpoint(url: String, needsEncryption: Boolean) {
+        storedEndpoint = url
+        storedNeedsEncryption = needsEncryption
+        endpointWrites += url to needsEncryption
+    }
+
+    override fun clearEndpoint() {
+        storedEndpoint = null
+        storedNeedsEncryption = false
+        clearCount++
+    }
+}
+
+/**
+ * The registrar seam: answers [registerResult] synchronously and counts the calls, so a test can prove what
+ * opting in and out does to the distributor without the connector or a distributor app. [registerActivities]
+ * records the Activity each call was given, which is what a picker needs and a boot receiver cannot supply.
+ */
+class FakeMotionAlertRegistrar : MotionAlertRegistrar {
+    var distributorInstalled = true
+    var registerResult = true
+    var registerCount = 0
+    var unregisterCount = 0
+    val registerActivities = mutableListOf<Activity?>()
+
+    override fun hasDistributor(): Boolean = distributorInstalled
+
+    override fun register(activity: Activity?, onResult: (Boolean) -> Unit) {
+        registerCount++
+        registerActivities += activity
+        onResult(registerResult)
+    }
+
+    override fun unregister() {
+        unregisterCount++
+    }
+}
+
+/** Collects the alerts the handler decided to notify about — the only output the payload tests assert on. */
+class RecordingRemoteMotionAlertPresenter : RemoteMotionAlertPresenter {
+    val shown = mutableListOf<RemoteMotionAlert>()
+
+    override fun show(alert: RemoteMotionAlert) {
+        shown += alert
     }
 }
 

@@ -41,10 +41,39 @@
   endpoint answered `502`, an unauthenticated call answered `401`, and the server log showed only
   `http://127.0.0.1:8009` — never the token in the path
 
+## 4. Receiving path (app)
+
+- [x] 4.1 `org.unifiedpush.android:connector:3.3.5` from Maven Central (`libs.versions.toml` +
+  `app/build.gradle.kts`); no repository or Tink override was needed — `compileDebugKotlin` and
+  `assembleDebug` resolve and package clean
+- [x] 4.2 Non-exported `.push.MotionAlertPushService` with the `org.unifiedpush.android.connector.PUSH_EVENT`
+  intent filter in `AndroidManifest.xml`; the merged manifest was read from `:app:processDebugMainManifest`
+  and the distributor `<queries>` entries come from the library's own manifest, so none were added by hand
+- [x] 4.3 `MotionAlertPushService` stores what the distributor reports and nothing else: the endpoint URL plus
+  an encrypted-delivery flag from `pubKeySet`, clears the address on unregistration or a refused
+  registration, and logs only the redacted host
+- [x] 4.4 `RemoteMotionAlertHandler` parses the payload contract and drops everything else: undecrypted
+  messages, an unknown or missing `kind`, malformed JSON, an empty body and a blank camera name raise no
+  notification; a missing timestamp is stamped at arrival; the raw body is never logged
+- [x] 4.5 Receiver state in SharedPreferences (`MotionAlertPushPrefs` behind a `MotionAlertPushStore` seam,
+  mirroring `AutoBootStore`) rather than Room, so a backup restored onto another phone cannot hand it a dead
+  address; no schema migration
+- [x] 4.6 `NotificationHelper.showRemoteMotionAlert` posts on the existing motion channel (high importance,
+  public visibility) naming the camera and stamped with the alert time, tapping opens the app, and ids come
+  from `20000 + masked camera-name hash` so a relayed alert can neither overwrite a local event notification
+  (those stay `≤ 13999`) nor be drowned by a burst
+- [x] 4.7 `BootReceiver` re-registers after a reboot when the receiver flag is on, through the distributor
+  the user already acknowledged, beside the existing autostart path
+- [x] 4.8 Hilt bindings for the store, registrar and presenter seams (`BindsModule`); registration stays
+  opt-in, so `EntryRecorderApp` is untouched
+- [x] 4.9 Device-free tests for the receiving path: `RemoteMotionAlertHandlerTest` (contract round trip and
+  every drop rule), `MotionAlertPushViewModelTest` (opt-in registers, opt-out unregisters and clears,
+  distributor and encrypted states surface)
+
 ## 7. Verification
 
-- [ ] 7.1 `./gradlew compileDebugKotlin` and `:app:assembleDebug` green with the connector in place, plus
-  `:app:processDebugMainManifest` read for the new service
+- [x] 7.1 `./gradlew compileDebugKotlin` and `:app:assembleDebug` green (2026-10-30) with the connector in
+  place, plus `:app:processDebugMainManifest` read for the new service
 - [ ] 7.2 `./gradlew :app:testDebugUnitTest` and `:app:lintDebug` green — baseline is 42 suites / 296 tests /
   0 failures, so any delta must be new passing tests
 - [ ] 7.3 On-device with two phones: a distributor installed (ntfy or UnifiedPush.Fyi) on the receiving
@@ -57,6 +86,6 @@
 
 ## Workflow follow-up
 
-- Groups 4 to 6 (receiving path, settings UI, delivery-vs-link-loss) are the work this decision unlocked;
-  they land as the code lands.
+- Groups 5 and 6 (settings UI, delivery-vs-link-loss) are the work this decision unlocked; they land as the
+  code lands.
 - Do not archive until 7.3 and 7.4 pass on hardware; 2.3 stays open behind Ask-First.

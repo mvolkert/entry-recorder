@@ -12,6 +12,7 @@ import android.media.RingtoneManager
 import androidx.core.app.NotificationCompat
 import io.github.mvolkert.entryrecorder.R
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
+import io.github.mvolkert.entryrecorder.domain.alert.RemoteMotionAlert
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.service.IntercomMonitorService
@@ -43,6 +44,12 @@ object NotificationHelper {
 
     private fun eventNotificationId(slot: Int, deviceId: Long): Int =
         FIRST_EVENT_NOTIFICATION_ID + (deviceId % 1000L * 4L + slot).toInt()
+
+    // A relayed alert (change `add-motion-notification-to-other-phone`) belongs to a camera this phone has no
+    // row for, so it is keyed on the sender's name instead of a device id. Its own base keeps it clear of the
+    // event range above, whose highest id is FIRST_EVENT_NOTIFICATION_ID + 999 * 4 + 3.
+    private const val FIRST_REMOTE_MOTION_NOTIFICATION_ID = 20000
+    private const val REMOTE_MOTION_ID_MASK = 0x3FFF
 
     fun createNotificationChannels(context: Context) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -230,6 +237,48 @@ object NotificationHelper {
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(eventNotificationId(SLOT_MOTION, device.id), notification)
+    }
+
+    /**
+     * Shows a motion alert that another phone detected and the Python server relayed here (change
+     * `add-motion-notification-to-other-phone`). Reuses the motion channel, so the second phone rings with the
+     * same importance the monitoring phone already uses and the lockscreen preview stays public.
+     *
+     * The content intent opens the dashboard rather than a device screen: this phone has no local row for the
+     * camera that fired, so there is no device id worth deep-linking to. One row per camera name, because a
+     * relayed burst from the same camera should replace its own notice instead of piling up.
+     */
+    fun showRemoteMotionAlert(context: Context, alert: RemoteMotionAlert) {
+        val id = FIRST_REMOTE_MOTION_NOTIFICATION_ID + (alert.deviceName.hashCode() and REMOTE_MOTION_ID_MASK)
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context, id, intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val body = if (alert.monitorName.isNotBlank()) {
+            context.getString(R.string.notif_remote_motion_body, alert.monitorName)
+        } else {
+            context.getString(R.string.notif_remote_motion_body_unattributed)
+        }
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_MOTION)
+            .setContentTitle(context.getString(R.string.notif_remote_motion_title, alert.deviceName))
+            .setContentText(body)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_EVENT)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setWhen(alert.timestampMs)
+            .setShowWhen(true)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(id, notification)
     }
 
     fun showNoiseNotification(context: Context, device: Device) {
