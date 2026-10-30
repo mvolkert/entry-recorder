@@ -20,6 +20,9 @@ import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.domain.triggers.TriggerCoordinator
 import io.github.mvolkert.entryrecorder.notification.NotificationHelper
 import io.github.mvolkert.entryrecorder.sip.SipCallManager
+import io.github.mvolkert.entryrecorder.util.BatteryExemptionNotice
+import io.github.mvolkert.entryrecorder.util.BatteryExemptionReport
+import io.github.mvolkert.entryrecorder.util.BatteryOptimizationProbe
 import io.github.mvolkert.entryrecorder.video.RecorderEvent
 import io.github.mvolkert.entryrecorder.video.RecordingController
 import javax.inject.Inject
@@ -54,10 +57,11 @@ class IntercomMonitorService : Service(), IntercomEventListener {
      * is read from two classes.
      */
     private val lockKeeper: MonitorLockKeeper by lazy {
-        MonitorLockKeeper(this, serviceScope) {
-            // The order the release check used to test: a pending stop first, then a running local recording.
-            episodeRunner.hasPendingStops || pool.anyRecordingLocally()
-        }
+        MonitorLockKeeper(
+            controller = AndroidLockController(this),
+            scope = serviceScope,
+            reasons = { currentLockReasons() },
+        )
     }
 
     private val episodeRunner: TriggerEpisodeRunner by lazy {
@@ -118,7 +122,12 @@ class IntercomMonitorService : Service(), IntercomEventListener {
     @Inject lateinit var monitorStatusRegistry: MonitorStatusRegistry
     @Inject lateinit var callScreenLauncher: CallScreenLauncher
     @Inject lateinit var motionAlertTransport: MotionAlertTransport
+    @Inject lateinit var batteryOptimization: BatteryOptimizationProbe
     @Inject @IoDispatcher lateinit var ioDispatcher: CoroutineDispatcher
+
+    // Remembers the last exemption state the monitor reported, so a phone that is not exempt warns once
+    // instead of on every device-list emission.
+    private val batteryExemptionReport = BatteryExemptionReport()
 
     override fun onCreate() {
         super.onCreate()
@@ -140,8 +149,8 @@ class IntercomMonitorService : Service(), IntercomEventListener {
             startForeground(NotificationHelper.NOTIFICATION_ID_SERVICE, serviceNotification)
         }
 
-        // The locks stay unheld while monitoring is idle — a trigger or a keepLocksHeld device acquires
-        // them below — so nothing is taken here at service start.
+        // The locks stay unheld while nothing needs them: a trigger, a running clip, a keepLocksHeld device or a
+        // polling motion analyzer acquires them below, and every acquire is bounded by its own renewal.
 
         // Initialize SIP engine
         sipManager.initialize()
@@ -179,6 +188,17 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         return START_STICKY
     }
 
+    /**
+     * The facts that may keep the CPU and radio awake, each read from the class that owns it. Both the hold and
+     * the release path go through here, so an analyzer that is polling cannot be released out from under.
+     */
+    private fun currentLockReasons(): Set<LockReason> = LockHoldPolicy.reasonsFor(
+        pendingPostRecordStop = episodeRunner.hasPendingStops,
+        localRecording = pool.anyRecordingLocally(),
+        keepLocksHeldDevice = pool.keepLocksHeldRequested(),
+        motionAnalyzerRunning = pool.anyAnalyzerRunning(),
+    )
+
     private suspend fun updateMonitoredDevices(enabledDevices: List<Device>) = withContext(ioDispatcher) {
         pool.sync(enabledDevices)
 
@@ -188,9 +208,23 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         // to what should still be live.
         sipManager.synchronizeDevices(enabledDevices)
 
-        // Lock policy follows the device list: one keepLocksHeld device wins and holds through idle;
-        // when the last of them goes away, anything still held is released once nothing records.
-        lockKeeper.setHoldThroughIdle(enabledDevices.any { it.keepLocksHeld })
+        // The exemption decides whether the hold below can do any good: on a phone that is subject to
+        // battery optimization, Doze can suspend the snapshot polling the detection depends on. Reported on the
+        // change of state only, and never asked for: the app takes no battery-optimization permission.
+        when (batteryExemptionReport.noticeFor(batteryOptimization.isIgnoringOptimizations())) {
+            BatteryExemptionNotice.NotExempt -> Timber.tag(tag).w(
+                "Battery optimization is active: Doze can suspend snapshot polling, so in-app motion " +
+                    "detection may miss events. Exempt the app in system settings if this phone is a detector."
+            )
+            BatteryExemptionNotice.NowExempt -> Timber.tag(tag).i(
+                "Battery optimization exemption granted: snapshot polling keeps running with the screen off"
+            )
+            BatteryExemptionNotice.None -> Unit
+        }
+
+        // Lock policy follows the reasons the monitor owns: a running analyzer, a pending post-record stop, a
+        // local clip or a keepLocksHeld device each holds the pair, and the last of them releasing drops it.
+        lockKeeper.reconcile()
 
         // Re-adopt any server recordings that were running when the process died, so a reboot still shows
         // REC and auto-stops a job this client started. Idempotent, so the repeated device-list emissions

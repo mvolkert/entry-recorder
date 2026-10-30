@@ -18,6 +18,8 @@ import io.github.mvolkert.entryrecorder.push.UnifiedPushMotionAlertRegistrar
 import io.github.mvolkert.entryrecorder.sip.SipCallManager
 import io.github.mvolkert.entryrecorder.sip.SipRegistrar
 import io.github.mvolkert.entryrecorder.ui.incoming.IncomingCallLauncher
+import io.github.mvolkert.entryrecorder.util.AndroidBatteryOptimizationProbe
+import io.github.mvolkert.entryrecorder.util.BatteryOptimizationProbe
 import io.github.mvolkert.entryrecorder.video.ExportTranscoder
 import io.github.mvolkert.entryrecorder.video.H264Transcoder
 import io.github.mvolkert.entryrecorder.video.RecordingController
@@ -74,4 +76,10 @@ abstract class BindsModule {
     @Binds
     @Singleton
     abstract fun bindRemoteMotionAlertPresenter(impl: RemoteMotionAlertNotifier): RemoteMotionAlertPresenter
+
+    // The battery-exemption question the monitor logs and the first-run page asks, so the PowerManager read
+    // exists once instead of in whichever class happens to hold a Context.
+    @Binds
+    @Singleton
+    abstract fun bindBatteryOptimizationProbe(impl: AndroidBatteryOptimizationProbe): BatteryOptimizationProbe
 }

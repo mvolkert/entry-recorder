@@ -35,6 +35,7 @@ import io.github.mvolkert.entryrecorder.ui.onboarding.PermissionChecker
 import io.github.mvolkert.entryrecorder.util.AndroidExportGateway
 import io.github.mvolkert.entryrecorder.util.AndroidUiStrings
 import io.github.mvolkert.entryrecorder.util.AppStorageDirs
+import io.github.mvolkert.entryrecorder.util.BatteryOptimizationProbe
 import io.github.mvolkert.entryrecorder.util.ExportGateway
 import io.github.mvolkert.entryrecorder.util.TRANSCODE_DIR_NAME
 import io.github.mvolkert.entryrecorder.util.UiStrings
@@ -127,7 +128,8 @@ object AppModule {
     fun providePermissionChecker(
         @ApplicationContext context: Context,
         store: OnboardingStore,
-    ): PermissionChecker = AndroidPermissionChecker(context, store)
+        batteryOptimizationProbe: BatteryOptimizationProbe,
+    ): PermissionChecker = AndroidPermissionChecker(context, store, batteryOptimizationProbe)
 
     /** The "clean up now" button, behind the one method the settings ViewModel calls. */
     @Provides

@@ -4,10 +4,10 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
-import android.os.PowerManager
 import androidx.core.content.ContextCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.mvolkert.entryrecorder.data.local.prefs.OnboardingStore
+import io.github.mvolkert.entryrecorder.util.BatteryOptimizationProbe
 import javax.inject.Inject
 
 /**
@@ -31,10 +31,11 @@ interface PermissionChecker {
     fun recordAsk(permission: OnboardingPermission)
 }
 
-/** Device-backed [PermissionChecker] over the application context and the flow's own ask counter. */
+/** Device-backed [PermissionChecker] over the application context, the flow's own ask counter and the exemption probe. */
 class AndroidPermissionChecker @Inject constructor(
     @ApplicationContext private val context: Context,
     private val store: OnboardingStore,
+    private val batteryOptimizationProbe: BatteryOptimizationProbe,
 ) : PermissionChecker {
 
     override fun supportsNotifications(): Boolean =
@@ -53,12 +54,8 @@ class AndroidPermissionChecker @Inject constructor(
         }
     }
 
-    override fun isBatteryExempt(): Boolean {
-        // No power service means nothing to exempt, so the page answers "already done" rather than
-        // offering a settings screen that does not exist here.
-        val power = context.getSystemService(PowerManager::class.java) ?: return true
-        return power.isIgnoringBatteryOptimizations(context.packageName)
-    }
+    // The same read the always-on monitor reports, so the page and the log can never disagree about the exemption.
+    override fun isBatteryExempt(): Boolean = batteryOptimizationProbe.isIgnoringOptimizations()
 
     // The inlined name is a compile-time string, and it only ever reaches a launcher on a device that has the
     // permission: below 33 [supportsNotifications] keeps the notifications page out of the flow entirely.

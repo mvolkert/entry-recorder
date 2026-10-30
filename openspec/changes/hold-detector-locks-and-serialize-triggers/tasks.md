@@ -16,33 +16,33 @@
 
 ## 2. Lock hold reasons, timed acquire and renewal
 
-- [ ] 2.1 Expose `DeviceMonitorPool.anyAnalyzerRunning(): Boolean` from `activeMotionAnalyzers.isNotEmpty()`;
+- [x] 2.1 Expose `DeviceMonitorPool.anyAnalyzerRunning(): Boolean` from `activeMotionAnalyzers.isNotEmpty()`;
   verify by reading it in the new lock-reconcile call site (2.3) and with the unit test added there
-- [ ] 2.2 Extract the Android lock mechanics behind a `service/LockController` seam (non-ref-counted
+- [x] 2.2 Extract the Android lock mechanics behind a `service/LockController` seam (non-ref-counted
   `acquire(timeoutMs)` / `release()` / `isHeld` for the wake and Wi-Fi pair) with a PowerManager/WifiManager-backed
   implementation, and move the hold decision into a pure policy that takes the reason set; verify `MonitorLockKeeper`
   no longer calls any Android lock type directly
-- [ ] 2.3 Give `MonitorLockKeeper` one combined reason supplier (pending post-record stop, local recording,
+- [x] 2.3 Give `MonitorLockKeeper` one combined reason supplier (pending post-record stop, local recording,
   `keepLocksHeld`, analyzer running) replacing `continuousHold` plus `workOutstanding`, and add the renewal job that
   re-acquires every 5 minutes while a reason holds and calls `releaseIfIdle()` when none does; verify with a new
   `MonitorLockKeeperTest` using a fake `LockController` and a fake reason supplier that asserts: an analyzer running
   alone acquires both locks with the timeout value, the last reason releasing releases both, renewal re-acquires
   without a release in between, and renewal stops when the reason goes away
-- [ ] 2.4 Wire `IntercomMonitorService.updateMonitoredDevices` to pass the supplier including
+- [x] 2.4 Wire `IntercomMonitorService.updateMonitoredDevices` to pass the supplier including
   `pool.anyAnalyzerRunning()`, keeping the per-trigger `holdFor(durationMs)` path on the same timed acquire; verify
   `./gradlew compileDebugKotlin :app:testDebugUnitTest` green and confirm the camera-event-only case (no analyzer, no
   `keepLocksHeld`) still acquires nothing at idle
 
 ## 3. Battery-optimization diagnostic
 
-- [ ] 3.1 Add `util/BatteryOptimizationProbe` (interface) with a PowerManager-backed implementation bound in
+- [x] 3.1 Add `util/BatteryOptimizationProbe` (interface) with a PowerManager-backed implementation bound in
   `di/BindsModule`, and make `AndroidPermissionChecker.isBatteryExempt()` delegate to it so the platform read exists
   once; verify `./gradlew compileDebugKotlin` and that the onboarding Battery page still resolves the same state
-- [ ] 3.2 Add a pure `BatteryExemptionReport` decision (no change / warn / info from last and current exemption)
+- [x] 3.2 Add a pure `BatteryExemptionReport` decision (no change / warn / info from last and current exemption)
   with a unit test covering first-read-not-exempt → warn, unchanged → no line, exempt → info once, and
   not-exempt-after-exempt → warn again; verify with
   `./gradlew :app:testDebugUnitTest --tests "*BatteryExemptionReport*"`
-- [ ] 3.3 Call the probe and log the decision in the device-list reconcile using the service's own monitor tag,
+- [x] 3.3 Call the probe and log the decision in the device-list reconcile using the service's own monitor tag,
   naming the consequence for detection and never a credential or password; verify `./gradlew compileDebugKotlin` and
   that a WARN appears at most once per change of state
 
@@ -64,7 +64,7 @@
 
 ## 5. Integration verification
 
-- [ ] 5.1 Run `./gradlew compileDebugKotlin`, `./gradlew testDebugUnitTest` and `./gradlew lintDebug` from the
+- [x] 5.1 Run `./gradlew compileDebugKotlin`, `./gradlew testDebugUnitTest` and `./gradlew lintDebug` from the
   project root and fix every warning introduced; record the test totals in the commit body
 - [ ] 5.2 On-device gate (blocks archive, Verso + screen off): with one device set to in-app motion analysis, leave
   the phone idle with the screen off for 30+ minutes, confirm the analyzer's per-minute health line keeps reporting
