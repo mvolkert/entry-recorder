@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     # default for local/LAN deployments. Certificates are supplied by the deployment, never shipped here.
     SSL_CERTFILE: str = os.environ.get("SSL_CERTFILE", "")
     SSL_KEYFILE: str = os.environ.get("SSL_KEYFILE", "")
+    # Motion-alert relay (change `add-motion-notification-to-other-phone`): the recipient's push endpoint is
+    # caller-supplied, so it is validated before the server posts to it. Off by default means https-only and
+    # no private/loopback/link-local targets; set this only for a self-hosted distributor on the LAN.
+    ALLOW_INSECURE_PUSH_ENDPOINTS: bool = False
     DATA_DIR: Path = Path(os.environ.get("DATA_DIR", "./data"))
     API_KEY: str = os.environ.get("API_KEY", "")  # Optional API key for security
     RETENTION_DAYS: int = 14

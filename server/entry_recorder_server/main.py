@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import APIKeyHeader
+from fastapi.concurrency import run_in_threadpool
 
 from .config import settings
 from .database import (
@@ -41,6 +42,14 @@ from .models import (
 )
 from .recorder import recorder
 from .live import stream_mjpeg, stream_mjpeg_snapshot, MJPEG_CONTENT_TYPE
+from .alert_relay import (
+    PushDeliveryError,
+    build_alert_body,
+    motion_alert_payload,
+    post_to_endpoint,
+    redact_endpoint,
+    validate_push_endpoint,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -320,13 +329,40 @@ async def relay_motion_alert(
     _key: Optional[str] = Depends(verify_api_key)
 ):
     # Motion-alert relay (change `add-motion-notification-to-other-phone`): the monitoring phone hands the
-    # server a detected-motion event so the server can reach the recipient behind NAT. The server accepts and
-    # dispatches it; actually landing a notification on the other phone is the on-device gate (task 3.2).
-    logger.info(
-        "Relaying motion alert from %s to recipient %s (timestamp_ms=%d)",
-        req.device_name, req.recipient, req.timestamp_ms,
+    # server a detected-motion event and the server posts it to the recipient's UnifiedPush endpoint, so the
+    # phone keeps the server as its only outbound destination.
+    # The endpoint is caller-supplied and carries a bearer token: validate it before dialing (it is an SSRF
+    # surface) and never log or echo more than scheme + host.
+    decision = validate_push_endpoint(
+        req.recipient, allow_insecure=settings.ALLOW_INSECURE_PUSH_ENDPOINTS
     )
-    return {"status": "relayed", "recipient": req.recipient, "device_name": req.device_name}
+    if not decision.allowed:
+        logger.warning(
+            "Motion alert for %s refused: %s endpoint was rejected",
+            req.device_name, decision.reason.value,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Recipient is not an acceptable push endpoint ({decision.reason.value}).",
+        )
+
+    body = build_alert_body(
+        motion_alert_payload(req.device_name, req.timestamp_ms, req.monitor_name or "")
+    )
+    try:
+        # Blocking POST, kept off the event loop by the threadpool.
+        await run_in_threadpool(post_to_endpoint, req.recipient, body)
+    except PushDeliveryError as exc:
+        logger.warning("Motion alert to %s was not delivered: %s", redact_endpoint(req.recipient), exc)
+        # 502, not 200: the client logs the missed delivery. It is still a valid HTTP answer from this
+        # server, so the app must not read it as the server being down.
+        raise HTTPException(status_code=502, detail="push endpoint rejected the alert")
+
+    logger.info(
+        "Relayed motion alert from %s to %s (timestamp_ms=%d)",
+        req.device_name, redact_endpoint(req.recipient), req.timestamp_ms,
+    )
+    return {"status": "delivered", "recipient_host": redact_endpoint(req.recipient)}
 
 def _to_device_response(d: dict) -> DeviceResponse:
     return DeviceResponse(

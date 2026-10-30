@@ -25,10 +25,14 @@ class StopRecordingRequest(BaseModel):
 
 class MotionAlertRequest(BaseModel):
     """Body of `POST /api/alerts/relay` (change `add-motion-notification-to-other-phone`): one detected-motion
-    event to relay to a configured remote phone behind NAT, so the client needs no new push dependency."""
-    recipient: str = Field(..., description="Identifier of the remote phone to reach")
+    event that the server delivers to the recipient's UnifiedPush endpoint, so the push address is held by the
+    monitoring phone and the phone never dials a second destination itself."""
+    recipient: str = Field(..., description="UnifiedPush endpoint URL of the remote phone to reach")
     device_name: str = Field(..., description="Camera that detected the motion")
     timestamp_ms: int = Field(..., description="Epoch milliseconds of the detection")
+    monitor_name: Optional[str] = Field(
+        None, description="Optional label of the monitoring device, shown as the alert's origin"
+    )
 
 class RecordingResponse(BaseModel):
     id: int
