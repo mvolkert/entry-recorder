@@ -70,22 +70,44 @@
   every drop rule), `MotionAlertPushViewModelTest` (opt-in registers, opt-out unregisters and clears,
   distributor and encrypted states surface)
 
+## 5. Settings UI
+
+- [x] 5.1 The sender field asks for the other phone's alert address, validates it inline as a usable
+  absolute URL and says so before the user ever relies on a trigger
+- [x] 5.2 Receiver section on the engine card: the "receive motion alerts on this phone" switch, the
+  no-distributor message, the copyable address with a copy action, and the distributor-cannot-receive-relay
+  state for encrypted delivery
+- [ ] 5.3 On-device: copy the address on the receiving phone, paste it on the monitoring phone and confirm
+  the pair works
+
+## 6. Missed delivery is not a lost connection
+
+- [x] 6.1 `ServerRecordingClient.relayMotionAlert` feeds the shared `PythonServerLink` clock like every
+  other server call, so any HTTP answer reports the server reachable and only a transport error can open an
+  outage (`PythonServerLinkTest` pins the `502` case next to the existing `500` case)
+- [x] 6.2 `TriggerEpisodeRunner` no longer turns every transport failure into a `python-server lost` line:
+  a failed relay logs a `MotionAlertDelivery` warning that names the camera and the recipient's origin, and
+  `MotionAlertDeliveryTest` pins that the word "lost", the server label and the bearer token never appear
+- [x] 6.3 The recipient is redacted as a bearer secret: `AppSettings.toString()` collapses it (pinned in
+  `AppSettingsRedactionTest`) and the settings/server log lines carry only scheme + host
+- [ ] 6.4 On-device: with a dead distributor the relay answers `502`, the monitor logs a missed delivery and
+  no connection-loss line is written
+
 ## 7. Verification
 
 - [x] 7.1 `./gradlew compileDebugKotlin` and `:app:assembleDebug` green (2026-10-30) with the connector in
   place, plus `:app:processDebugMainManifest` read for the new service
-- [ ] 7.2 `./gradlew :app:testDebugUnitTest` and `:app:lintDebug` green — baseline is 42 suites / 296 tests /
-  0 failures, so any delta must be new passing tests
+- [x] 7.2 `./gradlew :app:testDebugUnitTest` green (2026-10-30): 45 suites / 318 tests / 0 failures, up from
+  the 42 / 296 baseline — the delta is the three new suites plus the `502`-is-not-a-lost-link and recipient
+  redaction cases added to the existing ones
 - [ ] 7.3 On-device with two phones: a distributor installed (ntfy or UnifiedPush.Fyi) on the receiving
   phone, motion triggered on the monitoring phone, and the remote notification observed arriving. This is
   the gate the old 3.2 worded as "confirm the remote notification arrives"; it cannot pass without physical
   phones and stays open
 - [ ] 7.4 On-device: the same alert against a distributor that is installed but not reachable answers `502`
-  and is logged as a missed delivery
-- [ ] 7.5 `openspec validate add-motion-notification-to-other-phone` passes
+  and is logged as a missed delivery (see 6.4)
+- [x] 7.5 `openspec validate add-motion-notification-to-other-phone` passes
 
 ## Workflow follow-up
 
-- Groups 5 and 6 (settings UI, delivery-vs-link-loss) are the work this decision unlocked; they land as the
-  code lands.
-- Do not archive until 7.3 and 7.4 pass on hardware; 2.3 stays open behind Ask-First.
+- Do not archive until 5.3, 6.4, 7.3 and 7.4 pass on hardware; 2.3 stays open behind Ask-First.

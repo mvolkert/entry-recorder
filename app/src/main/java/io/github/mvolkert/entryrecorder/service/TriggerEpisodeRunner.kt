@@ -6,13 +6,12 @@ import io.github.mvolkert.entryrecorder.data.model.EventType
 import io.github.mvolkert.entryrecorder.data.model.MonitorStatus
 import io.github.mvolkert.entryrecorder.data.repository.IntercomRepository
 import io.github.mvolkert.entryrecorder.domain.alert.MotionAlert
+import io.github.mvolkert.entryrecorder.domain.alert.MotionAlertDelivery
 import io.github.mvolkert.entryrecorder.domain.alert.MotionAlertTransport
 import io.github.mvolkert.entryrecorder.domain.call.CallScreenLauncher
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.domain.triggers.TriggerCoordinator
 import io.github.mvolkert.entryrecorder.notification.NotificationHelper
-import io.github.mvolkert.entryrecorder.util.ConnectionLog
-import io.github.mvolkert.entryrecorder.util.ConnectionSource
 import io.github.mvolkert.entryrecorder.video.PreRollFrame
 import io.github.mvolkert.entryrecorder.video.RecordingController
 import java.util.concurrent.ConcurrentHashMap
@@ -141,6 +140,12 @@ class TriggerEpisodeRunner(
      * recording/notification path that follows it, and a delivery failure only logs (the recipient receiving
      * it is the device gate). Gated on the persisted settings so an unset recipient or the disabled flag
      * sends nothing.
+     *
+     * What it logs is deliberately not a connection-loss line: whether the python server is reachable is
+     * decided by the transport's own shared clock, which counts a transport failure only. An HTTP answer —
+     * 400 for an address the server refuses to dial, 502 for a push distributor that rejected the alert —
+     * came from a live server, so this reports the failed delivery of this one alert. The recipient is a
+     * bearer address, so only its origin is named.
      */
     private fun relayMotionAlertToRemote(device: Device) {
         scope.launch {
@@ -154,10 +159,8 @@ class TriggerEpisodeRunner(
                     deviceName = device.name,
                     timestampMs = System.currentTimeMillis(),
                 )
-            ).onFailure {
-                // Same python-server wording as the control-plane client, so grepping the stream finds every
-                // link to the server in one place. Fire-and-forget: a failed push never touches the local path.
-                Timber.tag(tag).w(ConnectionLog.lost(ConnectionSource.PythonServer, settings.serverBaseUrl, it.message ?: "motion alert delivery failed"))
+            ).onFailure { cause ->
+                Timber.tag(tag).w(MotionAlertDelivery.failure(device.name, settings.motionAlertRecipient, cause))
             }
         }
     }

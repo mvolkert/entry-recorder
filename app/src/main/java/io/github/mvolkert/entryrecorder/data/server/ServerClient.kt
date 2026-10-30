@@ -97,8 +97,14 @@ interface ServerClient {
 
     /**
      * Relays a detected-motion alert for [deviceName] to [recipient] through the server
-     * (`POST /api/alerts/relay`, change `add-motion-notification-to-other-phone`). The server is the relay so
-     * it works behind NAT with no new client library; delivery to the other phone itself is the on-device gate.
+     * (`POST /api/alerts/relay`, change `add-motion-notification-to-other-phone`). [recipient] is the target
+     * phone's UnifiedPush address, which the server POSTs the alert body to — the phone keeps the server as its
+     * only outbound destination.
+     *
+     * A failed [Result] distinguishes two things by its exception type: an [java.io.IOException] is the server
+     * not being reachable, while an HTTP status in the message (400 for an address the server will not dial,
+     * 502 for a push distributor that rejected the alert) means the server answered and the alert was not
+     * delivered. Only the first says anything about the link.
      */
     suspend fun relayMotionAlert(
         serverUrl: String,

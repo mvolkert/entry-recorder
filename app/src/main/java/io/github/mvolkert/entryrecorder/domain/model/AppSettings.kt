@@ -27,7 +27,8 @@ data class AppSettings(
     val themeUseDynamicColor: Boolean = false,
     val autoBootEnabled: Boolean = true,
     // Remote motion alert (change `add-motion-notification-to-other-phone`): when enabled and a recipient is
-    // set, a detected motion event is relayed through the Python server to one other phone. Off by default.
+    // set, a detected motion event is relayed through the Python server to one other phone. The recipient is
+    // that phone's UnifiedPush address — a bearer URL, which is why [toString] collapses it. Off by default.
     val motionAlertEnabled: Boolean = false,
     val motionAlertRecipient: String = "",
     // File logging (change `add-timber-file-logging`): when on, a Timber FileTree is planted and appends the
@@ -38,6 +39,9 @@ data class AppSettings(
      * Diagnostic form, mirroring [io.github.mvolkert.entryrecorder.domain.model.Device]’s: replaces the data-class
      * `toString()`, which would print the decrypted `serverApiKey` in clear wherever a settings row is
      * interpolated into a log — the one secret this change’s file capture could otherwise leak.
+     *
+     * `motionAlertRecipient` is redacted for the same reason since the motion-alert change made it a UnifiedPush
+     * endpoint: whoever holds that URL can push a notification to the phone, and the token rides in its path.
      */
     override fun toString(): String = buildString {
         append("AppSettings(recordingMode=$recordingMode, serverBaseUrl=$serverBaseUrl")
@@ -49,7 +53,7 @@ data class AppSettings(
         append(", themeSecondaryIndex=$themeSecondaryIndex, themeTertiaryIndex=$themeTertiaryIndex")
         append(", themeMode=$themeMode, themeUseDynamicColor=$themeUseDynamicColor")
         append(", autoBootEnabled=$autoBootEnabled, motionAlertEnabled=$motionAlertEnabled")
-        append(", motionAlertRecipient=$motionAlertRecipient, loggingToFileEnabled=$loggingToFileEnabled)")
+        append(", motionAlertRecipient=$REDACTED, loggingToFileEnabled=$loggingToFileEnabled)")
     }
 
     companion object {
@@ -61,7 +65,7 @@ data class AppSettings(
         const val DEFAULT_INTERNAL_QUOTA_MB = 10_240L
         const val DEFAULT_EXTERNAL_QUOTA_MB = 20_480L
 
-        /** Placeholder the one credential field collapses to in [toString]. */
+        /** Placeholder the credential fields collapse to in [toString]. */
         private const val REDACTED = "<redacted>"
     }
 }

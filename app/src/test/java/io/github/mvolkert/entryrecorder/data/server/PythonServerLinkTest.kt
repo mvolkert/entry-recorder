@@ -67,6 +67,18 @@ class PythonServerLinkTest {
     }
 
     @Test
+    fun `a relay the push distributor refused is not a lost link either`() {
+        val link = PythonServerLink()
+        // `POST /api/alerts/relay` answers 502 when the recipient's distributor rejected the alert. The server
+        // replied, so the server is up; declaring it lost here would contradict the transport-only rule.
+        val relayCall = "http://192.168.1.5:8000/api/alerts/relay"
+        val refused = Exception("HTTP 502: push endpoint rejected the alert")
+        assertEquals(ConnectionEdge.None, link.reportFailure(relayCall, refused))
+        // The same call losing its transport on the next trigger still counts as a loss.
+        assertEquals(ConnectionEdge.Lost("connect failed"), link.reportFailure(relayCall, IOException("connect failed")))
+    }
+
+    @Test
     fun `a second server keeps its own clock`() {
         val link = PythonServerLink()
         val otherServer = "http://192.168.1.9:8000/api/status"

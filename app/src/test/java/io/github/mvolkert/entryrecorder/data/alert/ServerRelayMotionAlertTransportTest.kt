@@ -17,7 +17,7 @@ class ServerRelayMotionAlertTransportTest {
     private val alert = MotionAlert(
         serverBaseUrl = "http://192.168.1.50:8000",
         apiKey = "secret",
-        recipient = "pixel-andre",
+        recipient = "https://ntfy.sh/push-secret-token",
         deviceName = "Front Door",
         timestampMs = 1_700_000_000_000L,
     )

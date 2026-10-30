@@ -10,6 +10,7 @@ import io.github.mvolkert.entryrecorder.di.ControlClient
 import io.github.mvolkert.entryrecorder.di.IoDispatcher
 import io.github.mvolkert.entryrecorder.di.StreamClient
 import io.github.mvolkert.entryrecorder.data.network.withCancellableResponse
+import io.github.mvolkert.entryrecorder.util.redactBearerUrl
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -480,8 +481,15 @@ class ServerRecordingClient @Inject constructor(
 
     /**
      * `POST /api/alerts/relay` (change `add-motion-notification-to-other-phone`): hand the server a motion
-     * alert for [deviceName] addressed to [recipient]. Fire-and-report: a failure is returned, never thrown
-     * (cancellation aside), so the monitor loop keeps running when the relay endpoint is unreachable.
+     * alert for [deviceName] addressed to [recipient], the target phone's push endpoint. Fire-and-report: a
+     * failure is returned, never thrown (cancellation aside), so the monitor loop keeps running when the relay
+     * endpoint is unreachable.
+     *
+     * Like every other call here it feeds the shared [PythonServerLink] clock, which is what keeps the two
+     * failure kinds apart: any HTTP answer — 400 for an address the server refuses to dial, 502 for a push
+     * distributor that rejected the alert — reports the server reachable, and only a connect/timeout/unknown-host
+     * [java.io.IOException] may announce a lost link. The caller must therefore not read a 502 as this server
+     * being down; it means the alert was not delivered.
      */
     override suspend fun relayMotionAlert(
         serverUrl: String,
@@ -504,6 +512,7 @@ class ServerRecordingClient @Inject constructor(
                 .withApiKey(apiKey)
                 .build()
             client.withCancellableResponse(request) { response ->
+                serverLink.reportReachable(serverUrl)
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
@@ -513,7 +522,10 @@ class ServerRecordingClient @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Timber.tag(tag).e(e, "Relaying motion alert to $recipient for $deviceName failed")
+            serverLink.reportFailure(serverUrl, e)
+            // The recipient is a bearer address: its path carries the token that lets the holder push to the
+            // recipient's phone, so only its origin is safe to name in a log line.
+            Timber.tag(tag).e(e, "Relaying motion alert for $deviceName to ${redactBearerUrl(recipient)} failed")
             Result.failure(e)
         }
     }

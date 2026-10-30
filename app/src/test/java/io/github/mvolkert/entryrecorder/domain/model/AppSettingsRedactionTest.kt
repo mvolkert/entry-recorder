@@ -41,6 +41,22 @@ class AppSettingsRedactionTest {
     }
 
     @Test
+    fun `a logged settings row never carries the motion alert address in clear`() {
+        // The recipient became a UnifiedPush endpoint, so its path is the bearer token: whoever reads the log
+        // could push to that phone. The flag next to it stays printed, since "alerts are on" is a diagnostic.
+        val token = "secret-subscriber-path"
+        val logged = AppSettings(
+            motionAlertEnabled = true,
+            motionAlertRecipient = "https://ntfy.sh/$token",
+        ).toString()
+
+        assertFalse("the endpoint token must not be logged", logged.contains(token))
+        assertFalse(logged.contains("ntfy.sh"))
+        assertTrue(logged.contains("<redacted>"))
+        assertTrue("the flag itself stays readable", logged.contains("motionAlertEnabled=true"))
+    }
+
+    @Test
     fun `the file-logging flag is off by default so capture never starts silently`() {
         // A fresh settings row must default to no file capture; the toggle is opt-in.
         assertFalse(AppSettings().loggingToFileEnabled)

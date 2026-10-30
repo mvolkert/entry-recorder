@@ -1,5 +1,7 @@
 package io.github.mvolkert.entryrecorder.ui.settings
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.WifiTethering
@@ -21,19 +24,25 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import io.github.mvolkert.entryrecorder.R
+import io.github.mvolkert.entryrecorder.domain.alert.MotionAlertPushState
 import io.github.mvolkert.entryrecorder.domain.model.AppSettings
 import io.github.mvolkert.entryrecorder.data.model.RecordingMode
+import io.github.mvolkert.entryrecorder.ui.LocalAppSnackbar
 import io.github.mvolkert.entryrecorder.ui.components.LoadingSpinner
+import io.github.mvolkert.entryrecorder.ui.showMessage
 import io.github.mvolkert.entryrecorder.ui.components.filterChipLeadingIcon
 import io.github.mvolkert.entryrecorder.ui.theme.Spacing
 import io.github.mvolkert.entryrecorder.util.FileLoggingPlanter
 import java.io.File
+import kotlinx.coroutines.launch
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
  * Where recordings are captured: on the phone or on the Python server, plus the server endpoint
@@ -45,7 +54,12 @@ internal fun SettingsEngineCard(
     onSettingsChange: (AppSettings) -> Unit,
     isTestingServer: Boolean,
     onTestServer: () -> Unit,
+    // Receiver state for the same feature, from MotionAlertPushViewModel: this phone can be the one that gets
+    // alerted as well as the one that sends, and the two are configured on different screens.
+    pushState: MotionAlertPushState,
+    onReceiveToggle: (Boolean) -> Unit,
 ) {
+    val context = LocalContext.current
     SettingsCard {
         Text(stringResource(R.string.settings_mode_question))
 
@@ -139,13 +153,83 @@ internal fun SettingsEngineCard(
             onCheckedChange = { onSettingsChange(settings.copy(motionAlertEnabled = it)) },
         )
         if (settings.motionAlertEnabled) {
+            // The recipient is now the other phone's push address, so a typo is caught here rather than at the
+            // moment a motion event needs it: the server rejects a non-https target, and an alert that never
+            // arrives is otherwise indistinguishable from a camera that saw nothing.
+            val address = settings.motionAlertRecipient
+            val addressUsable = address.isBlank() || isPushAddress(address)
             OutlinedTextField(
-                value = settings.motionAlertRecipient,
+                value = address,
                 onValueChange = { onSettingsChange(settings.copy(motionAlertRecipient = it)) },
                 label = { Text(stringResource(R.string.settings_motion_alert_recipient_label)) },
+                supportingText = {
+                    Text(
+                        text = stringResource(
+                            if (addressUsable) R.string.settings_motion_alert_recipient_hint
+                            else R.string.settings_motion_alert_recipient_invalid
+                        ),
+                        color = if (addressUsable) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
+                    )
+                },
+                isError = !addressUsable,
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
+        }
+
+        Spacer(modifier = Modifier.height(Spacing.sm))
+        SettingsSwitchRow(
+            title = stringResource(R.string.settings_motion_alert_receive_title),
+            subtitle = stringResource(R.string.settings_motion_alert_receive_subtitle),
+            checked = pushState.receiveEnabled,
+            onCheckedChange = onReceiveToggle,
+        )
+        if (pushState.receiveEnabled) {
+            val endpoint = pushState.endpointUrl
+            when {
+                // Each of these says what the user can act on; none of them is a "working" state to copy.
+                !pushState.distributorAvailable ->
+                    MotionAlertStateLine(stringResource(R.string.settings_motion_alert_no_distributor))
+
+                pushState.needsEncryption ->
+                    MotionAlertStateLine(stringResource(R.string.settings_motion_alert_endpoint_encrypted))
+
+                endpoint == null ->
+                    MotionAlertStateLine(stringResource(R.string.settings_motion_alert_endpoint_missing))
+
+                else -> {
+                    OutlinedTextField(
+                        value = endpoint,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text(stringResource(R.string.settings_motion_alert_endpoint_label)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 3,
+                    )
+                    val snackbarHost = LocalAppSnackbar.current
+                    val scope = rememberCoroutineScope()
+                    // Resolved as a composable resource, not through the hoisted Context: a click lambda that ran
+                    // later would keep a string from the configuration that has since changed.
+                    val copiedMessage = stringResource(R.string.settings_motion_alert_copied)
+                    OutlinedButton(
+                        onClick = {
+                            copyAddress(context, endpoint)
+                            scope.launch {
+                                snackbarHost.showMessage(copiedMessage, short = true)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null)
+                        Spacer(modifier = Modifier.width(Spacing.sm))
+                        Text(stringResource(R.string.settings_motion_alert_copy))
+                    }
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(Spacing.sm))
@@ -156,7 +240,6 @@ internal fun SettingsEngineCard(
             onCheckedChange = { onSettingsChange(settings.copy(loggingToFileEnabled = it)) },
         )
 
-        val context = LocalContext.current
         Spacer(modifier = Modifier.height(Spacing.sm))
         OutlinedButton(
             onClick = { shareLogs(context) },
@@ -167,6 +250,32 @@ internal fun SettingsEngineCard(
             Text(stringResource(R.string.settings_share_logs))
         }
     }
+}
+
+/**
+ * A state line under the receiver switch: what is missing, or why the address this phone has cannot be used.
+ * Quiet by design — the switch above it is the control, this only explains the situation it led to.
+ */
+@Composable
+private fun MotionAlertStateLine(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+/** Whether [value] is an address the server would accept as a recipient: absolute, https, with a host. */
+private fun isPushAddress(value: String): Boolean =
+    value.toHttpUrlOrNull()?.let { it.scheme == "https" && it.host.isNotBlank() } == true
+
+/**
+ * Puts the alert address on the clipboard. The whole URL is copied deliberately: it is the bearer token the
+ * other phone has to be given, which is why it is never written to a log or the shared log file.
+ */
+private fun copyAddress(context: Context, endpoint: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+    clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.settings_motion_alert_endpoint_label), endpoint))
 }
 
 /**
