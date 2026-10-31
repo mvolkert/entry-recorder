@@ -2,6 +2,7 @@ package io.github.mvolkert.entryrecorder.service
 
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.testing.testDevice
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -11,6 +12,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -97,5 +99,52 @@ class MonitorEventQueueTest {
         advanceUntilIdle()
 
         assertEquals(burst, handler.handled)
+    }
+
+    @Test
+    fun `an event whose handler throws does not stop the events behind it`() = runTest(dispatcher) {
+        val handled = mutableListOf<IntercomEvent>()
+        val failing = IntercomEvent.MotionOnDeviceStarted(doorbell)
+        val queue = MonitorEventQueue(queueScope) { event ->
+            if (event === failing) error("snapshot client wedged")
+            handled += event
+        }
+        val behind = IntercomEvent.MotionOnDeviceStarted(gate)
+
+        queue.submit(failing)
+        queue.submit(behind)
+        advanceUntilIdle()
+
+        // The collector is the only consumer, so losing it here would leave every later trigger unread while the
+        // notification still claimed the monitor was running.
+        assertEquals(listOf(behind), handled)
+    }
+
+    @Test
+    fun `a cancellation from the handler is not swallowed as an ordinary failure`() = runTest(dispatcher) {
+        val handled = mutableListOf<IntercomEvent>()
+        val cancelled = IntercomEvent.MotionOnDeviceStarted(doorbell)
+        val queue = MonitorEventQueue(queueScope) { event ->
+            if (event === cancelled) throw CancellationException("scope is going away")
+            handled += event
+        }
+
+        queue.submit(cancelled)
+        queue.submit(IntercomEvent.MotionOnDeviceStarted(gate))
+        advanceUntilIdle()
+
+        assertEquals(emptyList<IntercomEvent>(), handled)
+    }
+
+    @Test
+    fun `a closed queue refuses a submit instead of accepting an event nobody reads`() = runTest(dispatcher) {
+        val handler = FakeHandler()
+        val queue = MonitorEventQueue(queueScope, handler::handle)
+        queue.close()
+
+        assertFalse(queue.submit(IntercomEvent.MotionOnDeviceStarted(doorbell)))
+        advanceUntilIdle()
+
+        assertEquals(emptyList<IntercomEvent>(), handler.handled)
     }
 }

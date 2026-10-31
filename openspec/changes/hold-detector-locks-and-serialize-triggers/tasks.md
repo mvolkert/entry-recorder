@@ -13,6 +13,14 @@
   `Received <logIdentity()>` line exactly once per event; delete the per-event
   `serviceScope.launch { eventHandler.handle(event) }`; verify `./gradlew compileDebugKotlin` and that
   `RecorderEvent.Connection` collection and `handleSipRing` still reach the same handler through the one queue
+- [x] 1.3 Give each dispatched event its own failure boundary inside the queue's collector, so one event that throws
+  cannot cancel the single collecting coroutine and end trigger handling for the rest of the process lifetime; the
+  collector is the only thing that cancels if the service is being torn down, and the failure is logged with the
+  event identity and no credential. Then make `submit()`'s failure branch honest: either close the channel on service
+  teardown so a full-but-closed queue can actually be reported as dropping, or delete the branch and state in the
+  KDoc that an unbounded queue never refuses a submit; verify with a new `MonitorEventQueueTest` case asserting that
+  an event whose handler throws is logged and the following event is still handled, plus
+  `./gradlew compileDebugKotlin :app:testDebugUnitTest --tests "*MonitorEventQueueTest"`
 
 ## 2. Lock hold reasons, timed acquire and renewal
 
@@ -36,6 +44,13 @@
   `pool.anyAnalyzerRunning()`, keeping the per-trigger `holdFor(durationMs)` path on the same timed acquire; verify
   `./gradlew compileDebugKotlin :app:testDebugUnitTest` green and confirm the camera-event-only case (no analyzer, no
   `keepLocksHeld`) still acquires nothing at idle
+
+- [ ] 2.5 Make monitor teardown order-safe against the keeper's own jobs: cancel the renewal loop and the armed
+  safety release and await both cancellations before the final `releaseAll()`, so a tick already inside its acquire
+  cannot re-arm the untimed Wi-Fi hold after the last release. Verify by reading the cancellation order in
+  `IntercomMonitorService.stopMonitoring` and with a `MonitorLockKeeperTest` case asserting that a tick landing after
+  teardown's final release leaves the controller not held, on top of the existing scope-cancel guard that keeps the
+  renewal loop from refilling virtual time
 
 ## 3. Battery-optimization diagnostic
 
@@ -65,6 +80,14 @@
   the emitted event reaches `TriggerEpisodeRunner.handleTriggerEnded` through the 1.x queue
 - [x] 4.4 Update the KDoc on `DeviceMonitorPool` and `MonitorLockKeeper` to describe the reason-based hold and the
   key-scoped rebuild; verify by reading both files against the shipped behaviour (no changelog comments)
+- [ ] 4.5 Stop a surviving analyzer from identifying itself with a stale `Device` row: an on-device motion event must
+  name the row the reconcile kept for that device, not the snapshot taken when the analyzer was constructed, or
+  alert routing and the per-device record limit read flags the user has since changed. Attach the current row at
+  dispatch rather than widening `MotionAnalysisKey`, since identity fields never affect the polling loop that the key
+  exists to protect; verify with `./gradlew compileDebugKotlin :app:testDebugUnitTest` green and a JVM case asserting
+  that the row attached to an event for a surviving analyzer is the row a reconcile left in the pool after an edit
+  that changed only identity fields. If that cannot be tested without hardware, record it against the 5.x gates
+  instead of claiming a test
 
 ## 5. Integration verification
 
@@ -83,7 +106,9 @@
   returns without restarting the service
 - [ ] 5.4 On-device gate: edit an unrelated device setting (ring duration) while a subject stands in view and confirm
   detection continues without a rebuild gap; then edit the snapshot path and confirm the analyzer rebuilds and takes
-  effect without a service restart
+  effect without a service restart. While the same analyzer is surviving, toggle that device's alert flags and confirm
+  the next motion event routes by the new settings rather than the ones in force when its analyzer was constructed
+  (task 4.5)
 - [ ] 5.5 On-device gate: force a Started/Ended burst (walk in and out of view repeatedly for ~30 s) and confirm the
   monitor log shows the events handled strictly in arrival order, every clip finalises with a non-zero file, and no
   "Recording produced empty file, discarding" line appears
@@ -97,5 +122,10 @@
   reverses its shipped default): archive or supersede that change once 5.2/5.3 pass, so the two lock postures do
   not both stay in `openspec/changes/`.
 - Update `README.md` manually after ship: the power-posture change for analyzing deployments is human-facing.
+- Task 4.5 deliberately keeps `MotionAnalysisKey` narrow. Whether the polling loop's **motion scoring** may keep
+  running with a stale effective fps / frame count lives in the analyzer's `start()` and is **not** in this change:
+  the change that owned it, `add-wake-lock-while-on-device-motion-scoring`, has been deleted from
+  `openspec/changes/` and was never committed, so there is nothing to hand it to yet. Re-open it as its own change
+  before 4.5 is implemented, so the two halves of "the row is stale" are not silently split across owners.
 - Split into two atomic commits if convenient (queue/episode fixes first, then lock policy + diagnostic), using the
   project commit format with the `[x]` count matching the subject.

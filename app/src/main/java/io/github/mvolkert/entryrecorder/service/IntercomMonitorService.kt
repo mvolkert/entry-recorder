@@ -279,6 +279,9 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         super.onDestroy()
         Timber.tag(tag).i("IntercomMonitorService onDestroy")
         serviceScope.cancel()
+        // Closed right after the scope: the collector is gone, so an event arriving during the device-stop pass
+        // below has to be refused and logged rather than accepted into a channel nobody will ever read.
+        eventQueue.close()
 
         // All devices are torn down at once under one deadline: this blocks the main thread either way, and
         // a serial loop made the cost grow with every camera that ignored its cancel request.

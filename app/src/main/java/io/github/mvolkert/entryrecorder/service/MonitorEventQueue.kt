@@ -2,6 +2,7 @@ package io.github.mvolkert.entryrecorder.service
 
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.logIdentity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
@@ -24,6 +25,11 @@ import timber.log.Timber
  * The collector is launched on [scope] as soon as the queue exists, so there is no window where an event can
  * be queued before anything consumes it, and no start call to forget. The service cancels that scope on
  * destroy, which ends the collector.
+ *
+ * Each event is handled behind its own failure boundary: this collector is the only consumer, so one error that
+ * escaped it would cancel the single coroutine and leave every later event sitting in a channel nobody reads,
+ * while the foreground notification still reported the monitor running. A cancellation is the exception - it is
+ * the scope being torn down, and the collector has to go with it.
  */
 class MonitorEventQueue(
     scope: CoroutineScope,
@@ -34,18 +40,32 @@ class MonitorEventQueue(
 
     init {
         scope.launch {
-            for (event in events) handler(event)
+            for (event in events) {
+                try {
+                    handler(event)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (failure: Throwable) {
+                    Timber.tag(tag).e(failure, "Handler failed for ${event.logIdentity()}")
+                }
+            }
         }
     }
 
     /**
      * Hands [event] to the collector without ever suspending the caller: events arrive from the devices' own
-     * poll loops and from the analyzer, none of which may wait on the handler's HTTP or SIP work. Returns
-     * false only if the queue was already closed, and a dropped trigger has to say so rather than vanish.
+     * poll loops and from the analyzer, none of which may wait on the handler's HTTP or SIP work. Returns false
+     * only after [close], once teardown has ended the collector - a dropped trigger has to say so rather than
+     * vanish.
      */
     fun submit(event: IntercomEvent): Boolean {
         val delivered = events.trySend(event).isSuccess
         if (!delivered) Timber.tag(tag).w("Dropped ${event.logIdentity()}, the monitor queue is closed")
         return delivered
+    }
+
+    /** Ends the collector's input on the way out, so a late event is refused and logged instead of queued forever. */
+    fun close() {
+        events.close()
     }
 }
