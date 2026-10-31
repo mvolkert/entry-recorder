@@ -45,12 +45,14 @@
   `./gradlew compileDebugKotlin :app:testDebugUnitTest` green and confirm the camera-event-only case (no analyzer, no
   `keepLocksHeld`) still acquires nothing at idle
 
-- [ ] 2.5 Make monitor teardown order-safe against the keeper's own jobs: cancel the renewal loop and the armed
-  safety release and await both cancellations before the final `releaseAll()`, so a tick already inside its acquire
-  cannot re-arm the untimed Wi-Fi hold after the last release. Verify by reading the cancellation order in
-  `IntercomMonitorService.stopMonitoring` and with a `MonitorLockKeeperTest` case asserting that a tick landing after
-  teardown's final release leaves the controller not held, on top of the existing scope-cancel guard that keeps the
-  renewal loop from refilling virtual time
+- [x] 2.5 Make monitor teardown order-safe against the keeper's own jobs: one `shutdown()` that raises a closed
+  flag, cancels the renewal loop and the armed safety release, and releases the pair, so a tick already awake when
+  the service cancelled its scope cannot re-arm the untimed Wi-Fi hold after the last release. The flag is read
+  under the same monitor as the release, which is what closes the race; the jobs are awaited afterwards, under the
+  teardown pass's own deadline, because joining inside the monitor would deadlock against the tick being waited
+  out. Verify by reading the call order in `IntercomMonitorService.onDestroy` and with `MonitorLockKeeperTest`
+  cases asserting that teardown releases and hands back cancelled jobs, and that a reconcile or `holdFor` racing it
+  appends nothing to the controller's log
 
 ## 3. Battery-optimization diagnostic
 

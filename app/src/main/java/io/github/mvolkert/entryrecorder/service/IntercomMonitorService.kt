@@ -298,8 +298,12 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         pool.stopAnalyzers()
         monitorStatusRegistry.clear()
 
-        lockKeeper.cancelSafetyRelease()
-        lockKeeper.releaseAll()
+        // Shutdown last among the lock work: it clears the reasons above it, then releases under the keeper's own
+        // monitor, so a renewal tick already awake when the scope was cancelled cannot re-acquire behind it.
+        val lockJobs = lockKeeper.shutdown()
+        runBlocking {
+            withTimeoutOrNull(500.milliseconds) { lockJobs.forEach { it.join() } }
+        }
 
         episodeRunner.clearPendingStops()
         triggerCoordinator.reset()

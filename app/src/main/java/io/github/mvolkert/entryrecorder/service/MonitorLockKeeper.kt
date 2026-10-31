@@ -29,6 +29,11 @@ import kotlinx.coroutines.launch
  * collector and the post-record timer, which are separate threads of one multi-threaded dispatcher, and the
  * fields below decide whether a renewal or safety job already exists.
  *
+ * [shutdown] is the way out, and it is a flag rather than a cancel: the service cancels its own scope first, which
+ * is asynchronous, so a renewal tick already awake can still reach this class afterwards. Whatever releases last
+ * has to be the last thing that could acquire at all, or the untimed Wi-Fi half is re-armed with no owner left to
+ * drop it.
+ *
  * The log tag stays the service's own: a screen-off investigation reads one continuous stream, exactly as it
  * did before the split.
  */
@@ -49,6 +54,9 @@ class MonitorLockKeeper(
     // End of the longest per-trigger hold still armed, so a renewal never shortens a clip below one window.
     private var holdUntilMs = 0L
 
+    // Set by shutdown() under the monitor, so a tick that was already awake when teardown began cannot acquire.
+    private var closed = false
+
     /**
      * Re-reads the hold decision: takes or renews the locks while a reason applies or an armed [holdFor] deadline
      * is still unpaid, and drops them once neither is true. The service calls this on every device-list
@@ -56,6 +64,7 @@ class MonitorLockKeeper(
      */
     @Synchronized
     fun reconcile() {
+        if (closed) return
         if (holdStillWanted()) takeHold() else releaseIfIdle()
     }
 
@@ -65,6 +74,7 @@ class MonitorLockKeeper(
      */
     @Synchronized
     fun holdFor(durationMs: Long) {
+        if (closed) return
         holdUntilMs = maxOf(holdUntilMs, timeProvider.currentTimeMillis() + durationMs)
         takeHold()
         safetyRelease?.cancel()
@@ -90,18 +100,21 @@ class MonitorLockKeeper(
         if (controller.isHeld()) controller.release()
     }
 
-    /** Unconditional release for service teardown, where no reason survives the service anyway. */
+    /**
+     * The way out on service teardown: no reason survives the service, so this closes the keeper, cancels both of
+     * its jobs and releases the pair unconditionally. Returns the cancelled jobs so the caller can await them once
+     * it has left this monitor — joining here would deadlock against the very tick being waited out.
+     */
     @Synchronized
-    fun releaseAll() {
+    fun shutdown(): List<Job> {
+        closed = true
+        val outstanding = listOfNotNull(renewal, safetyRelease)
         stopRenewal()
+        safetyRelease?.cancel()
+        safetyRelease = null
         holdUntilMs = 0L
         controller.release()
-    }
-
-    /** Stops the safety-net timer on the way out, so a dying service leaves no release scheduled behind it. */
-    @Synchronized
-    fun cancelSafetyRelease() {
-        safetyRelease?.cancel()
+        return outstanding
     }
 
     private fun takeHold() {
@@ -132,10 +145,11 @@ class MonitorLockKeeper(
      * The one hold decision, read by the reconcile, the release path and the renewal tick alike: a reason still
      * applies, or an armed [holdFor] deadline it was told to cover has not passed. Without the second half, a
      * trigger whose work the phone does not see (a server-side clip, or a ring that records nothing) would lose
-     * its lock at the first tick or the first device-list re-emit.
+     * its lock at the first tick or the first device-list re-emit. Nothing is wanted once [shutdown] has run.
      */
     private fun holdStillWanted(): Boolean =
-        LockHoldPolicy.shouldHold(reasons()) || holdUntilMs > timeProvider.currentTimeMillis()
+        !closed &&
+            (LockHoldPolicy.shouldHold(reasons()) || holdUntilMs > timeProvider.currentTimeMillis())
 
     private fun stopRenewal() {
         renewal?.cancel()

@@ -203,6 +203,47 @@ class MonitorLockKeeperTest {
         assertFalse(controller.held)
     }
 
+    /**
+     * Teardown has to be the last thing that touches the pair. The framework cannot be called here, so what is
+     * proven is the keeper's own decision: it releases, hands back jobs it has cancelled, and refuses to take the
+     * pair again for a callback that races the teardown.
+     */
+    @Test
+    fun `shutdown releases the pair and hands back its cancelled jobs`() = runTest(dispatcher) {
+        reasons = setOf(LockReason.MotionAnalyzerRunning)
+        keeper.reconcile()
+
+        val jobs = keeper.shutdown()
+
+        assertEquals("release", controller.calls.last())
+        assertFalse(controller.held)
+        assertTrue(jobs.isNotEmpty())
+        assertTrue(jobs.all { it.isCancelled })
+
+        advanceBoth(MonitorLockKeeper.LOCK_RENEW_INTERVAL_MS)
+
+        assertEquals("release", controller.calls.last())
+        assertFalse(controller.held)
+        scope.cancel()
+    }
+
+    @Test
+    fun `a hold decision racing teardown does not take the pair again`() = runTest(dispatcher) {
+        keeper.shutdown()
+        // Teardown always records its unconditional release, so the guarantee is that nothing is appended after it.
+        val callsAfterTeardown = controller.calls.toList()
+
+        // The reason supplier still reports an analyzer and a clip still asks for cover: both arrive after the
+        // release, and either one acquiring would leave the untimed Wi-Fi half held with nobody left to drop it.
+        reasons = setOf(LockReason.MotionAnalyzerRunning)
+        keeper.reconcile()
+        keeper.holdFor(MonitorLockKeeper.LOCK_HOLD_TIMEOUT_MS)
+
+        assertEquals(callsAfterTeardown, controller.calls)
+        assertFalse(controller.held)
+        scope.cancel()
+    }
+
     /** Moves the scheduler and the fake clock by the same step, so a tick reads the instant it really happens. */
     private fun TestScope.advanceBoth(stepMs: Long) {
         advanceTimeBy(stepMs)
