@@ -72,6 +72,27 @@ sealed interface IntercomEvent {
 fun IntercomEvent.logIdentity(): String =
     "${this::class.simpleName} from device ${device.id} (${device.name})"
 
+/**
+ * The same event carrying the row the monitor keeps for its device right now, or the original when the device is
+ * no longer monitored. An in-app motion analyzer survives any edit that does not change what the analysis reads, and
+ * stamps its events with the row it was built from, so alert routing and the per-device record limit would follow
+ * flags the user has already changed. Only the row is replaced; every other field stays as the device reported it.
+ */
+internal fun IntercomEvent.withCurrentRow(current: Device?): IntercomEvent {
+    if (current == null || current == device) return this
+    return when (this) {
+        is IntercomEvent.MotionStarted -> copy(device = current)
+        is IntercomEvent.MotionEnded -> copy(device = current)
+        is IntercomEvent.NoiseStarted -> copy(device = current)
+        is IntercomEvent.NoiseEnded -> copy(device = current)
+        is IntercomEvent.MotionOnDeviceStarted -> copy(device = current)
+        is IntercomEvent.MotionOnDeviceEnded -> copy(device = current)
+        is IntercomEvent.DoorbellRung -> copy(device = current)
+        is IntercomEvent.ConnectionState -> copy(device = current)
+        is IntercomEvent.Error -> copy(device = current)
+    }
+}
+
 interface IntercomEventListener {
     fun onEvent(event: IntercomEvent)
 }

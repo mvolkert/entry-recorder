@@ -16,6 +16,7 @@ import io.github.mvolkert.entryrecorder.domain.call.CallScreenLauncher
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
 import io.github.mvolkert.entryrecorder.domain.device.logIdentity
+import io.github.mvolkert.entryrecorder.domain.device.withCurrentRow
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.domain.triggers.TriggerCoordinator
 import io.github.mvolkert.entryrecorder.notification.NotificationHelper
@@ -250,10 +251,15 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         manager.notify(NotificationHelper.NOTIFICATION_ID_SERVICE, notification)
     }
 
-    /** Every device callback lands here; the queue orders them and [MonitorEventHandler] routes each one. */
+    /**
+     * Every device callback lands here; the queue orders them and [MonitorEventHandler] routes each one. The row is
+     * resolved against the live device map first, because an analyzer that survived an edit stamps its events with
+     * the row it was built from, and the alert would otherwise follow settings the user has since changed.
+     */
     override fun onEvent(event: IntercomEvent) {
-        Timber.tag(tag).i("Received ${event.logIdentity()}")
-        eventQueue.submit(event)
+        val resolved = event.withCurrentRow(pool.deviceFor(event.device.id))
+        Timber.tag(tag).i("Received ${resolved.logIdentity()}")
+        eventQueue.submit(resolved)
     }
 
     /**

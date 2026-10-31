@@ -82,14 +82,14 @@
   the emitted event reaches `TriggerEpisodeRunner.handleTriggerEnded` through the 1.x queue
 - [x] 4.4 Update the KDoc on `DeviceMonitorPool` and `MonitorLockKeeper` to describe the reason-based hold and the
   key-scoped rebuild; verify by reading both files against the shipped behaviour (no changelog comments)
-- [ ] 4.5 Stop a surviving analyzer from identifying itself with a stale `Device` row: an on-device motion event must
+- [x] 4.5 Stop a surviving analyzer from identifying itself with a stale `Device` row: an on-device motion event must
   name the row the reconcile kept for that device, not the snapshot taken when the analyzer was constructed, or
   alert routing and the per-device record limit read flags the user has since changed. Attach the current row at
-  dispatch rather than widening `MotionAnalysisKey`, since identity fields never affect the polling loop that the key
-  exists to protect; verify with `./gradlew compileDebugKotlin :app:testDebugUnitTest` green and a JVM case asserting
-  that the row attached to an event for a surviving analyzer is the row a reconcile left in the pool after an edit
-  that changed only identity fields. If that cannot be tested without hardware, record it against the 5.x gates
-  instead of claiming a test
+  dispatch (`IntercomMonitorService.onEvent` resolving through `DeviceMonitorPool.deviceFor`) rather than widening
+  `MotionAnalysisKey`, since identity fields never affect the polling loop that the key exists to protect; verify
+  with a new `IntercomEventCurrentRowTest` asserting every event kind keeps its class and its own fields while only
+  the row changes, that an unmonitored device keeps the row it arrived with, and that a motion event re-pointed at
+  an edited row carries the edited `wakeOnMotion`. That the pool really hands over the live row is read at gate 5.4
 
 ## 5. Integration verification
 
