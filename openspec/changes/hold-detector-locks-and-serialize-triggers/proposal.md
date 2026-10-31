@@ -4,7 +4,7 @@
 
 Two defects make motion recordings unreliable, and neither needs a camera to fix. First, the two continuous
 detection loops (`OnDeviceMotionAnalyzer` polling snapshots, and the monitor's own work) are the only work that
-must run while the phone is asleep, yet no lock covers them: [MonitorLockKeeper.acquireForTrigger] is reached
+must run while the phone is asleep, yet no lock covers them: `MonitorLockKeeper.holdFor` is reached
 only *after* a trigger has been recognised, so detection is chicken-and-egg — a suspended CPU and a
 power-save Wi-Fi radio cannot detect the motion that would have taken the lock. Second, every device event is
 dispatched in its own coroutine on the multi-threaded `Dispatchers.IO` scope
@@ -29,7 +29,15 @@ truncated or discarded as an empty file with nothing wrong in the detector.
   JVM-testable seam: one line at WARN while the app is not exempt, because a wake lock alone does not survive
   OEM battery managers and today that state is read only in onboarding, which runs once.
 - All `IntercomEvent`s route through a `Channel` with exactly one collecting coroutine, so per-device
-  `Started`/`Ended` ordering is guaranteed even when handling suspends.
+  `Started`/`Ended` ordering is guaranteed even when handling suspends. Each event is handled behind its own
+  failure boundary, so one handler error cannot end trigger handling for the rest of the process lifetime, and
+  teardown closes the queue so a late event is reported as dropped rather than parked with no reader.
+- Stopping the monitor service ends the lock holder: the renewal loop and any armed safety release are cancelled,
+  the pair is released once, and no later callback acquires either lock again. The Wi-Fi half has no platform
+  timeout, so a re-acquire after teardown would be permanent.
+- Events raised by in-app motion analysis carry the device row the monitor is currently keeping, so an analyzer
+  deliberately left running across an edit routes alerts by the settings the user changed, not the ones it was
+  constructed with.
 - `DeviceMonitorPool.sync` rebuilds an analyzer only when a field the analyzer actually consumes changed
   (snapshot URL/credentials, sensitivity, pre-roll count), not on any edit of the row. When a rebuild or
   removal does tear down an analyzer whose episode is active, the pool emits a synthetic
@@ -58,24 +66,27 @@ None.
 ### Modified Capabilities
 
 - `alerts-lockscreen` — owns the always-on monitor foreground service, so it gains the requirements for the
-  wake/Wi-Fi lock policy covering continuous motion analysis, bounded (timed) acquires, and the
-  battery-optimization diagnostic.
+  wake/Wi-Fi lock policy covering continuous motion analysis, bounded (timed) acquires, no acquire after
+  teardown, and the battery-optimization diagnostic.
 - `triggers` — owns the monitor service's event routing and on-device motion analysis, so it gains the
-  serialized-event-handling requirement and the analyzer-rebuild/synthetic-episode-close requirement.
+  serialized-event-handling requirement (including per-event failure isolation), the analyzer-rebuild and
+  synthetic-episode-close requirements, and the requirement that analyzer events name the device's current row.
 
 ## Impact
 
-- Code: `service/MonitorLockKeeper.kt` (timed acquire, renew, analyzer-hold reason), `service/IntercomMonitorService.kt`
-  (event queue wiring, lock-policy reconcile, battery diagnostic), `service/DeviceMonitorPool.kt`
-  (analyzer identity scope, synthetic `MotionOnDeviceEnded`, exposes whether an analyzer runs),
-  `video/OnDeviceMotionAnalyzer.kt` (key derivation, exposes whether an episode is active). New files:
-  `service/MonitorEventQueue.kt` (channel plus its single collector), `service/LockController.kt` (the wake/Wi-Fi
-  seam, since `WifiManager.WifiLock` has no timed acquire), `service/LockHoldPolicy.kt` (the pure reason set),
-  `util/BatteryOptimizationProbe.kt` (which also holds the pure `BatteryExemptionReport` decision), bound in
-  `di/AppModule.kt` / `di/BindsModule.kt` with `ui/onboarding/PermissionChecker.kt` delegating to the probe. JVM
-  tests for each extracted decision.
+- Code: `service/MonitorLockKeeper.kt` (timed acquire, renew, analyzer-hold reason, teardown shutdown),
+  `service/IntercomMonitorService.kt` (event queue wiring, lock-policy reconcile, current-row dispatch,
+  battery diagnostic), `service/DeviceMonitorPool.kt` (analyzer identity scope, synthetic
+  `MotionOnDeviceEnded`, exposes whether an analyzer runs), `video/OnDeviceMotionAnalyzer.kt` (key derivation,
+  exposes whether an episode is active). New files: `service/MonitorEventQueue.kt` (channel plus its single
+  collector), `service/LockController.kt` (the wake/Wi-Fi seam, since `WifiManager.WifiLock` has no timed
+  acquire), `service/LockHoldPolicy.kt` (the pure reason set), `util/BatteryOptimizationProbe.kt` (which also
+  holds the pure `BatteryExemptionReport` decision), bound in `di/AppModule.kt` / `di/BindsModule.kt` with
+  `ui/onboarding/PermissionChecker.kt` delegating to the probe, plus `IntercomEvent.withCurrentRow` in
+  `domain/device/IntercomDevice.kt`. JVM tests for each extracted decision.
 - Unchanged: `MonitorEventHandler.kt`, `TriggerCoordinator.kt`, `TriggerEpisodeRunner.kt`, `HttpSnapshotClient.kt`,
   `TwoNIPVersoDevice.kt`, `LocalCaptureLoop.kt`, all UI, all Room/schema, all dependencies, the manifest.
 - Verification: `compileDebugKotlin`, `testDebugUnitTest`, `lintDebug` plus on-device gates — screen-off
-  detection with the analyzer running, lock release after the last analyzer stops, and a replay of a
-  `Started`/`Ended` storm to confirm ordered handling. No live Python server or SIP gate.
+  detection with the analyzer running, lock release after the last analyzer stops (both halves, since
+  `dumpsys power` only proves the timed one lapsed), and a replay of a `Started`/`Ended` storm to confirm
+  ordered handling. No live Python server or SIP gate.

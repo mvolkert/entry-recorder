@@ -4,7 +4,8 @@
 
 ### Requirement: Serialized trigger event handling
 The system SHALL handle device events on a single handling coroutine in the order they arrive, so a started event
-and the following ended event for one device cannot run concurrently or complete out of order.
+and the following ended event for one device cannot run concurrently or complete out of order. A failure while
+handling one event SHALL be recorded and SHALL NOT stop any later event from being handled on that same consumer.
 
 #### Scenario: Started then ended for one device
 - **WHEN** a motion-started and the following motion-ended event arrive while handling suspends between them
@@ -18,6 +19,16 @@ and the following ended event for one device cannot run concurrently or complete
 #### Scenario: Burst of events
 - **WHEN** events arrive faster than the handler can process them
 - **THEN** they are queued and every event is delivered exactly once, in arrival order
+
+#### Scenario: An event throws while others are waiting
+- **WHEN** handling one event raises an unexpected error and further events arrive afterwards
+- **THEN** the error is logged without a credential, and the later events are still handled in arrival order rather
+  than left unconsumed for the rest of the process lifetime
+
+#### Scenario: An event arrives after the monitor stopped
+- **WHEN** a device callback submits an event once teardown has closed the queue
+- **THEN** the submit is refused and the dropped event is logged, rather than parked where no handler will ever read
+  it
 
 ### Requirement: Analyzer rebuild scoped to analyzed configuration
 The system SHALL rebuild an in-app motion analyzer only when configuration the analyzer consumes changes — the
@@ -56,3 +67,11 @@ handler that would consume the event is gone.
 #### Scenario: Service shutdown
 - **WHEN** the monitor service is destroyed and tears down every analyzer, one of which has an active episode
 - **THEN** no ended event is emitted and the running recording stays bounded by its armed maximum duration
+
+### Requirement: On-device motion events name the device's current row
+An event raised by in-app motion analysis SHALL identify the device by the row the monitor is currently keeping for
+it, so alert routing and per-device record limits follow settings the user changed after that analyzer started.
+
+#### Scenario: Alert settings change while detection survives
+- **WHEN** a device's alert settings are edited and its motion analyzer is deliberately not rebuilt
+- **THEN** the next motion event for that device carries the edited row and routes by it

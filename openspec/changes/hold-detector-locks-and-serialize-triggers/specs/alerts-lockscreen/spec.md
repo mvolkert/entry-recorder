@@ -44,6 +44,19 @@ SHALL bound it with the same renewal path rather than a platform deadline, relea
 - **THEN** every hold decision - the device-list reconcile, the release path and the renewal tick - keeps the
   acquire in force until the armed deadline passes, then releases both locks
 
+### Requirement: No lock is acquired after the monitor tears down
+Once the monitor service has torn itself down, the system SHALL NOT acquire either lock again, whatever callback or
+renewal arrives afterwards, because an untimed radio hold with no service left to drop it is never released.
+
+#### Scenario: Teardown while a renewal is in flight
+- **WHEN** the monitor service stops while the keeper still has a renewal or safety-release job running
+- **THEN** the outstanding jobs are cancelled and awaited inside a bounded teardown pass, and the pair is released
+  once
+
+#### Scenario: Hold request after teardown
+- **WHEN** a reconcile or a per-trigger hold request reaches the keeper after teardown released the pair
+- **THEN** the request acquires nothing, so nothing re-arms the untimed radio hold
+
 ### Requirement: Monitor reports battery-optimization exemption
 The system SHALL log, while monitoring runs, whether the app is exempt from battery optimizations, at WARN when it
 is not exempt, and SHALL NOT request the exemption or take the permission for it.
