@@ -5,6 +5,7 @@ import io.github.mvolkert.entryrecorder.domain.device.logIdentity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
@@ -28,8 +29,13 @@ import timber.log.Timber
  *
  * Each event is handled behind its own failure boundary: this collector is the only consumer, so one error that
  * escaped it would cancel the single coroutine and leave every later event sitting in a channel nobody reads,
- * while the foreground notification still reported the monitor running. A cancellation is the exception - it is
- * the scope being torn down, and the collector has to go with it.
+ * while the foreground notification still reported the monitor running.
+ *
+ * A [CancellationException] is treated by origin, not by type. The queue's scope is a `SupervisorJob`, so a
+ * cancellation raised inside the handler — a timeout, or an awaited job that died on its own — belongs to that
+ * one event and the collector has to survive it; only an inactive scope means the service is going away, and then
+ * the collector goes with it. [close] drains what the collector never got to, so teardown reports every trigger it
+ * is dropping rather than only the ones that arrive after it.
  */
 class MonitorEventQueue(
     scope: CoroutineScope,
@@ -40,14 +46,28 @@ class MonitorEventQueue(
 
     init {
         scope.launch {
-            for (event in events) {
-                try {
-                    handler(event)
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (failure: Throwable) {
-                    Timber.tag(tag).e(failure, "Handler failed for ${event.logIdentity()}")
+            try {
+                for (event in events) {
+                    try {
+                        handler(event)
+                    } catch (cancellation: CancellationException) {
+                        if (isActive) {
+                            // Ours to survive: the scope is still up, so this is one event's cancellation and the
+                            // events behind it still have a collector. Losing it silently is the failure class this
+                            // class exists for, so the origin has to reach the log.
+                            val note = "Handler cancelled for ${event.logIdentity()}, the queue stays alive"
+                            Timber.tag(tag).w(cancellation, note)
+                        } else {
+                            throw cancellation
+                        }
+                    } catch (failure: Throwable) {
+                        Timber.tag(tag).e(failure, "Handler failed for ${event.logIdentity()}")
+                    }
                 }
+            } finally {
+                // Collector death is otherwise invisible, and a dead collector is how triggers stop being handled
+                // while the notification still says the monitor is running.
+                Timber.tag(tag).i("Monitor event collector stopped")
             }
         }
     }
@@ -55,7 +75,7 @@ class MonitorEventQueue(
     /**
      * Hands [event] to the collector without ever suspending the caller: events arrive from the devices' own
      * poll loops and from the analyzer, none of which may wait on the handler's HTTP or SIP work. Returns false
-     * only after [close], once teardown has ended the collector - a dropped trigger has to say so rather than
+     * only after [close], once teardown has ended the collector — a dropped trigger has to say so rather than
      * vanish.
      */
     fun submit(event: IntercomEvent): Boolean {
@@ -64,8 +84,21 @@ class MonitorEventQueue(
         return delivered
     }
 
-    /** Ends the collector's input on the way out, so a late event is refused and logged instead of queued forever. */
+    /**
+     * Ends the collector's input and reports everything still queued when it died. Call this on the way out, after
+     * the scope was cancelled: while the collector is alive its own receive races this drain.
+     */
     fun close() {
+        val stranded = mutableListOf<IntercomEvent>()
+        while (true) {
+            val event = events.tryReceive().getOrNull() ?: break
+            stranded += event
+        }
         events.close()
+        if (stranded.isNotEmpty()) {
+            val note = "Dropped ${stranded.size} queued events during teardown: " +
+                stranded.joinToString { it.logIdentity() }
+            Timber.tag(tag).w(note)
+        }
     }
 }

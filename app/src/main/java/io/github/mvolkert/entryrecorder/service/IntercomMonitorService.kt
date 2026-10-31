@@ -253,8 +253,9 @@ class IntercomMonitorService : Service(), IntercomEventListener {
 
     /**
      * Every device callback lands here; the queue orders them and [MonitorEventHandler] routes each one. The row is
-     * resolved against the live device map first, because an analyzer that survived an edit stamps its events with
-     * the row it was built from, and the alert would otherwise follow settings the user has since changed.
+     * resolved against the live device map as the event arrives — before it is queued, not when the handler gets to
+     * it — because an analyzer that survived an edit stamps its events with the row it was built from, and the alert
+     * would otherwise follow settings the user has since changed.
      */
     override fun onEvent(event: IntercomEvent) {
         val resolved = event.withCurrentRow(pool.deviceFor(event.device.id))
@@ -285,37 +286,42 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         super.onDestroy()
         Timber.tag(tag).i("IntercomMonitorService onDestroy")
         serviceScope.cancel()
-        // Closed right after the scope: the collector is gone, so an event arriving during the device-stop pass
-        // below has to be refused and logged rather than accepted into a channel nobody will ever read.
+        // Closed right after the scope: the collector is gone, so what it never read is reported by close() and an
+        // event arriving during the device-stop pass below is refused and logged rather than accepted into a channel
+        // nobody will ever read.
         eventQueue.close()
 
-        // All devices are torn down at once under one deadline: this blocks the main thread either way, and
-        // a serial loop made the cost grow with every camera that ignored its cancel request.
-        runBlocking {
-            withTimeoutOrNull(2_000.milliseconds) {
-                coroutineScope {
-                    pool.liveDevices().forEach { device ->
-                        launch(ioDispatcher) { device.stopMonitoring() }
+        try {
+            // All devices are torn down at once under one deadline: this blocks the main thread either way, and
+            // a serial loop made the cost grow with every camera that ignored its cancel request.
+            runBlocking {
+                withTimeoutOrNull(2_000.milliseconds) {
+                    coroutineScope {
+                        pool.liveDevices().forEach { device ->
+                            launch(ioDispatcher) { device.stopMonitoring() }
+                        }
                     }
                 }
             }
+            pool.clearDevices()
+            pool.stopAnalyzers()
+            monitorStatusRegistry.clear()
+            episodeRunner.clearPendingStops()
+            triggerCoordinator.reset()
+            sipManager.onIncomingCall = null
+            sipManager.destroy()
+        } finally {
+            // Last, and whatever the teardown above threw. shutdown() is the only unconditional release of the
+            // untimed radio half, so a device that failed to stop must not be able to leave the pair held for the
+            // life of the process. The reason suppliers were already emptied inside the try, so the release below
+            // is the last word; a renewal tick already awake when the scope was cancelled is stopped by the
+            // keeper's own closed flag, not by anything here. The cancelled jobs are awaited after the keeper's
+            // monitor, under their own deadline — joining inside it would deadlock against the tick being awaited.
+            val lockJobs = lockKeeper.shutdown()
+            runBlocking {
+                withTimeoutOrNull(500.milliseconds) { lockJobs.forEach { it.join() } }
+            }
         }
-        pool.clearDevices()
-        pool.stopAnalyzers()
-        monitorStatusRegistry.clear()
-
-        // Shutdown last among the lock work: it clears the reasons above it, then releases under the keeper's own
-        // monitor, so a renewal tick already awake when the scope was cancelled cannot re-acquire behind it.
-        val lockJobs = lockKeeper.shutdown()
-        runBlocking {
-            withTimeoutOrNull(500.milliseconds) { lockJobs.forEach { it.join() } }
-        }
-
-        episodeRunner.clearPendingStops()
-        triggerCoordinator.reset()
-        sipManager.onIncomingCall = null
-
-        sipManager.destroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

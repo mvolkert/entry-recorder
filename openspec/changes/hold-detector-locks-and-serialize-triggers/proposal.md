@@ -30,11 +30,14 @@ truncated or discarded as an empty file with nothing wrong in the detector.
   OEM battery managers and today that state is read only in onboarding, which runs once.
 - All `IntercomEvent`s route through a `Channel` with exactly one collecting coroutine, so per-device
   `Started`/`Ended` ordering is guaranteed even when handling suspends. Each event is handled behind its own
-  failure boundary, so one handler error cannot end trigger handling for the rest of the process lifetime, and
-  teardown closes the queue so a late event is reported as dropped rather than parked with no reader.
+  failure boundary, so one handler error cannot end trigger handling for the rest of the process lifetime, and a
+  cancellation raised by one event's own work is treated as that event's ending rather than the collector's.
+  Teardown closes the queue and drains what the dead collector never read, so every dropped trigger is reported
+  instead of parked with no reader.
 - Stopping the monitor service ends the lock holder: the renewal loop and any armed safety release are cancelled,
-  the pair is released once, and no later callback acquires either lock again. The Wi-Fi half has no platform
-  timeout, so a re-acquire after teardown would be permanent.
+  the pair is released once from the teardown's `finally` — even if stopping a device threw first — and no later
+  callback or already-awake renewal acquires either lock again. The Wi-Fi half has no platform timeout, so a
+  re-acquire after teardown would be permanent.
 - Events raised by in-app motion analysis carry the device row the monitor is currently keeping, so an analyzer
   deliberately left running across an edit routes alerts by the settings the user changed, not the ones it was
   constructed with.
@@ -69,14 +72,16 @@ None.
   wake/Wi-Fi lock policy covering continuous motion analysis, bounded (timed) acquires, no acquire after
   teardown, and the battery-optimization diagnostic.
 - `triggers` — owns the monitor service's event routing and on-device motion analysis, so it gains the
-  serialized-event-handling requirement (including per-event failure isolation), the analyzer-rebuild and
-  synthetic-episode-close requirements, and the requirement that analyzer events name the device's current row.
+  serialized-event-handling requirement (including per-event failure isolation and per-event cancellation), the
+  requirement that teardown reports every trigger it drops, the analyzer-rebuild and synthetic-episode-close
+  requirements, and the requirement that analyzer events name the device's current row.
 
 ## Impact
 
-- Code: `service/MonitorLockKeeper.kt` (timed acquire, renew, analyzer-hold reason, teardown shutdown),
-  `service/IntercomMonitorService.kt` (event queue wiring, lock-policy reconcile, current-row dispatch,
-  battery diagnostic), `service/DeviceMonitorPool.kt` (analyzer identity scope, synthetic
+- Code: `service/MonitorLockKeeper.kt` (timed acquire, renew, analyzer-hold reason, teardown shutdown and its
+  per-entry-point refusal), `service/IntercomMonitorService.kt` (event queue wiring, lock-policy reconcile,
+  current-row resolution as events arrive, exception-safe teardown, battery diagnostic),
+  `service/DeviceMonitorPool.kt` (analyzer identity scope, synthetic
   `MotionOnDeviceEnded`, exposes whether an analyzer runs), `video/OnDeviceMotionAnalyzer.kt` (key derivation,
   exposes whether an episode is active). New files: `service/MonitorEventQueue.kt` (channel plus its single
   collector), `service/LockController.kt` (the wake/Wi-Fi seam, since `WifiManager.WifiLock` has no timed

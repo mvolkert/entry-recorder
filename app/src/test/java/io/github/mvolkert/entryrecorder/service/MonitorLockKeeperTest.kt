@@ -222,9 +222,14 @@ class MonitorLockKeeperTest {
 
         advanceBoth(MonitorLockKeeper.LOCK_RENEW_INTERVAL_MS)
 
-        assertEquals("release", controller.calls.last())
-        assertFalse(controller.held)
+        // Cancelled before the assertions for the same reason as the late-tick case below: a shutdown that failed
+        // to cancel the renewal loop would keep refilling the scheduler instead of failing this test.
+        val lastCall = controller.calls.last()
+        val stillHeld = controller.held
         scope.cancel()
+
+        assertEquals("release", lastCall)
+        assertFalse(stillHeld)
     }
 
     @Test
@@ -239,9 +244,43 @@ class MonitorLockKeeperTest {
         keeper.reconcile()
         keeper.holdFor(MonitorLockKeeper.LOCK_HOLD_TIMEOUT_MS)
 
-        assertEquals(callsAfterTeardown, controller.calls)
-        assertFalse(controller.held)
+        // The scope goes before the assertion, not after it: a keeper that acquired would also have started its
+        // renewal loop, and runTest drains a scheduler that refills itself instead of reporting the failure.
+        val afterRacingCallbacks = controller.calls.toList()
+        val stillHeld = controller.held
         scope.cancel()
+
+        assertEquals(callsAfterTeardown, afterRacingCallbacks)
+        assertFalse(stillHeld)
+    }
+
+    /**
+     * The one interleaving this class cannot avoid: the renewal job is cancelled by teardown, but a tick already
+     * awake when the cancel landed still runs the decision afterwards. It re-acquires without going through
+     * [MonitorLockKeeper.takeHold], so it starts no loop that could ever undo it — on the untimed radio half that
+     * acquire would outlive the service that took it. Reached here by calling the tick directly, because a
+     * cancelled job never fires again on a single-threaded test dispatcher.
+     */
+    @Test
+    fun `a renewal tick already awake when teardown ran acquires nothing`() = runTest(dispatcher) {
+        reasons = setOf(LockReason.MotionAnalyzerRunning)
+        keeper.reconcile()
+
+        keeper.shutdown()
+
+        assertEquals("release", controller.calls.last())
+        val callsAfterTeardown = controller.calls.toList()
+
+        keeper.renewOrRelease()
+
+        // Cancelled before the assertion for the same reason as the racing-callback case above: removing this
+        // guard makes the tick acquire *and* leave nothing to stop, which would hang the run instead of failing it.
+        val afterLateTick = controller.calls.toList()
+        val stillHeld = controller.held
+        scope.cancel()
+
+        assertEquals(callsAfterTeardown, afterLateTick)
+        assertFalse(stillHeld)
     }
 
     /** Moves the scheduler and the fake clock by the same step, so a tick reads the instant it really happens. */

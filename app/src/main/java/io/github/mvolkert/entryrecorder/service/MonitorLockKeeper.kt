@@ -30,9 +30,9 @@ import kotlinx.coroutines.launch
  * fields below decide whether a renewal or safety job already exists.
  *
  * [shutdown] is the way out, and it is a flag rather than a cancel: the service cancels its own scope first, which
- * is asynchronous, so a renewal tick already awake can still reach this class afterwards. Whatever releases last
- * has to be the last thing that could acquire at all, or the untimed Wi-Fi half is re-armed with no owner left to
- * drop it.
+ * is asynchronous, so a renewal tick already awake can still reach this class afterwards. Every entry point that
+ * could take the pair refuses once it has run, so whatever releases last really is the last thing that could
+ * acquire at all — or the untimed Wi-Fi half is re-armed with no owner left to drop it.
  *
  * The log tag stays the service's own: a screen-off investigation reads one continuous stream, exactly as it
  * did before the split.
@@ -54,7 +54,9 @@ class MonitorLockKeeper(
     // End of the longest per-trigger hold still armed, so a renewal never shortens a clip below one window.
     private var holdUntilMs = 0L
 
-    // Set by shutdown() under the monitor, so a tick that was already awake when teardown began cannot acquire.
+    // Set by shutdown() under the monitor and consulted by every entry point that could take the pair — reconcile,
+    // holdFor and the renewal tick — so nothing can acquire after teardown released. Kept out of the hold decision
+    // below on purpose: each entry owning its own refusal is what makes each one testable on its own.
     private var closed = false
 
     /**
@@ -136,8 +138,15 @@ class MonitorLockKeeper(
         }
     }
 
+    /**
+     * The renewal tick's own decision. [internal] so a test can be the late tick: teardown cancelled this job, but a
+     * tick already awake when the cancel landed still runs this one statement — and because it re-acquires without
+     * going through [takeHold], it starts no loop that could ever undo it, which makes that acquire the last thing
+     * the keeper ever does. On the untimed radio half, a re-acquire here outlives the service that took it.
+     */
     @Synchronized
-    private fun renewOrRelease() {
+    internal fun renewOrRelease() {
+        if (closed) return
         if (holdStillWanted()) controller.acquire(holdTimeoutMs()) else releaseIfIdle()
     }
 
@@ -145,11 +154,11 @@ class MonitorLockKeeper(
      * The one hold decision, read by the reconcile, the release path and the renewal tick alike: a reason still
      * applies, or an armed [holdFor] deadline it was told to cover has not passed. Without the second half, a
      * trigger whose work the phone does not see (a server-side clip, or a ring that records nothing) would lose
-     * its lock at the first tick or the first device-list re-emit. Nothing is wanted once [shutdown] has run.
+     * its lock at the first tick or the first device-list re-emit. Whether the keeper may act at all is not decided
+     * here: every entry point that could acquire answers that itself, after [shutdown].
      */
     private fun holdStillWanted(): Boolean =
-        !closed &&
-            (LockHoldPolicy.shouldHold(reasons()) || holdUntilMs > timeProvider.currentTimeMillis())
+        LockHoldPolicy.shouldHold(reasons()) || holdUntilMs > timeProvider.currentTimeMillis()
 
     private fun stopRenewal() {
         renewal?.cancel()

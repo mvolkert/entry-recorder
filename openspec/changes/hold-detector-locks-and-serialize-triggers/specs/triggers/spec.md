@@ -25,10 +25,29 @@ handling one event SHALL be recorded and SHALL NOT stop any later event from bei
 - **THEN** the error is logged without a credential, and the later events are still handled in arrival order rather
   than left unconsumed for the rest of the process lifetime
 
+#### Scenario: One event's own cancellation ends only that event
+- **WHEN** handling one event raises a cancellation while the queue's scope is still active
+- **THEN** the cancellation is logged and the events behind it are still handled, and only the scope being cancelled
+  stops the collector
+
+### Requirement: Teardown reports every trigger it drops
+When the monitor stops handling device events, the system SHALL log each event it is dropping — one that arrives
+after the queue has closed, and each one still queued when the collector died — so no trigger vanishes without a
+line saying so.
+
 #### Scenario: An event arrives after the monitor stopped
 - **WHEN** a device callback submits an event once teardown has closed the queue
 - **THEN** the submit is refused and the dropped event is logged, rather than parked where no handler will ever read
   it
+
+#### Scenario: Events are still queued when the collector dies
+- **WHEN** the queue is closed while events that no handler ever reached are still buffered behind an in-flight
+  event
+- **THEN** each buffered event is named in the log and none of them is handled afterwards
+
+#### Scenario: The collector stops
+- **WHEN** the collector ends, whether its channel closed or its scope was cancelled
+- **THEN** the monitor log records that it stopped, so a dead queue is not mistaken for an idle one
 
 ### Requirement: Analyzer rebuild scoped to analyzed configuration
 The system SHALL rebuild an in-app motion analyzer only when configuration the analyzer consumes changes — the

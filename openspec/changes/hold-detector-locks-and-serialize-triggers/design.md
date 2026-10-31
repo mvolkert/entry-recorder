@@ -53,7 +53,7 @@ Both locks switch to `setReferenceCounted(false)` and are taken as one pair by
 explicitly:** a `WifiLock` is constructed reference counted, so once the `if (!isHeld)` guard is gone, acquiring on
 every renewal tick stacks a count that one release cannot zero and the radio never sleeps again. **Only the wake
 lock can carry a platform timeout:** `WifiManager.WifiLock` exposes an untimed `acquire()` and nothing else, so the
-radio half is bounded by its holder rather than by the framework - the renewal tick that re-acquires also releases
+radio half is bounded by its holder rather than by the framework — the renewal tick that re-acquires also releases
 both as soon as no reason is left, which caps an abandoned Wi-Fi hold at one renew interval instead of until
 process death. Chosen cadence: **10-minute timeout, 5-minute renew**.
 
@@ -65,24 +65,28 @@ it is the leak risk this change exists to close.
 
 *One hold decision, read by every entry point.* `holdStillWanted()` is the only place that asks "still needed?":
 a reason applies **or** an armed `holdFor` deadline has not passed, and the reconcile, the release path and the
-renewal tick all read it. A trigger whose work this phone never observes - a server-side clip, or a doorbell ring
-with ring recording off - would otherwise lose the pair at the first tick or the first device-list re-emit, which
+renewal tick all read it. A trigger whose work this phone never observes — a server-side clip, or a doorbell ring
+with ring recording off — would otherwise lose the pair at the first tick or the first device-list re-emit, which
 is a regression against the unbounded acquire this replaces rather than a tightening of it. `holdFor(durationMs)`
 stays one mechanism with the standing hold instead of a separate one: it raises the window to cover the clip and
 re-arms its own release from the **surviving** deadline, so a short hold landing inside a long one cannot pull the
 release forward.
 
 Every entry point is `@Synchronized`. The callers are the device-list collector, the event queue's collector and
-the post-record timer - separate threads of one multi-threaded dispatcher - and both jobs are decided by a
+the post-record timer — separate threads of one multi-threaded dispatcher — and both jobs are decided by a
 check-then-act on their own fields, so an unsynchronised keeper can leave a second renewal loop running that
 nothing can stop. No call inside the monitor suspends.
 
 Teardown is the one caller that must be last. `shutdown()` raises a closed flag, cancels the renewal loop and the
-armed safety release, and releases the pair — all under the same monitor a tick takes — so a tick already awake when
-the service cancelled its scope either runs wholly before the release or sees the flag after it. The cancelled jobs
-are awaited **after** that, under the teardown pass's own deadline: awaiting inside the monitor would deadlock
-against the very tick being waited out. The ordering is what matters because the radio half carries no platform
-timeout — whatever releases last has to be the last thing that could acquire at all.
+armed safety release, and releases the pair. Every entry point that could acquire — `reconcile`, `holdFor` and the
+renewal tick's `renewOrRelease` — answers the flag itself before it touches the controller, all under the same monitor
+the release takes, so a tick already awake when the service cancelled its scope either runs wholly before the release
+or sees the flag after it. The check deliberately does **not** live in `holdStillWanted()`: a clause there was
+redundant with the entry-point checks, and reverting either one alone left every test green. The cancelled jobs are
+awaited **after** that, under the teardown pass's own deadline: awaiting inside the monitor would deadlock against
+the very tick being waited out. `onDestroy` runs `shutdown()` and that join from a `finally`, and the ordering is what
+matters because the radio half carries no platform timeout — whatever releases last has to be the last thing that
+could acquire at all, and a device that throws mid-teardown must not skip the release.
 
 ### D3 — Battery-exemption diagnostic behind an injected probe, edge-triggered
 
@@ -111,11 +115,16 @@ change. The scope cancellation in `onDestroy` already bounds the collector's lif
 that one coroutine and every later event then sits in an unbounded channel that nothing reads: trigger handling ends
 for the rest of the process lifetime, silently, while the foreground notification still says the monitor is running.
 Each event is therefore handled behind its own failure boundary and logged with the event identity and no credential.
+A `CancellationException` is judged by origin rather than by type: the scope's job is a `SupervisorJob`, so one raised
+by an event's own work — a timeout, an awaited job that died — belongs to that event, is logged, and must leave the
+collector running, while only an inactive scope rethrows. The collector logs its own stop from a `finally`, because a
+dead collector is how triggers stop being handled while the notification still claims the monitor runs.
 A `Channel.UNLIMITED` never refuses a `trySend`, so `submit()`'s drop warning would be unreachable if nothing closed
 the channel: teardown `close()`s it, which makes the branch honest — an event arriving during the device-stop pass is
-refused and reported rather than parked in a channel with no reader. The alternative was deleting the branch and
-documenting that an unbounded queue never refuses, which would have left a ring during shutdown vanishing without a
-line.
+refused and reported rather than parked in a channel with no reader. Cancelling the scope strands whatever the
+collector never reached, so `close()` drains the backlog first and names the events it is dropping; refusing later
+submits is only half the accounting. The alternative was deleting the branch and documenting that an unbounded queue
+never refuses, which would have left a ring during shutdown vanishing without a line.
 
 *Why `UNLIMITED` over `BUFFERED`:* dropping a trigger event is the failure being fixed, and a burst is small.
 `Channel.BUFFERED` (64) can silently drop under a reconnect storm.
@@ -141,8 +150,10 @@ through the lambda it was constructed with and stamps its events from **its own*
 analyzer emits the row that existed when it was built: after an edit that changes identity fields without rebuilding
 — which this decision deliberately allows — the handler reads `recordOnRing`, `recordOnMotion` and `recordOnNoise`
 straight off the event's row and `TriggerEpisodeRunner` takes `wakeOnMotion` from it, so an alert keeps acting on
-switches the user has already flipped. Fix it by dispatching with the row the pool currently keeps, **not** by
-widening the key: identity fields never touch the polling loop the key exists to protect, and putting them in it
+switches the user has already flipped. Fix it by resolving the row the pool currently keeps **as the event
+arrives**, in `onEvent`, before it is queued rather than when the handler reaches it — an event can sit behind
+another device's HTTP work, and resolving later means the stale row was already logged and ordered. Not by widening
+the key: identity fields never touch the polling loop the key exists to protect, and putting them in it
 would reintroduce the rebuild gap this decision removed. Whether the polling loop may also keep running with a
 stale effective fps or frame count is the other half of "the row is stale" and lives in `start()`, not here — see
 Open questions.
@@ -178,13 +189,18 @@ queued — an episode can never be closed out of order relative to its own start
   the channel and log a drop rather than dropping silently.
 - **[One throwing event ends all trigger handling]** → the single collector is the only consumer, so an escaping
   error cancels it and later events queue to a reader that no longer exists, with the notification still claiming the
-  monitor runs. Every event now has its own failure boundary and teardown closes the channel so a refused submit is
-  reported; the risk of isolating them is a silently broken handler that keeps firing, so the failure is logged with
-  the event identity rather than swallowed.
+  monitor runs. Every event now has its own failure boundary, and teardown closes the channel and drains the backlog so
+  both a refused submit and an unread event are reported; the risk of isolating them is a silently broken handler that
+  keeps firing, so the failure and the survived cancellation are both logged with the event identity rather than
+  swallowed.
+- **[A new keeper entry point forgets its own closed check]** → the refusal to acquire after `shutdown()` lives at
+  each entry point instead of in the shared hold decision, which is what makes each one individually testable. The
+  cost is that the next method that can reach `controller.acquire()` has to carry the guard itself; the existing ones
+  are pinned one test per entry point (`reconcile`, `holdFor`, and the renewal tick).
 - **[A surviving analyzer routes alerts by a row the user already edited]** → narrow-key rebuilds keep identity-field
-  edits from reaching the dispatch path, since the analyzer stamps its own construction row. The dispatch boundary
-  now resolves the row through the pool's live device map; the paired question of a stale fps or frame count in the
-  polling loop is **not** covered there and is recorded under Open questions.
+  edits from reaching the dispatch path, since the analyzer stamps its own construction row. `onEvent` now resolves
+  the row through the pool's live device map as the event arrives; the paired question of a stale fps or frame count
+  in the polling loop is **not** covered there and is recorded under Open questions.
 - **[Serialization lets one slow device delay another's trigger]** → accepted: the handler already performs a
   settings read per motion episode, so parallel handling was never correct. Kept visible here; the scoring change that
   would revisit it no longer exists (see Open questions), so nothing depends on that follow-up.

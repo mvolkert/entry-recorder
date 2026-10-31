@@ -14,12 +14,14 @@
   `serviceScope.launch { eventHandler.handle(event) }`; verify `./gradlew compileDebugKotlin` and that
   `RecorderEvent.Connection` collection and `handleSipRing` still reach the same handler through the one queue
 - [x] 1.3 Give each dispatched event its own failure boundary inside the queue's collector, so one event that throws
-  cannot cancel the single collecting coroutine and end trigger handling for the rest of the process lifetime; the
-  collector is the only thing that cancels if the service is being torn down, and the failure is logged with the
-  event identity and no credential. Then make `submit()`'s failure branch honest: either close the channel on service
-  teardown so a full-but-closed queue can actually be reported as dropping, or delete the branch and state in the
-  KDoc that an unbounded queue never refuses a submit; verify with a new `MonitorEventQueueTest` case asserting that
-  an event whose handler throws is logged and the following event is still handled, plus
+  cannot cancel the single collecting coroutine and end trigger handling for the rest of the process lifetime. A
+  `CancellationException` is judged by origin rather than type: the scope is a `SupervisorJob`, so one raised while
+  the scope is still active belongs to the event being handled, is logged and leaves the collector running, and only
+  an inactive scope rethrows. Teardown `close()`s the channel, which makes `submit()`'s failure branch honest, and
+  drains what the dead collector never read so those events are named too; the collector logs its own stop from a
+  `finally`. Verify with new `MonitorEventQueueTest` cases asserting that a handler failure is logged with the event
+  identity and no credential, that a per-event cancellation is logged and the following event is still handled, that
+  a cancelled scope ends the collector and says so, and that `close()` reports the queued events it drops, plus
   `./gradlew compileDebugKotlin :app:testDebugUnitTest --tests "*MonitorEventQueueTest"`
 
 ## 2. Lock hold reasons, timed acquire and renewal
@@ -47,12 +49,16 @@
 
 - [x] 2.5 Make monitor teardown order-safe against the keeper's own jobs: one `shutdown()` that raises a closed
   flag, cancels the renewal loop and the armed safety release, and releases the pair, so a tick already awake when
-  the service cancelled its scope cannot re-arm the untimed Wi-Fi hold after the last release. The flag is read
-  under the same monitor as the release, which is what closes the race; the jobs are awaited afterwards, under the
-  teardown pass's own deadline, because joining inside the monitor would deadlock against the tick being waited
-  out. Verify by reading the call order in `IntercomMonitorService.onDestroy` and with `MonitorLockKeeperTest`
-  cases asserting that teardown releases and hands back cancelled jobs, and that a reconcile or `holdFor` racing it
-  appends nothing to the controller's log
+  the service cancelled its scope cannot re-arm the untimed Wi-Fi hold after the last release. Every entry point
+  that could acquire — `reconcile`, `holdFor` and the renewal tick's `renewOrRelease` — answers the flag itself
+  before it touches the controller, which is what closes the race; the flag is deliberately kept out of
+  `holdStillWanted()` so each refusal fails a test on its own. The jobs are awaited afterwards, under the teardown
+  pass's own deadline, because joining inside the monitor would deadlock against the tick being waited out, and
+  `shutdown()` plus that join run in a `finally` so a device that throws during the teardown above it cannot leave
+  the pair held for the life of the process. Verify with `MonitorLockKeeperTest` cases asserting that teardown
+  releases and hands back cancelled jobs, that a reconcile or `holdFor` racing it appends nothing to the
+  controller's log, and that a renewal tick already awake after teardown acquires nothing; the `finally` placement
+  itself is read in `IntercomMonitorService.onDestroy`, since no JVM test can construct a `Service` teardown
 
 ## 3. Battery-optimization diagnostic
 
@@ -84,8 +90,9 @@
   key-scoped rebuild; verify by reading both files against the shipped behaviour (no changelog comments)
 - [x] 4.5 Stop a surviving analyzer from identifying itself with a stale `Device` row: an on-device motion event must
   name the row the reconcile kept for that device, not the snapshot taken when the analyzer was constructed, or
-  alert routing and the per-device record limit read flags the user has since changed. Attach the current row at
-  dispatch (`IntercomMonitorService.onEvent` resolving through `DeviceMonitorPool.deviceFor`) rather than widening
+  alert routing and the per-device record limit read flags the user has since changed. Resolve the current row as
+  the event arrives in `IntercomMonitorService.onEvent`, through `DeviceMonitorPool.deviceFor`, before it is queued
+  rather than when the handler reaches it — an event may sit behind another device's HTTP work — and not by widening
   `MotionAnalysisKey`, since identity fields never affect the polling loop that the key exists to protect; verify
   with a new `IntercomEventCurrentRowTest` asserting every event kind keeps its class and its own fields while only
   the row changes, that an unmonitored device keeps the row it arrived with, and that a motion event re-pointed at
@@ -103,7 +110,7 @@
   cadence rests on: re-acquiring a held, non-reference-counted wake lock replaces its deadline)
 - [ ] 5.3 On-device gate: disable in-app analysis on the last analyzing device with no `keepLocksHeld` device and
   confirm the locks are dropped at the next idle check (`dumpsys power` shows no `EntryRecorder::MonitorWakeLock`
-  **and** `dumpsys wifi` shows no `EntryRecorder::MonitorWifiLock` - the radio half is the one a stacked reference
+  **and** `dumpsys wifi` shows no `EntryRecorder::MonitorWifiLock` — the radio half is the one a stacked reference
   count keeps, and the wake lock's timeout alone would not reveal it), then re-enable it and confirm the hold
   returns without restarting the service
 - [ ] 5.4 On-device gate: edit an unrelated device setting (ring duration) while a subject stands in view and confirm
@@ -124,10 +131,10 @@
   reverses its shipped default): archive or supersede that change once 5.2/5.3 pass, so the two lock postures do
   not both stay in `openspec/changes/`.
 - Update `README.md` manually after ship: the power-posture change for analyzing deployments is human-facing.
-- Task 4.5 deliberately keeps `MotionAnalysisKey` narrow. Whether the polling loop's **motion scoring** may keep
-  running with a stale effective fps / frame count lives in the analyzer's `start()` and is **not** in this change:
-  the change that owned it, `add-wake-lock-while-on-device-motion-scoring`, has been deleted from
-  `openspec/changes/` and was never committed, so there is nothing to hand it to yet. Re-open it as its own change
-  before 4.5 is implemented, so the two halves of "the row is stale" are not silently split across owners.
+- Task 4.5 deliberately keeps `MotionAnalysisKey` narrow, and 4.5 shipped only that identity half. Whether the
+  polling loop's **motion scoring** may keep running with a stale effective fps / frame count lives in the analyzer's
+  `start()` and is **not** in this change: the change that owned it,
+  `add-wake-lock-while-on-device-motion-scoring`, has been deleted from `openspec/changes/` and was never committed,
+  so there is nothing to hand it to yet. Re-open it as its own change.
 - Split into two atomic commits if convenient (queue/episode fixes first, then lock policy + diagnostic), using the
   project commit format with the `[x]` count matching the subject.

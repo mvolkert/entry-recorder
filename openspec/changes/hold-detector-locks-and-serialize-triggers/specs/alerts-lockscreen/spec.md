@@ -41,12 +41,13 @@ SHALL bound it with the same renewal path rather than a platform deadline, relea
 #### Scenario: Trigger hold outlives its observable work
 - **WHEN** a per-trigger hold is armed for a device whose recording this phone does not observe and the reason set
   empties before that hold elapses
-- **THEN** every hold decision - the device-list reconcile, the release path and the renewal tick - keeps the
+- **THEN** every hold decision — the device-list reconcile, the release path and the renewal tick — keeps the
   acquire in force until the armed deadline passes, then releases both locks
 
 ### Requirement: No lock is acquired after the monitor tears down
 Once the monitor service has torn itself down, the system SHALL NOT acquire either lock again, whatever callback or
-renewal arrives afterwards, because an untimed radio hold with no service left to drop it is never released.
+renewal arrives afterwards, because an untimed radio hold with no service left to drop it is never released. The
+system SHALL make that release even when the teardown steps before it fail.
 
 #### Scenario: Teardown while a renewal is in flight
 - **WHEN** the monitor service stops while the keeper still has a renewal or safety-release job running
@@ -54,8 +55,14 @@ renewal arrives afterwards, because an untimed radio hold with no service left t
   once
 
 #### Scenario: Hold request after teardown
-- **WHEN** a reconcile or a per-trigger hold request reaches the keeper after teardown released the pair
+- **WHEN** a device-list reconcile, a per-trigger hold request or a renewal tick already awake reaches the keeper
+  after teardown released the pair
 - **THEN** the request acquires nothing, so nothing re-arms the untimed radio hold
+
+#### Scenario: Teardown that fails partway
+- **WHEN** stopping a monitored device throws while the monitor service is being destroyed
+- **THEN** the locks are still released, and the service's death does not leave either one held for the life of
+  the process
 
 ### Requirement: Monitor reports battery-optimization exemption
 The system SHALL log, while monitoring runs, whether the app is exempt from battery optimizations, at WARN when it
