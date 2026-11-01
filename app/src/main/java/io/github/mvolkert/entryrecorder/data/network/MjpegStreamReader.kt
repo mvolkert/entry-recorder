@@ -1,7 +1,6 @@
 package io.github.mvolkert.entryrecorder.data.network
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import timber.log.Timber
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.data.server.PythonServerLink
@@ -60,8 +59,12 @@ class MjpegStreamReader @Inject constructor(
 
     /**
      * Reads continuous MJPEG multipart stream from device.mjpegUrl and yields decoded Bitmaps.
+     *
+     * Each frame is decoded down to a long edge of [maxDecodeEdge] (see [decodeDownsampledJpeg]): a live-view
+     * card never displays a camera's native-resolution still, so sampling keeps the steady-state heap of the
+     * several-frames-per-second loop bounded.
      */
-    fun streamBitmaps(device: Device): Flow<Bitmap> = flow {
+    fun streamBitmaps(device: Device, maxDecodeEdge: Int = DEFAULT_LIVE_MAX_DECODE_EDGE): Flow<Bitmap> = flow {
         val requestBuilder = Request.Builder().url(device.mjpegUrl)
         if (device.username.isNotBlank() || device.password.isNotBlank()) {
             requestBuilder.header("Authorization", Credentials.basic(device.username, device.password))
@@ -81,7 +84,7 @@ class MjpegStreamReader @Inject constructor(
             val inputStream = BufferedInputStream(body.byteStream())
             var droppedFrames = 0
             readMjpegStream(inputStream) { jpegBytes ->
-                val bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
+                val bitmap = decodeDownsampledJpeg(jpegBytes, maxDecodeEdge)
                 if (bitmap == null) {
                     // Reported once per streak: an undecodable stream would otherwise write a log line at
                     // the frame rate, and the frame rate is what broke.
@@ -158,7 +161,12 @@ class MjpegStreamReader @Inject constructor(
      * it came back. A wrong-status or wrong-content-type answer is not — the server is clearly alive, and its
      * relay path is the problem, which the per-device lines in the catch below say more precisely.
      */
-    fun streamBitmapsFromUrl(url: String, label: String, apiKey: String?): Flow<Bitmap> = flow {
+    fun streamBitmapsFromUrl(
+        url: String,
+        label: String,
+        apiKey: String?,
+        maxDecodeEdge: Int = DEFAULT_LIVE_MAX_DECODE_EDGE,
+    ): Flow<Bitmap> = flow {
         val requestBuilder = Request.Builder().url(url)
         if (!apiKey.isNullOrBlank()) requestBuilder.header("X-API-Key", apiKey)
 
@@ -188,7 +196,7 @@ class MjpegStreamReader @Inject constructor(
             var reportedReachable = false
             try {
                 readMjpegStream(inputStream) { jpegBytes ->
-                    val bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
+                    val bitmap = decodeDownsampledJpeg(jpegBytes, maxDecodeEdge)
                     if (bitmap == null) {
                         // Same once-per-streak rule as [streamBitmaps]: one line for a run of bad frames.
                         droppedFrames++

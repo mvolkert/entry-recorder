@@ -1,7 +1,6 @@
 package io.github.mvolkert.entryrecorder.data.network
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import timber.log.Timber
 import io.github.mvolkert.entryrecorder.data.local.entity.DeviceEntity
 import io.github.mvolkert.entryrecorder.domain.model.Device
@@ -286,12 +285,17 @@ class HttpSnapshotClient @Inject constructor(
     }
 
     /**
-     * Fetches snapshot and decodes it directly into a Bitmap.
+     * Fetches snapshot and decodes it into a Bitmap sampled down to a long edge of [maxDecodeEdge] (see
+     * [decodeDownsampledJpeg]); the live view never renders a camera's native-resolution still, so the full-res
+     * decode only cost heap and GC in a loop that runs several times a second.
      */
-    suspend fun fetchSnapshotBitmap(device: Device): Bitmap? = withContext(ioDispatcher) {
+    suspend fun fetchSnapshotBitmap(
+        device: Device,
+        maxDecodeEdge: Int = DEFAULT_LIVE_MAX_DECODE_EDGE,
+    ): Bitmap? = withContext(ioDispatcher) {
         val bytes = fetchSnapshotBytes(device) ?: return@withContext null
         try {
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            decodeDownsampledJpeg(bytes, maxDecodeEdge)
         } catch (e: Exception) {
             Timber.tag(TAG).w("Failed to decode snapshot bitmap: ${e.message}")
             null

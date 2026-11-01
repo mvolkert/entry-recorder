@@ -112,6 +112,17 @@ fun LiveStreamPlayer(
     val renderServer = serverLiveUrl != null && !serverFailed
     val resources = LocalResources.current
 
+    // Each decoded frame is megabytes and the live loop replaces it several times a second. Keying a
+    // DisposableEffect on the value recycles the previous frame when the key changes and the last frame when the
+    // card leaves composition, so a Bitmap is only ever recycled once the composition has stopped drawing it —
+    // recycling one the Image below still holds would crash the render.
+    val displayedFrame = latestBitmap
+    DisposableEffect(displayedFrame) {
+        onDispose {
+            if (displayedFrame?.isRecycled == false) displayedFrame.recycle()
+        }
+    }
+
     // Debounce the aspect report against decoder jitter and per-frame size noise; reset on protocol
     // fallback so RTSP -> MJPEG -> snapshot can re-report a different ratio.
     val lastReportedRatio = remember(device.id, activeProtocol) { mutableFloatStateOf(0f) }
