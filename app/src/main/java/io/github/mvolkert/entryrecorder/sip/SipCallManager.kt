@@ -8,6 +8,7 @@ import android.os.Build
 import timber.log.Timber
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.mvolkert.entryrecorder.di.ApplicationScope
+import io.github.mvolkert.entryrecorder.data.model.SipMode
 import io.github.mvolkert.entryrecorder.domain.model.Device
 import io.github.mvolkert.entryrecorder.util.ConnectionEdge
 import io.github.mvolkert.entryrecorder.util.ConnectionEdgeTracker
@@ -276,11 +277,29 @@ class SipCallManager @Inject constructor(
     }
 
     /**
-     * Reconciles the shared core's accounts and listen port against the full set of monitored [devices].
-     * The policy lives in [SipDeviceAccountSync]; this stays the monitor service's entry point because only
-     * the manager holds the core it is run against, and the call keeps its suspend + main-thread contract.
+     * Reconciles the shared core's accounts and listen port against the full set of monitored [devices], so
+     * peer-to-peer and PBX devices coexist instead of the last-configured one retiring the others. The policy
+     * lives in [SipDeviceAccountSync]; this stays the monitor service's entry point because only the manager
+     * holds the core it is run against.
+     *
+     * The Linphone engine is started lazily on the first device that actually uses SIP and stopped again once
+     * none do, so a deployment of HTTP-trigger-only cameras never maps the native SIP stack (tens of megabytes)
+     * just because the monitor service came up. Callers keep whatever dispatch they arrived on: the SDK's core
+     * is created and destroyed on the main thread, honouring the [initialize]/[destroy] thread contract.
      */
-    suspend fun synchronizeDevices(devices: List<Device>) = accountSync.synchronize(core, devices)
+    suspend fun synchronizeDevices(devices: List<Device>) {
+        val needsSip = devices.any { it.sipMode != SipMode.DISABLED }
+        if (needsSip && core == null) {
+            withContext(Dispatchers.Main.immediate) { initialize() }
+        }
+        accountSync.synchronize(core, devices)
+        // No monitored device uses SIP any more: drop the core so its native stack is reclaimed, but keep the
+        // incoming-call wiring and logging listener so a later re-init when one is added back stays complete.
+        // An in-flight call pins the core; that teardown belongs to [destroy] on service exit.
+        if (!needsSip && core != null && currentCall == null) {
+            withContext(Dispatchers.Main.immediate) { stopCoreKeepingWiring() }
+        }
+    }
 
     /**
      * Asks a PBX registrar whether the credentials as typed would work, on a **throw-away core**: the
@@ -446,9 +465,9 @@ class SipCallManager @Inject constructor(
     }
 
     /**
-     * Stops the monitor's core. Must stay on the main thread; its only caller is the service's onDestroy(), which
-     * is its own main loop message - a core callback would forbid tearing the core down from inside the
-     * notification, see the probe's teardown.
+     * Stops the monitor's core and drops the service's incoming-call wiring. Must stay on the main thread; its
+     * only caller is the service's onDestroy(), which is its own main loop message - a core callback would forbid
+     * tearing the core down from inside the notification, see the probe's teardown.
      */
     fun destroy() {
         try {
@@ -456,15 +475,7 @@ class SipCallManager @Inject constructor(
             idleResetJob?.cancel()
             // The manager scope is intentionally not cancelled: this is a process singleton that a restarted
             // monitor service reuses, and a cancelled scope would silently drop the ENDED -> IDLE reset.
-            core?.let { c ->
-                // stop() and nothing else: shutting a core down is liblinphone's own unregister, so the
-                // accounts this core registered are withdrawn with it. removeAccount() here would only
-                // duplicate that work while risking an Account being freed under an in-flight answer.
-                c.removeListener(coreListener)
-                c.stop()
-            }
-            core = null
-            accountSync.clear()
+            stopCore()
             if (loggingListenerAttached) {
                 Factory.instance().loggingService.removeListener(loggingListener)
                 loggingListenerAttached = false
@@ -472,6 +483,34 @@ class SipCallManager @Inject constructor(
         } catch (e: Exception) {
             Timber.tag(tag).e(e, "Error stopping Linphone Core")
         }
+    }
+
+    /**
+     * Releases the core when the lazy path in [synchronizeDevices] finds no monitored device uses SIP any more.
+     * Unlike [destroy] it leaves [onIncomingCall] and the logging listener in place, so re-adding a SIP device
+     * later re-initialises against the service's existing routing.
+     */
+    private fun stopCoreKeepingWiring() {
+        try {
+            stopCore()
+        } catch (e: Exception) {
+            Timber.tag(tag).e(e, "Error releasing idle Linphone Core")
+        }
+    }
+
+    /**
+     * The core teardown shared by [destroy] and the lazy release: stop() and nothing else, because shutting a
+     * core down is liblinphone's own unregister, so the accounts it registered are withdrawn with it.
+     * removeAccount() here would only duplicate that work while risking an Account being freed under an
+     * in-flight answer.
+     */
+    private fun stopCore() {
+        core?.let { c ->
+            c.removeListener(coreListener)
+            c.stop()
+        }
+        core = null
+        accountSync.clear()
     }
 
     private companion object {

@@ -153,9 +153,8 @@ class IntercomMonitorService : Service(), IntercomEventListener {
         // The locks stay unheld while nothing needs them: a trigger, a running clip, a keepLocksHeld device or a
         // polling motion analyzer acquires them below, and every acquire is bounded by its own renewal.
 
-        // Initialize SIP engine
-        sipManager.initialize()
-
+        // The SIP engine is started lazily by synchronizeDevices below, on the first monitored device that
+        // actually uses SIP, so an HTTP-trigger-only deployment never maps the native Linphone stack.
         // A SIP INVITE is a second, independent ring source for the doorbell (see handleSipRing).
         sipManager.onIncomingCall = { deviceId, remoteHost, caller -> handleSipRing(deviceId, remoteHost, caller) }
 
