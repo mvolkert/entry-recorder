@@ -131,11 +131,31 @@
     releases ran twice over: once with a second non-analyzing device present and once after that device was
     deleted, the analyzing device being then the only remaining row — `deviceCount` counts rows, so neither
     case tore the service down, and neither device ever opted into `keepLocksHeld`.
-- [ ] 5.4 On-device gate: edit an unrelated device setting (ring duration) while a subject stands in view and confirm
+- [x] 5.4 On-device gate: edit an unrelated device setting (ring duration) while a subject stands in view and confirm
   detection continues without a rebuild gap; then edit the snapshot path and confirm the analyzer rebuilds and takes
   effect without a service restart. While the same analyzer is surviving, toggle that device's alert flags and confirm
   the next motion event routes by the new settings rather than the ones in force when its analyzer was constructed
   (task 4.5)
+  - Emulator-verified (x86_64 Pixel_8 / API 37, 2026-11-03; the device clock runs an hour behind the host): one
+    service instance, pid 8277 throughout. The subject was a host-side fake camera — a 640x480 two-tone frame
+    alternating against a flat one every poll, proven by the health line reading `peak change 50%`.
+  - Ring duration 60 → 75 saved 23:05:19.2 with the episode already open: health lines at 23:04:31, 23:05:31,
+    23:06:32 and 23:07:32 hold the 60s cadence across the write, `Analyzing EmuA` appears zero times in a window
+    cleared at 23:04:11 and the episode never closed, so detection continued with no rebuild gap.
+  - Snapshot path `/api/camera/snapshot` → `/alt/camera/snapshot` saved 23:08:09 rebuilt the analyzer 1.1s later
+    (`Analyzing EmuA at http://127.0.0.1:8123/alt/camera/snapshot?width=1280&height=720`, that path served), with
+    no `IntercomMonitorService creating` and no `onDestroy` in the window; restoring the path repeated it at
+    23:15:40.923. The gate text does not say what that rebuild costs: it ended the in-flight episode
+    (23:08:10.182) and a new one started 1.6s later (23:08:11.748), so a path edit truncates a live episode even
+    though the service survives it.
+  - Alert flags: the instance built at 23:08:10 was constructed with `wakeOnMotion` on and routed
+    (`START … IncomingCallActivity` 23:08:11.947). Turning the flag off (saved 23:10:44) left `Analyzing EmuA` at
+    one and the next episode (23:11:37.488) raised no call screen; turning it back on (saved 23:12:38) left the
+    count at one and the next episode (23:13:19.462) launched the call screen 32ms later. One instance, both
+    directions — that is the live-row hand-over task 4.5 defers here.
+  - Not covered: the notification leg cannot be counted, because a fixed per-device id re-posts in place, so
+    routing was read on the call-screen launch alone; the recording leg and the remote relay went unchecked; and a
+    two-tone PNG exercises the scoring threshold, not a camera's optics or codec.
 - [ ] 5.5 On-device gate: force a Started/Ended burst (walk in and out of view repeatedly for ~30 s) and confirm the
   monitor log shows the events handled strictly in arrival order, every clip finalises with a non-zero file, and no
   "Recording produced empty file, discarding" line appears
