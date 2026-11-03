@@ -61,6 +61,7 @@ Run from the project root. On Windows use `gradlew.bat`. Unqualified tasks run o
 
 # Testing
 - Use the test libraries already in the project. Test ViewModels with injected test dispatchers and fakes rather than mocks where practical.
+- Use the Emulator for on-device tests. Stop if another project uses the emulator.
 
 # Output
 - Lead with the code or conclusion. No filler openers.
