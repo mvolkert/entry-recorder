@@ -186,10 +186,12 @@
 ## Workflow follow-up
 
 - Archive only after gates 5.2–5.6 pass; per project convention device-gated work stays open as tasks.
-- Reconcile with `openspec/changes/bound-wake-wifi-locks/` (its task 2.2 soak is still open and this change
-  reverses its shipped default): archive or supersede that change once 5.2/5.3 pass, so the two lock postures do
-  not both stay in `openspec/changes/`.
-- Update `README.md` manually after ship: the power-posture change for analyzing deployments is human-facing.
+- Reconciled with `openspec/changes/bound-wake-wifi-locks/` on 2026-11-04: superseded and archived to
+  `openspec/changes/archive/2026-11-04-bound-wake-wifi-locks/` with `--skip-specs`, its open soak (task 2.2) carried
+  into gate 5.2 rather than closed, so the two opposite lock postures no longer both sit active in
+  `openspec/changes/`.
+- `README.md` carries the human-facing power-posture paragraph for analyzing deployments (added 2026-11-04, before
+  archive; the as-built wording still has to be checked against `openspec/specs/` when this change syncs).
 - Task 4.5 deliberately keeps `MotionAnalysisKey` narrow, and 4.5 shipped only that identity half. Whether the
   polling loop's **motion scoring** may keep running with a stale effective fps / frame count lives in the analyzer's
   `start()` and is **not** in this change: the change that owned it,

@@ -19,6 +19,13 @@ Namespace: `io.github.mvolkert.entryrecorder`
 - **SIP-Gegensprechen**: Peer-to-Peer (Port 5060) oder PBX (Fritz!Box/Asterisk/FreePBX) mit Registrierung;
   Annehmen direkt auf dem Sperrbildschirm.
 - **Sperrbildschirm**: Bildschirm an + Live-Video ohne Entsperren bei Trigger.
+- **Dauerüberwachung & Energie**: Solange die Bewegungsanalyse in der App läuft, hält der Monitor CPU- und
+  WLAN-Lock (Wake-/Wi-Fi-Lock) durchgehend — ein als Erkennungsgerät genutztes Telefon bleibt dadurch wach.
+  Jeder Erwerb erfolgt mit Timeout und wird erneuert; freigegeben wird, sobald der letzte Analyzer stoppt und
+  spätestens beim Beenden des Dienstes. Geräte ohne In-App-Analyse (nur Kamera-Events) halten die Locks
+  weiterhin nur während Aufnahme oder Klingeln. Wer Akku sparen will, deaktiviert die In-App-Bewegungsanalyse;
+  zusätzlich sollte die App von der Batterieoptimierung ausgenommen sein, weil OEM-Batteriemanager einen
+  Wake-Lock übersteuern können — der Monitor protokolliert dazu einmalig eine Warnung.
 - **Archiv & Export**: durchsuchbare Galerie ( lokal + Server), Player, Schutz, Löschen; Teilen/Galerie/SAF,
   H.264-Transkodierung beim Export und Export per Broadcast-Intent für Automatisierung.
 - **Aufräum-Politik**: Aufbewahrungstage und Speicher-Kontingente (lokal + opt-in SAF-Ordner) im Hintergrund.
