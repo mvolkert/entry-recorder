@@ -108,11 +108,29 @@
   the view produces a recording, and confirm `dumpsys power` shows `EntryRecorder::MonitorWakeLock` with its
   timeout moving forward across a renewal tick rather than lapsing (this is the assumption the whole renewal
   cadence rests on: re-acquiring a held, non-reference-counted wake lock replaces its deadline)
-- [ ] 5.3 On-device gate: disable in-app analysis on the last analyzing device with no `keepLocksHeld` device and
+  - Partially verified on the emulator (x86_64 Pixel_8 / API 37, 2026-11-03): the renewal clause needed no scene and
+    passed, the soak and the subject did not run. `dumpsys power` still reported
+    `EntryRecorder::MonitorWakeLock ACQ=-14m46s396ms` at 02:33:56 for the acquire at 02:19:09.388 — 4m46s past the
+    10-minute window — with no `REL` line, and the monitor stream showed no `onStartCommand`, `ConnectionState` or
+    battery line after 02:19:09.411, so `reconcile()` never ran and only the 5-minute tick could have moved the
+    deadline. No negative control exists: every observable hold has a live reason, so this cannot show the platform
+    releasing an unrenewed window. The health line over that stretch read `poll 1500ms, 0.6 fps achieved
+    (configured 5)` — the idle back-off, not a gap — so the configured-poll-interval clause stays open with the
+    30+ minute screen-off soak and a fast subject on Verso hardware.
+- [x] 5.3 On-device gate: disable in-app analysis on the last analyzing device with no `keepLocksHeld` device and
   confirm the locks are dropped at the next idle check (`dumpsys power` shows no `EntryRecorder::MonitorWakeLock`
   **and** `dumpsys wifi` shows no `EntryRecorder::MonitorWifiLock` — the radio half is the one a stacked reference
   count keeps, and the wake lock's timeout alone would not reveal it), then re-enable it and confirm the hold
   returns without restarting the service
+  - Emulator-verified (x86_64 Pixel_8 / API 37, 2026-11-03): one service instance, three cycles —
+    ACQ 02:06:23.645 → REL 02:12:12.430 → ACQ 02:13:30.619 → REL 02:18:12.073 → ACQ 02:19:09.388 — as
+    in-app analysis was disabled and re-enabled on the last analyzing device, and `dumpsys wifi` reported
+    no `EntryRecorder::MonitorWifiLock` during either released window: the radio half is the clause a wake
+    lock's timeout cannot prove, and it is clean. `IntercomMonitorService creating…` appears once (02:06:11)
+    with no `onDestroy` between a REL and the ACQ that follows, so the hold returned without a restart. Both
+    releases ran twice over: once with a second non-analyzing device present and once after that device was
+    deleted, the analyzing device being then the only remaining row — `deviceCount` counts rows, so neither
+    case tore the service down, and neither device ever opted into `keepLocksHeld`.
 - [ ] 5.4 On-device gate: edit an unrelated device setting (ring duration) while a subject stands in view and confirm
   detection continues without a rebuild gap; then edit the snapshot path and confirm the analyzer rebuilds and takes
   effect without a service restart. While the same analyzer is surviving, toggle that device's alert flags and confirm
@@ -121,8 +139,15 @@
 - [ ] 5.5 On-device gate: force a Started/Ended burst (walk in and out of view repeatedly for ~30 s) and confirm the
   monitor log shows the events handled strictly in arrival order, every clip finalises with a non-zero file, and no
   "Recording produced empty file, discarding" line appears
-- [ ] 5.6 On-device gate: with the app left in the battery-optimization default, confirm the WARN line appears once
+- [x] 5.6 On-device gate: with the app left in the battery-optimization default, confirm the WARN line appears once
   in the monitor stream, and after exempting the app in system settings that it is not repeated
+  - Emulator-verified (same run, 2026-11-03): left non-exempt, the WARN line appeared exactly twice across at least
+    six device-list re-emits — once per service instance (02:00:55, 02:06:23) — so it is a state-change line
+    and not a per-reconcile one. Exempting the package with
+    `dumpsys deviceidle whitelist +io.github.mvolkert.entryrecorder`, the adb equivalent of the settings
+    toggle, logged `Battery optimization exemption granted…` once at 02:16:47.632 and nothing further on later
+    writes (`warn=2`, `exemption info=1`). The settings screen itself went unexercised, and an OEM battery
+    manager that ignores the whitelist is beyond an emulator's reach.
 
 ## Workflow follow-up
 
