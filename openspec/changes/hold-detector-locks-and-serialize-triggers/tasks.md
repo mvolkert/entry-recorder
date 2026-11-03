@@ -156,9 +156,23 @@
   - Not covered: the notification leg cannot be counted, because a fixed per-device id re-posts in place, so
     routing was read on the call-screen launch alone; the recording leg and the remote relay went unchecked; and a
     two-tone PNG exercises the scoring threshold, not a camera's optics or codec.
-- [ ] 5.5 On-device gate: force a Started/Ended burst (walk in and out of view repeatedly for ~30 s) and confirm the
+- [x] 5.5 On-device gate: force a Started/Ended burst (walk in and out of view repeatedly for ~30 s) and confirm the
   monitor log shows the events handled strictly in arrival order, every clip finalises with a non-zero file, and no
   "Recording produced empty file, discarding" line appears
+  - Emulator-verified (x86_64 Pixel_8 / API 37, 2026-11-03, the rig and the stand-in subject of 5.4, one service
+    instance, pid 3978): two bursts. At the shipped 20s post-record the subject crossed four times and the stream
+    alternates `Motion start on EmuA` / `Motion end on EmuA` with its handling line 0-1ms later every time —
+    `Received MotionOnDeviceStarted` / `...Ended`, no inversion — and the third start folded into the clip armed by
+    the second (`Device 1 is already recording a MOTION clip`) instead of truncating it. Both clips finalised
+    non-zero: id=5 at 202,436 bytes and id=6 at 326,350 bytes.
+  - Post-record was then dropped to 2s so that an arm and a stop genuinely compete: eight cycles over 98s emitted
+    and handled 8 starts and 8 ends in strict arrival order and produced 8 clips (ids 7-14, 58,450 to 187,260
+    bytes) with no `discarding` line and no collision. `run-as` on the private recordings directory finds all
+    fourteen files at exactly the logged sizes.
+  - Caveats: only the in-app analysis path is reachable on this rig — the device row reads
+    `Camera events (ring/motion/noise): offline` — so the same burst arriving over the 2N event transport or SIP
+    went unexercised, and nothing the rig can serve creates a genuine 0-byte file, so the absence of the
+    `discarding` line carries weight only where the old bug actually bit: the fold-in above.
 - [x] 5.6 On-device gate: with the app left in the battery-optimization default, confirm the WARN line appears once
   in the monitor stream, and after exempting the app in system settings that it is not repeated
   - Emulator-verified (same run, 2026-11-03): left non-exempt, the WARN line appeared exactly twice across at least
