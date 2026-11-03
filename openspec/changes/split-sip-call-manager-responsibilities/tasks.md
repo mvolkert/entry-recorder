@@ -24,18 +24,33 @@
 
 ## 3. Manager slim-down
 
-- [ ] 3.1 Confirm `SipCallManager` now holds only core lifecycle, `configureLogging`, the `coreListener`,
+- [x] 3.1 Confirm `SipCallManager` now holds only core lifecycle, `configureLogging`, the `coreListener`,
       session state + idle reset, call controls, and probing; verify: `compileDebugKotlin`,
       `.\gradlew.bat testDebugUnitTest`, and `.\gradlew.bat lintDebug` pass, existing sip tests unchanged
       and green, and the file is roughly 300 lines.
-      *(Every clause holds except the size estimate: the file is 437 lines, down from 608. What remains is
-      exactly the retained list — the probe is ~95 of those lines and `routeAudioToSpeaker`, kept out of scope
-      by the proposal, another ~25 — so ~300 would need a seam this change does not authorise. Re-checked when
-      the other size targets were closed: reaching 300 means moving either `probeRegistration` (a Non-Goal —
-      its throw-away-core mechanics, `probeLock` and port rotation are frozen) or the `coreListener` /
-      `configureLogging` blocks (both named in the Goals as what the manager keeps), and the `SipAudioRouter`
-      the Open Question names was excluded on purpose. The owner chose to leave the figure as a deviation
-      rather than rewrite that decision.)*
+      *(Clause by clause, re-verified 2026-11-03. The retained list holds: the manager's members are core
+      lifecycle (`initialize`, `destroy`, `stopCore`, `stopCoreKeepingWiring` and the lazy start/release gate),
+      `configureLogging` with its `loggingListener`, the `coreListener` and its three helpers, session state with
+      the idle reset, the call controls, and probing. The only account code left is the delegation to
+      `SipDeviceAccountSync` in `resolveRingingDeviceId`, `synchronizeDevices` and `stopCore`'s `clear()` — no
+      `managed`, `applyDevice`, `retireDevice`, `addPbxAccount` body or `applyInboundPort` remains. All three
+      builds were forced to re-execute rather than read cached reports: `compileDebugKotlin --rerun-tasks`,
+      `testDebugUnitTest --rerun` (54 suites / 375 tests / 0 failures, result XMLs written by that run) and
+      `lintDebug --rerun` (49 findings — the pre-existing baseline set and rule breakdown, none in `sip/`).
+      "Existing sip tests unchanged" is byte-identity, not just green: the 20 tests across `SipCallMapperTest`,
+      `SipCallReducerTest` and `SipProbeMappingTest` show an empty `git diff 98afa2a..HEAD` over the test
+      directory, and the extraction commit itself touched no test file.*
+      *The size estimate is the one clause that does not hold, and it has moved the wrong way since: 520 lines
+      now (345 code, 136 KDoc/comment, 39 blank) against the 437 recorded when this deviation was accepted —
+      already down from 608 before the split, so the extraction did its job and two later commits undid part of
+      the margin. The growth is not this change: `f2df4d4` (Timber facade) and `dcb6a2f` (lazy core start) added
+      it afterwards. What remains is still exactly the retained list, so ~300 would need a seam this change does
+      not authorise: `probeRegistration` is a Non-Goal (its throw-away-core mechanics, `probeLock` and port
+      rotation are frozen), the `coreListener` and `configureLogging` blocks are named in the Goals as what the
+      manager keeps, and the `SipAudioRouter` the Open Question names was excluded on purpose. The probe, the
+      `coreListener` with its three helpers, `initialize`, the teardown pair and the call controls pass 300
+      between them before imports, fields, logging or the delegates. The owner chose to leave the figure as a
+      deviation rather than rewrite that decision.)*
 
 ## 4. On-device acceptance gate (blocks archive)
 
