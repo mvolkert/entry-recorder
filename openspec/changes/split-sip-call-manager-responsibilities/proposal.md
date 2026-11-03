@@ -2,7 +2,8 @@
 
 ## Why
 
-`sip.SipCallManager` (556 lines) mixes four concerns in one file and one class: shared model types
+`sip.SipCallManager` (556 lines at the time of writing — superseded, it measures 520 today; see the deviation
+note on task 3.1) mixes four concerns in one file and one class: shared model types
 (`CallUiState`, `SipSessionState`, `SipMissingField`, `SipProbeResult`), Linphone `Factory`/`Core` lifecycle
 with native logging config, per-device account synchronization (`synchronizeDevices`, `applyDevice`,
 `retireDevice`, `addPbxAccount`, `applyInboundPort`), and active-call controls (`acceptCall`, mute, speaker
@@ -40,6 +41,9 @@ changes, the already-extracted reducer/probe seams, per-device account data mode
 ## Impact
 
 - `app/src/main/java/io/github/mvolkert/entryrecorder/sip/` — two new files, manager shrinks to ~300 lines.
+  *(Superseded: the split left the manager at 437 lines and it measures 520 (345 code) today, since `f2df4d4`
+  and `dcb6a2f` grew it after this change, not the split. ~300 needs a seam this change rules out; task 3.1 in
+  `tasks.md` records the accepted deviation, which the owner chose over rewriting the decision.)*
 - On-device verification: PBX/Fritz!Box registration with two enabled SIP devices (one add, one edit, one
   removal) to prove account sync order against the real registrar is unchanged.
 - `compileDebugKotlin` + `testDebugUnitTest` green; existing `SipCallMapper`/reducer tests untouched.
