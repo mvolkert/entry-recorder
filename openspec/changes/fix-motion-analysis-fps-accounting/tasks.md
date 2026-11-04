@@ -2,12 +2,12 @@
 
 ## 1. The clock seam
 
-- [ ] 1.1 Add an elapsed-millis member to `TimeProvider`, with `SystemTimeProvider` computing it from
+- [x] 1.1 Add an elapsed-millis member to `TimeProvider`, with `SystemTimeProvider` computing it from
   `System.nanoTime()` differences, and convert the two `TimeProvider { … }` test fakes in `TriggerCoordinatorTest` and
   `MonitorLockKeeperTest` to objects over the clock they already hold; verify `./gradlew compileDebugKotlin
   testDebugUnitTest` is green with those suites' assertions unchanged
 
-- [ ] 1.2 Inject `TimeProvider` into `OnDeviceMotionAnalyzer` (constructor default = the production object, so the
+- [x] 1.2 Inject `TimeProvider` into `OnDeviceMotionAnalyzer` (constructor default = the production object, so the
   analyzer stays constructible without a device the way `isRecording` already is) and route its health window, frame
   ages and `PreRollFrame` stamp through it — the first two from the elapsed member, the ring stamp from the wall-clock
   member, because it becomes the clip's start time on disk; verify a new `OnDeviceMotionAnalyzerTest` asserts that
@@ -19,19 +19,20 @@
 
 ## 2. The analyzer's own rate and cadence
 
-- [ ] 2.1 Compute the achieved number as scored comparisons over the measured window and print it with the interval
+- [x] 2.1 Compute the achieved number as scored comparisons over the measured window and print it with the interval
   actually in force (preset base, idle ceiling, or the recording pace) derived from `MotionTuning`; remove the
   `snapshotClient.achievedFps` call and the `device.effectiveSnapshotFps` reference from the analyzer; verify
-  tests pin the arithmetic for a known window and that a fake endpoint-side rate cannot reach the line
+  `MotionAnalysisReportTest` pins the arithmetic for a known window. That no other consumer's rate reaches the line is
+  structural here — the analyzer stops calling `achievedFps` and the report takes no endpoint input — and gate 4.1
+  proves it with a recording actually sharing the endpoint
 
-- [ ] 2.2 Keep the "no analysis frames" WARN a frame-supply statement rather than a rate statement, quoting
-  the polls it counted in the window; verify one test where the fake delivers nothing for a whole window and
-  one where it delivers at the preset's idle ceiling produce different lines, and that the second does not read
-  as zero
+- [x] 2.2 Keep the "no analysis frames" WARN a frame-supply statement rather than a rate statement, quoting
+  the polls it counted in the window; verify one test where a window delivers nothing and one delivering at the
+  preset's idle ceiling produce different lines, and that the second does not read as zero
 
-- [ ] 2.3 Pin the health line's field set in one assertion so a rename is a deliberate edit, and note the old
-  wording in the commit body so a reader of the hold-detector gate evidence can map it; verify the assertion fails
-  when a field name or unit is changed
+- [x] 2.3 Pin the health line's field set in one assertion so a rename is a deliberate edit, and note the old
+  wording in the commit body so a reader of the hold-detector gate evidence can map it; verified by mutation — calling
+  the cadence field `(base)` instead `(base pace)` failed that one assertion and no other, then reverted
 
 ## 3. The stillness duration
 

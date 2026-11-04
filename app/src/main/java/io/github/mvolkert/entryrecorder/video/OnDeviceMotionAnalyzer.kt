@@ -12,6 +12,8 @@ import io.github.mvolkert.entryrecorder.data.model.MotionSensitivity
 import io.github.mvolkert.entryrecorder.data.network.HttpSnapshotClient
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEvent
 import io.github.mvolkert.entryrecorder.domain.device.IntercomEventListener
+import io.github.mvolkert.entryrecorder.domain.model.SystemTimeProvider
+import io.github.mvolkert.entryrecorder.domain.model.TimeProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -41,7 +43,10 @@ class OnDeviceMotionAnalyzer(
     // serial device. Server-side recordings must NOT report true here: the phone is not the poller
     // then, and backing off would only slow detection. Defaults to "never recording" so the analyzer
     // stays usable without a recorder wired in.
-    private val isRecording: () -> Boolean = { false }
+    private val isRecording: () -> Boolean = { false },
+    // Durations are measured from the elapsed reading so a wall-clock jump cannot open or close an episode; the
+    // pre-roll ring keeps the wall clock because its stamp becomes the recorded clip's start time on disk.
+    private val timeProvider: TimeProvider = SystemTimeProvider,
 ) {
     private val tag = "OnDeviceMotionAnalyzer"
     private val scope = CoroutineScope(ioDispatcher + SupervisorJob())
@@ -92,8 +97,9 @@ class OnDeviceMotionAnalyzer(
     // scene, because every fetch failure returned null without a single log line. One summary per window.
     private var pollsSinceReport = 0
     private var framesSinceReport = 0
+    private var scoredFramesSinceReport = 0
     private var peakChangedRatio = 0f
-    private var lastReportAtMs = 0L
+    private var lastReportAtElapsedMs = 0L
 
     // Last connection quality handed to the listener, so a state change is reported exactly once
     // instead of on every poll that comes back empty.
@@ -103,7 +109,7 @@ class OnDeviceMotionAnalyzer(
         if (job?.isActive == true) return
         resetState()
         reportedQuality = snapshotClient.snapshotQuality(device.id)
-        lastReportAtMs = System.currentTimeMillis()
+        lastReportAtElapsedMs = timeProvider.elapsedMillis()
         Timber.tag(tag).i("Analyzing ${device.name} at ${device.snapshotUrl}")
         job = scope.launch { runLoop() }
     }
@@ -123,6 +129,7 @@ class OnDeviceMotionAnalyzer(
         recentActivity = false
         pollsSinceReport = 0
         framesSinceReport = 0
+        scoredFramesSinceReport = 0
         peakChangedRatio = 0f
         synchronized(preRoll) { preRoll.clear() }
     }
@@ -141,8 +148,6 @@ class OnDeviceMotionAnalyzer(
                 Timber.tag(tag).w("Frame grab/analysis failed for ${device.name}: ${e.message}")
             }
             pollsSinceReport++
-            reportHealthIfDue()
-            reportConnectionEdge()
             val poll = when {
                 // Recording in progress: the recorder owns the endpoint at snapshotFps, so poll slowly
                 // to avoid oversubscribing it, while still catching motion-end to schedule the stop.
@@ -152,6 +157,8 @@ class OnDeviceMotionAnalyzer(
             }
             currentPollMs = poll
             recentActivity = false
+            reportHealthIfDue()
+            reportConnectionEdge()
             delay(poll.milliseconds)
         }
     }
@@ -174,33 +181,35 @@ class OnDeviceMotionAnalyzer(
         )
     }
 
-    /** Periodic self-report: whether frames arrive at all, and how strong the biggest change was. */
-    private fun reportHealthIfDue() {
-        val now = System.currentTimeMillis()
-        val elapsedMs = now - lastReportAtMs
-        if (elapsedMs < HEALTH_REPORT_MS) return
-        lastReportAtMs = now
+    /**
+     * Periodic self-report: whether frames arrive at all, how strong the biggest change was, and at what rate this
+     * analyzer scored them over the window it actually measured.
+     */
+    internal fun reportHealthIfDue() {
+        val now = timeProvider.elapsedMillis()
+        val windowMs = now - lastReportAtElapsedMs
+        if (windowMs < HEALTH_REPORT_MS) return
+        lastReportAtElapsedMs = now
 
-        // Measured versus configured rate: the endpoint's serial ceiling means the configured value is
-        // a wish, not a guarantee, and "no continuous observation" has to stop being a silent lie.
-        val achievedFps = snapshotClient.achievedFps(device.id)
-
+        val window = MotionWindow(
+            deviceName = device.name,
+            scoredFrames = scoredFramesSinceReport,
+            polls = pollsSinceReport,
+            peakChangedRatio = peakChangedRatio,
+            windowMs = windowMs,
+            pollMs = currentPollMs,
+            recording = isRecording(),
+            analysisWidth = ANALYSIS_WIDTH,
+            analysisHeight = ANALYSIS_HEIGHT,
+        )
         if (pollsSinceReport > 0 && framesSinceReport == 0) {
-            Timber.tag(tag).w(
-                "No analysis frames from ${device.name}: $pollsSinceReport polls, 0 usable JPEGs " +
-                    "in ${elapsedMs / 1000}s — endpoint not serving images (check the HttpSnapshotClient log lines)"
-            )
+            Timber.tag(tag).w(MotionAnalysisReport.noFrames(window))
         } else {
-            Timber.tag(tag).i(
-                "Motion analysis on ${device.name}: $framesSinceReport/$pollsSinceReport frames, " +
-                    "peak change ${(peakChangedRatio * 100).toInt()}% of ${ANALYSIS_WIDTH}x$ANALYSIS_HEIGHT " +
-                    "(needs ${(tuning.ratioThreshold * 100).toInt()}% on ${tuning.requiredMotionFrames} in a row, " +
-                    "${device.motionSensitivity}), " +
-                    "poll ${currentPollMs}ms, %.1f fps achieved (configured ${device.effectiveSnapshotFps})".format(achievedFps)
-            )
+            Timber.tag(tag).i(MotionAnalysisReport.health(window, tuning, device.motionSensitivity))
         }
         pollsSinceReport = 0
         framesSinceReport = 0
+        scoredFramesSinceReport = 0
         peakChangedRatio = 0f
     }
 
@@ -217,6 +226,7 @@ class OnDeviceMotionAnalyzer(
         }
         val changedRatio = changedPixels.toFloat() / frame.size
         peakChangedRatio = maxOf(peakChangedRatio, changedRatio)
+        scoredFramesSinceReport++
 
         // Any measurable pixel movement (well below the motion trigger) keeps polling at full speed.
         if (changedRatio >= ACTIVITY_HINT_RATIO) {
@@ -287,10 +297,10 @@ class OnDeviceMotionAnalyzer(
         )
     }
 
-    /** Keeps the last [preRollCapacity] captured JPEGs, oldest evicted first. */
-    private fun bufferPreRoll(jpeg: ByteArray) {
+    /** Keeps the last [preRollCapacity] captured JPEGs, oldest evicted first, stamped with the wall clock. */
+    internal fun bufferPreRoll(jpeg: ByteArray) {
         synchronized(preRoll) {
-            preRoll.addLast(PreRollFrame(System.currentTimeMillis(), jpeg))
+            preRoll.addLast(PreRollFrame(timeProvider.currentTimeMillis(), jpeg))
             while (preRoll.size > preRollCapacity) preRoll.removeFirst()
         }
     }
@@ -349,7 +359,7 @@ data class MotionAnalysisKey(
  * the setting existed (3% / 2 frames / 500→1500 ms idle backoff); SENSITIVE loosens and speeds them for
  * fast crossers at a higher battery/network cost, POWER_SAVER tightens and slows them for calm scenes.
  */
-private class MotionTuning(
+internal class MotionTuning(
     val ratioThreshold: Float,
     val requiredMotionFrames: Int,
     val requiredClearFrames: Int,
@@ -357,7 +367,7 @@ private class MotionTuning(
     val maxIdlePollMs: Long,
 )
 
-private fun motionTuningFor(sensitivity: MotionSensitivity): MotionTuning = when (sensitivity) {
+internal fun motionTuningFor(sensitivity: MotionSensitivity): MotionTuning = when (sensitivity) {
     MotionSensitivity.SENSITIVE -> MotionTuning(0.02f, 1, 3, 400L, 900L)
     MotionSensitivity.BALANCED -> MotionTuning(0.03f, 2, 4, 500L, 1500L)
     MotionSensitivity.POWER_SAVER -> MotionTuning(0.05f, 3, 6, 800L, 2500L)

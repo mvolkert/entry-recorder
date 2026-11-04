@@ -18,7 +18,9 @@ class TriggerCoordinatorTest {
 
     private class FakeClock(start: Long = 1_000_000L) : TimeProvider {
         var now: Long = start
+        var elapsed: Long = 0L
         override fun currentTimeMillis(): Long = now
+        override fun elapsedMillis(): Long = elapsed
     }
 
     private val clock = FakeClock()

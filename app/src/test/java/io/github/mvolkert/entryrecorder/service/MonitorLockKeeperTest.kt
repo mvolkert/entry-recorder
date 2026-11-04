@@ -34,7 +34,7 @@ class MonitorLockKeeperTest {
     private val keeper = MonitorLockKeeper(
         controller = controller,
         scope = scope,
-        timeProvider = TimeProvider { clock.nowMs },
+        timeProvider = clock,
         reasons = { reasons },
     )
 
@@ -313,7 +313,9 @@ class MonitorLockKeeperTest {
      * A clock the tests drive by hand: the keeper computes its acquire windows from it, so time only moves here
      * when a test deliberately steps it alongside the scheduler.
      */
-    private class FakeClock {
+    private class FakeClock : TimeProvider {
         var nowMs: Long = 0L
+        override fun currentTimeMillis(): Long = nowMs
+        override fun elapsedMillis(): Long = nowMs
     }
 }

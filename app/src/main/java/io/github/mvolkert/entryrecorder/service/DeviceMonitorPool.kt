@@ -103,15 +103,14 @@ class DeviceMonitorPool(
                 if (existingAnalyzer == null || existingAnalyzer.analysisKey != key) {
                     stopAnalyzer(existingAnalyzer, AnalyzerShutdown.Reconcile)
                     val analyzer = OnDeviceMotionAnalyzer(
-                        entity,
-                        listener,
-                        snapshotClient,
-                        ioDispatcher
-                    ) {
+                        device = entity,
+                        listener = listener,
+                        snapshotClient = snapshotClient,
+                        ioDispatcher = ioDispatcher,
                         // Back off only for the phone's own capture loop: in PYTHON_SERVER mode the
                         // server polls the endpoint, so a server recording must not slow detection here.
-                        recorder.isLocallyRecording(entity.id)
-                    }
+                        isRecording = { recorder.isLocallyRecording(entity.id) },
+                    )
                     activeMotionAnalyzers[entity.id] = analyzer
                     analyzer.start()
                 }
