@@ -78,10 +78,13 @@ None.
 - Code: `video/OnDeviceMotionAnalyzer.kt` (own rate window, frame stamps, duration-based end rule, injected clock,
   health-line wording), `domain/model/TimeProvider.kt` plus its production object (a monotonic reading), and
   `MotionAnalysisKey` — declared next to the analyzer — unchanged by design.
-- Tests: there is no analyzer-level test today — only `MotionAnalysisKeyTest` covers the key. This change adds one
-  with a fake clock and a fake snapshot source, pinning the preset-to-seconds table and the two rate cases the bug is
-  made of (a shared endpoint with a recording running; a backed-off idle analyzer whose last frame is older than the
-  client's stale window).
+- Tests: there is no analyzer-level test today — only `MotionAnalysisKeyTest` covers the key, because the loop
+  dead-ends at `BitmapFactory` and JVM tests stub that to null. This change pulls the rules and the wording out of
+  the loop so they can be pinned (design D6): a tracker test over a caller-supplied elapsed reading, a report test
+  over the arithmetic and each line's field set, and an analyzer test that feeds gray grids directly to prove which
+  clock feeds what. The one rate case that needs a co-tenant on the endpoint — a shared endpoint with a recording
+  running — is proven at the emulator gate, since no snapshot fake exists in the project and adding Robolectric is
+  out of scope.
 - Diagnostics: the health line format changes. The gate notes already written under the hold-detector change quote the
   old wording; they are historical evidence and stay as written.
 - Verification: `./gradlew compileDebugKotlin testDebugUnitTest lintDebug`, then an on-device gate on the Verso — the

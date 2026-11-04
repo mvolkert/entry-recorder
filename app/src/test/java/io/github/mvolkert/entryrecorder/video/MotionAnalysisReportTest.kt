@@ -118,4 +118,16 @@ class MotionAnalysisReportTest {
         assertNotEquals(starved, backedOff)
         assertTrue(backedOff, backedOff.contains("0.4 fps"))
     }
+
+    @Test
+    fun `decision lines name the span they were taken over`() {
+        assertEquals(
+            "Motion start on EmuA: 7% changed pixels, over 2 frames in 0.5s",
+            MotionAnalysisReport.start("EmuA", changedRatio = 0.077f, frames = 2, spanMs = 500L),
+        )
+        assertEquals(
+            "Motion end on EmuA after 2.0s still (5 frames)",
+            MotionAnalysisReport.end("EmuA", stillnessMs = 2_000L, frames = 5),
+        )
+    }
 }

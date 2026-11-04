@@ -114,13 +114,29 @@ the phone is already recording, and the post-record setting would still not mean
 `after 2.4s still (3 frames)`. Those are the lines that bracket an episode, so the span belongs where the decision is
 announced, and the health line stays one-per-minute diagnostic rather than growing a second set of numbers.
 
-### D6 — One analyzer test, built on fakes
+### D6 — Test the rules and the wording on the JVM; the fetch path stays with the gates
 
-`OnDeviceMotionAnalyzerTest` with a fake `TimeProvider`, a fake clock-driven snapshot source and a recording flag the
-test controls, pinning: the scored-rate arithmetic against a known window; that a recorder-rate `achievedFps` cannot
-appear in the analyzer's line; a close at the preset duration whether the loop is at base, idle ceiling or recording
-pace; a changed frame restarting stillness; and a wall-clock step that moves `currentTimeMillis` but not elapsed time.
-This is the seam the rest of the tasks verify through, and it is the first test of the loop itself.
+Driving the 24/7 loop from a JVM test is not possible in this project: `unitTests.isReturnDefaultValues = true` makes
+`BitmapFactory.decodeByteArray` return null, so the bounds guard in `decodeDownscaled()` bails before any comparison
+and `evaluateFrame()` is never reached, and `HttpSnapshotClient` is a final injected class with no fake — the test
+dependencies are junit, kotlinx-coroutines-test and Turbine, with no Robolectric and no mocking library. The change
+therefore pulls the two things the defect lives in out of the loop and tests them where they can be reached:
+
+- `MotionEpisodeTracker` — the open/close rules over a caller-supplied elapsed reading: the durations at each pace,
+  the restart on a changed frame, and the rule that an un-sampled gap before the first quiet frame is not stillness.
+- `MotionAnalysisReport` with `MotionWindow` — the arithmetic and the wording: scored comparisons over the measured
+  window, the cadence label derived from `MotionTuning`, and each line's field set pinned in one assertion.
+- `OnDeviceMotionAnalyzerTest` — which clock feeds what, reached by handing `evaluateFrame()` gray grids directly (no
+  JPEG) with the launched loop parked: the window the report actually measured, `stop()` clearing the ring, a
+  wall-clock step backwards mid-episode, and pre-roll stamps that follow the wall clock.
+
+That leaves the claim "no other consumer's rate can reach the analyzer's line" structural rather than asserted: the
+analyzer stops calling `achievedFps` and the report takes no endpoint input at all. Gate 4.1 proves it on the rig,
+which is where a recording can actually be run against the same endpoint.
+
+*Alternative considered:* adding Robolectric so the real decode runs in tests. Rejected: a new dependency needs an
+explicit approval, it drags an Android runtime into every unit-test run, and it still leaves `HttpSnapshotClient`
+without a fake, so the loop would stay untestable anyway.
 
 ## Risks / Trade-offs
 
@@ -138,6 +154,9 @@ This is the seam the rest of the tasks verify through, and it is the first test 
 - **[`TimeProvider` gaining a member ends its lambda form]** → the production object and the two test fakes become
   objects, each backed by a clock they already hold; mechanical, compiler-enforced, and it prevents two
   competing clock seams in the domain layer.
+- **[The fetch and decode path stays untested on the JVM]** → the rules and the wording are pinned where the defect
+  was, and `evaluateFrame()` is driven with hand-made grids so the wiring that chooses between the two clocks is
+  covered too. What no JVM test can show is a co-tenant actually polling the endpoint; that is gate 4.1 on the rig.
 
 ## Migration Plan
 

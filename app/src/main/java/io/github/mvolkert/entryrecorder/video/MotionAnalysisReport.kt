@@ -48,6 +48,13 @@ internal object MotionAnalysisReport {
             "${window.windowMs.asSeconds()} — endpoint not serving images " +
             "(check the HttpSnapshotClient log lines)"
 
+    fun start(deviceName: String, changedRatio: Float, frames: Int, spanMs: Long): String =
+        "Motion start on $deviceName: ${percent(changedRatio)} changed pixels, " +
+            "over $frames frames in ${spanMs.asSeconds()}"
+
+    fun end(deviceName: String, stillnessMs: Long, frames: Int): String =
+        "Motion end on $deviceName after ${stillnessMs.asSeconds()} still ($frames frames)"
+
     private fun cadence(window: MotionWindow, tuning: MotionTuning): String = when {
         window.recording -> "poll ${window.pollMs}ms (recording pace)"
         window.pollMs <= tuning.pollIntervalMs -> "poll ${window.pollMs}ms (base)"

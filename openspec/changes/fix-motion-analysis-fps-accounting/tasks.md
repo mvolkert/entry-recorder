@@ -13,7 +13,7 @@
   member, because it becomes the clip's start time on disk; verify a new `OnDeviceMotionAnalyzerTest` asserts that
   `start()` plus a fake-clock advance reports the window it actually measured and that `stop()` clears the stamps
 
-- [ ] 1.3 Prove the monotonic half matters with a test that steps the fake wall clock backwards mid-episode and keeps
+- [x] 1.3 Prove the monotonic half matters with a test that steps the fake wall clock backwards mid-episode and keeps
   the stillness count running from elapsed time; verify the episode neither closes early nor stays open, and that the
   pre-roll stamps still follow the wall clock
 
@@ -36,15 +36,15 @@
 
 ## 3. The stillness duration
 
-- [ ] 3.1 Replace `MotionTuning.requiredClearFrames` with `clearStillnessMs` at design D4's table (SENSITIVE 1.2 s,
+- [x] 3.1 Replace `MotionTuning.requiredClearFrames` with `clearStillnessMs` at design D4's table (SENSITIVE 1.2 s,
   BALANCED 2 s, POWER_SAVER 4.8 s) and close an episode once no qualifying change has been seen for that elapsed
   monotonic time since the first quiet frame; verify tests show the same close duration at the base interval, at the
   idle ceiling and under the 1500 ms recording pace, and that a lone late gap never closes an episode on its own
 
-- [ ] 3.2 Restart the stillness measurement when a changed frame arrives inside the duration; verify a test with the
+- [x] 3.2 Restart the stillness measurement when a changed frame arrives inside the duration; verify a test with the
   sequence changed-quiet-changed keeps the episode open and reports the span from the second changed frame
 
-- [ ] 3.3 Put the span on the decision lines — `Motion start … over N frames in X.Xs` and `Motion end … after X.Xs
+- [x] 3.3 Put the span on the decision lines — `Motion start … over N frames in X.Xs` and `Motion end … after X.Xs
   still (N frames)` — and leave the start rule counting frames; verify a test where frames arrive late still starts on
   the required count and prints the real span, and that `MotionAnalysisKey` plus `MotionAnalysisKeyTest` are unchanged
 

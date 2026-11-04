@@ -59,23 +59,24 @@ class OnDeviceMotionAnalyzer(
      * to close the episode it started when the analyzer is torn down; a stopped mid-episode analyzer would
      * otherwise leave its recording with nobody scheduled to stop it.
      */
-    @Volatile
-    var isEpisodeActive = false
-        private set
-
-    private var consecutiveMotionFrames = 0
-    private var consecutiveClearFrames = 0
+    val isEpisodeActive: Boolean get() = tracker.isEpisodeActive
 
     // Bounded ring of the most recent raw JPEGs, so a recording triggered by motion can prepend the
     // frames from just before the trigger instead of starting ~1s after the person already arrived.
     private val preRoll = ArrayDeque<PreRollFrame>()
 
     /**
-     * Trigger bar, frame counts and polling intervals resolved from the device's chosen
-     * [MotionSensitivity]. BALANCED equals the analyzer's original fixed constants, so a device that
-     * never touched the setting behaves as before.
+     * Trigger bar, changed-frame count, stillness duration and polling intervals resolved from the device's chosen
+     * [MotionSensitivity]. BALANCED reproduces the numbers shipped before the setting existed, expressed in the unit
+     * each of them cost at that preset's own polling pace, so a device that never touched the setting is unchanged.
      */
     private val tuning = motionTuningFor(device.motionSensitivity)
+
+    // The open/close rules themselves, kept apart from the fetch so a test clock can drive them.
+    private val tracker = MotionEpisodeTracker(
+        requiredMotionFrames = tuning.requiredMotionFrames,
+        clearStillnessMs = tuning.clearStillnessMs,
+    )
 
     /**
      * The slice of the device row this analyzer reads. [io.github.mvolkert.entryrecorder.service.DeviceMonitorPool]
@@ -122,9 +123,7 @@ class OnDeviceMotionAnalyzer(
 
     private fun resetState() {
         previousFrame = null
-        isEpisodeActive = false
-        consecutiveMotionFrames = 0
-        consecutiveClearFrames = 0
+        tracker.reset()
         currentPollMs = tuning.pollIntervalMs
         recentActivity = false
         pollsSinceReport = 0
@@ -213,7 +212,12 @@ class OnDeviceMotionAnalyzer(
         peakChangedRatio = 0f
     }
 
-    private fun evaluateFrame(frame: IntArray) {
+    /**
+     * Scores the fetched frame against the previous one and lets [tracker] decide what that does to the episode.
+     * Reachable from a test because everything it consumes is a grid of gray values; the JPEG decode above it is the
+     * part a JVM test cannot drive.
+     */
+    internal fun evaluateFrame(frame: IntArray) {
         val prev = previousFrame
         previousFrame = frame
         if (prev == null || prev.size != frame.size) return
@@ -233,22 +237,25 @@ class OnDeviceMotionAnalyzer(
             recentActivity = true
         }
 
-        if (changedRatio >= tuning.ratioThreshold) {
-            consecutiveMotionFrames++
-            consecutiveClearFrames = 0
-        } else {
-            consecutiveClearFrames++
-            consecutiveMotionFrames = 0
-        }
+        val decision = tracker.onComparison(
+            changeDetected = changedRatio >= tuning.ratioThreshold,
+            elapsedMs = timeProvider.elapsedMillis(),
+        )
+        when (decision) {
+            MotionDecision.None -> Unit
+            is MotionDecision.Started -> {
+                Timber.tag(tag).i(
+                    MotionAnalysisReport.start(device.name, changedRatio, decision.frames, decision.spanMs)
+                )
+                listener.onEvent(IntercomEvent.MotionOnDeviceStarted(device))
+            }
 
-        if (!isEpisodeActive && consecutiveMotionFrames >= tuning.requiredMotionFrames) {
-            isEpisodeActive = true
-            Timber.tag(tag).i("Motion start on ${device.name}: ${(changedRatio * 100).toInt()}% changed pixels")
-            listener.onEvent(IntercomEvent.MotionOnDeviceStarted(device))
-        } else if (isEpisodeActive && consecutiveClearFrames >= tuning.requiredClearFrames) {
-            isEpisodeActive = false
-            Timber.tag(tag).i("Motion end on ${device.name}")
-            listener.onEvent(IntercomEvent.MotionOnDeviceEnded(device))
+            is MotionDecision.Ended -> {
+                Timber.tag(tag).i(
+                    MotionAnalysisReport.end(device.name, decision.stillnessMs, decision.frames)
+                )
+                listener.onEvent(IntercomEvent.MotionOnDeviceEnded(device))
+            }
         }
     }
 
@@ -358,17 +365,22 @@ data class MotionAnalysisKey(
  * Analyzer numbers for one [MotionSensitivity] preset. BALANCED reproduces the constants shipped before
  * the setting existed (3% / 2 frames / 500→1500 ms idle backoff); SENSITIVE loosens and speeds them for
  * fast crossers at a higher battery/network cost, POWER_SAVER tightens and slows them for calm scenes.
+ *
+ * The open rule counts changed frames and the close rule is a stillness duration: a comparison is inherently
+ * between two fetched frames, while the seconds a scene has to stay quiet is what the user means by the preset.
+ * Each duration is what that preset's old quiet-frame count cost at its own base interval, so the pace the loop
+ * settles on no longer stretches the episode out.
  */
 internal class MotionTuning(
     val ratioThreshold: Float,
     val requiredMotionFrames: Int,
-    val requiredClearFrames: Int,
+    val clearStillnessMs: Long,
     val pollIntervalMs: Long,
     val maxIdlePollMs: Long,
 )
 
 internal fun motionTuningFor(sensitivity: MotionSensitivity): MotionTuning = when (sensitivity) {
-    MotionSensitivity.SENSITIVE -> MotionTuning(0.02f, 1, 3, 400L, 900L)
-    MotionSensitivity.BALANCED -> MotionTuning(0.03f, 2, 4, 500L, 1500L)
-    MotionSensitivity.POWER_SAVER -> MotionTuning(0.05f, 3, 6, 800L, 2500L)
+    MotionSensitivity.SENSITIVE -> MotionTuning(0.02f, 1, 1_200L, 400L, 900L)
+    MotionSensitivity.BALANCED -> MotionTuning(0.03f, 2, 2_000L, 500L, 1500L)
+    MotionSensitivity.POWER_SAVER -> MotionTuning(0.05f, 3, 4_800L, 800L, 2500L)
 }
