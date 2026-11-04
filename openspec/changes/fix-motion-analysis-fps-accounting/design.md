@@ -131,8 +131,9 @@ therefore pulls the two things the defect lives in out of the loop and tests the
   wall-clock step backwards mid-episode, and pre-roll stamps that follow the wall clock.
 
 That leaves the claim "no other consumer's rate can reach the analyzer's line" structural rather than asserted: the
-analyzer stops calling `achievedFps` and the report takes no endpoint input at all. Gate 4.1 proves it on the rig,
-which is where a recording can actually be run against the same endpoint.
+analyzer stops calling `achievedFps` and the report takes no endpoint input at all. Gate 4.1 proves it on the rig with
+a live view polling the same device through the same client; the recorder leg is RTSP on that row, so it shares the
+device, not the socket.
 
 *Alternative considered:* adding Robolectric so the real decode runs in tests. Rejected: a new dependency needs an
 explicit approval, it drags an Android runtime into every unit-test run, and it still leaves `HttpSnapshotClient`

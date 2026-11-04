@@ -82,9 +82,10 @@ None.
   dead-ends at `BitmapFactory` and JVM tests stub that to null. This change pulls the rules and the wording out of
   the loop so they can be pinned (design D6): a tracker test over a caller-supplied elapsed reading, a report test
   over the arithmetic and each line's field set, and an analyzer test that feeds gray grids directly to prove which
-  clock feeds what. The one rate case that needs a co-tenant on the endpoint — a shared endpoint with a recording
-  running — is proven at the emulator gate, since no snapshot fake exists in the project and adding Robolectric is
-  out of scope.
+  clock feeds what. The one rate case that needs a co-tenant on the endpoint — somebody else actually polling the
+  same socket while the analyzer measures itself — is proven at the emulator gate by the call screen's live view,
+  which goes through the same snapshot client; the recorder leg on that row pulls RTSP, so it shares the device but
+  not the socket. No snapshot fake exists in the project and adding Robolectric is out of scope.
 - Diagnostics: the health line format changes. The gate notes already written under the hold-detector change quote the
   old wording; they are historical evidence and stay as written.
 - Verification: `./gradlew compileDebugKotlin testDebugUnitTest lintDebug`, then an on-device gate on the Verso — the

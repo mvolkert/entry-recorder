@@ -24,7 +24,8 @@
   `snapshotClient.achievedFps` call and the `device.effectiveSnapshotFps` reference from the analyzer; verify
   `MotionAnalysisReportTest` pins the arithmetic for a known window. That no other consumer's rate reaches the line is
   structural here — the analyzer stops calling `achievedFps` and the report takes no endpoint input — and gate 4.1
-  proves it with a recording actually sharing the endpoint
+  proves it with a live view actually sharing the endpoint; on that row the recorder pulls RTSP, so the co-tenant
+  feeding the shared snapshot client is `LiveStreamPlayer`.
 
 - [x] 2.2 Keep the "no analysis frames" WARN a frame-supply statement rather than a rate statement, quoting
   the polls it counted in the window; verify one test where a window delivers nothing and one delivering at the
@@ -50,11 +51,41 @@
 
 ## 4. On-device gates
 
-- [ ] 4.1 Emulator gate (x86_64 Pixel_8, the fake-camera rig used for the hold-detector gates, host clock note
+- [x] 4.1 Emulator gate (x86_64 Pixel_8, the fake-camera rig used for the hold-detector gates, host clock note
   applies): with the endpoint deliberately delivering late, confirm the health line's rate equals the
   `frames/polls` counts printed beside it, that starting a local recording does not lift the analyzer's number
   toward the recorder's pace, and that a fully backed-off idle analyzer never reads a zero or not-measured
   rate; verify from a tag-filtered logcat capture
+  - Emulator-verified (x86_64 Pixel_8 / API 37, 2026-11-04, one monitor instance pid 4450 throughout; the device
+    clock runs an hour behind the host, so every timestamp below is the device's). Subject: the rebuilt
+    fake-camera stub on `:8123` behind `adb reverse`, serving a 640x480 grayscale PNG at the row's
+    `/api/camera/snapshot?width=1280&height=720` in three modes — alternating two-tone/flat (`peak change 50%`),
+    held flat, and a per-response delay (`900ms`, `3000ms`, and one answering inside the 2s read timeout, the next
+    past it). Read through `logcat -v brief` filtered on `OnDeviceMotionAnalyzer`.
+  - The printed rate is the printed counts over the printed window, in every window: `40/40 polls scored … 0.7 fps
+    over 61.2s`, `24/24 … 0.4 fps over 60.1s` (900ms late), `17/17 … 0.3 fps over 63.3s`, `10/17 … 0.2 fps over
+    60.7s` and `7/15 … 0.1 fps over 60.4s`. The last two are the polls-vs-scored split the numerator is meant to
+    make: with the endpoint at 3s, timeouts land in the denominator and the window runs to 63.3s, which the nominal
+    minute the superseded line assumed would have mis-divided.
+  - Co-tenancy, the clause that was the bug: while the call screen's MJPEG live view polled the same device through
+    the same client, the stub counted 322 requests served in 71s (4.5 req/s) and the analyzer printed `38/38 polls
+    scored … 0.6 fps over 60.6s`, `34/34 … 0.6 fps over 60.9s`, `38/38 … 0.6 fps over 61.0s` — its own polls, not the
+    endpoint's aggregate. In the same stream the recorder reported its own pace (`Recorded EmuA at 2.2 fps
+    (configured 5 fps, endpoint ceiling 30 fps) 154 frames`) and the overlapping analyzer window read `19/31 polls
+    scored … 0.3 fps over 61.4s, poll 1500ms (recording pace)`.
+  - Backed-off idle never reads zero or unmeasured: `39/39 … 0.6 fps over 61.2s, poll 1500ms (idle backoff, ceiling
+    1500ms)` down to `0.1 fps` when most polls timed out, and no window printed `0.0 fps` or an absent number. In the
+    `10/17` window successful fetches averaged 6.1s apart, past `RATE_STALE_MS = 5s` — the condition under which the
+    superseded line read `0.0 fps achieved (configured 5)`.
+  - A window with polls and nothing usable stays a supply statement with no rate in it at all: `No analysis frames
+    from EmuA: 11 polls, 0 usable JPEGs in 63.8s`, beside `snapshot lost: EmuA (Snapshot endpoint delivered no frame
+    for 3 polls in a row)`.
+  - Discarded, not counted: the session's first window came from a stub defect, not the app — the PNG omitted the
+    per-scanline filter byte, so `BitmapFactory` decoded nothing and the line read `40 polls, 0 usable JPEGs in
+    61.6s` while the endpoint was answering.
+  - Not covered: the row stayed BALANCED, so POWER_SAVER's 2500ms ceiling and SENSITIVE's 400ms base lines the unit
+    table pins were never printed by a running loop, and a two-tone PNG exercises the scoring threshold, not a
+    camera's optics or codec. 4.2 and 4.3 stay with the Verso.
 
 - [ ] 4.2 Verso gate: with a real subject, confirm an episode closes about the preset's stillness duration after
   motion stops at every one of the three presets, and record the clip-length change against the same scene before and
@@ -64,8 +95,13 @@
   and confirm the close still arrives on elapsed time while the finalised clip's start time follows the wall clock;
   verify the recording plays from the expected moment
 
-- [ ] 4.4 Run `./gradlew compileDebugKotlin testDebugUnitTest lintDebug` and report against the recorded
+- [x] 4.4 Run `./gradlew compileDebugKotlin testDebugUnitTest lintDebug` and report against the recorded
   49-finding lint baseline rather than a clean sweep; verify no new warning points at the analyzer or `TimeProvider`
+  - Verified 2026-11-04 on forced re-execution (`testDebugUnitTest lintDebug --rerun-tasks`, result XMLs 22:24, lint
+    report 22:25): 57 suites, 392 tests, 0 failures, and `lintDebug` exit 0 with 47 findings against the recorded 49
+    — 8 UnusedResources, 7 PluralsCandidate, 5 GradleDependency, 4 NewerVersionAvailable, 4 BinaryOperationInTimber,
+    3 ThrowableNotAtBeginning. No finding's location is in `OnDeviceMotionAnalyzer.kt`, `TimeProvider.kt`,
+    `MotionAnalysisReport.kt`, `MotionEpisodeTracker.kt` or `DeviceMonitorPool.kt`.
 
 ## Workflow follow-up
 
